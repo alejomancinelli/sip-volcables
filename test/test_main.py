@@ -249,6 +249,37 @@ class TestInferenceFields:
                 fields["sample_count"]) == (50.0, 10.0, 2)
 
 
+class TestDatasetGating:
+    """
+    Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por
+    frame en la GUI.
+    """
+
+    def _application(self, collector_active: bool):
+        import types
+        app = main.Application.__new__(main.Application)
+        app._annotate_cycle = lambda result: None
+        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._pending_results = {}
+        app._store_metrics = lambda result: None
+        app._collector = types.SimpleNamespace(
+            should_collect=lambda camera_slot: collector_active)
+        app.sent = []
+        app._send_to_dataset = app.sent.append
+        return app
+
+    def test_nothing_is_built_with_the_collector_off(self):
+        app = self._application(collector_active=False)
+        app._on_cycle_complete(InferenceResult(camera_slot="camera_1"))
+        assert app.sent == []
+
+    def test_the_result_goes_to_the_dataset_with_the_collector_on(self):
+        app = self._application(collector_active=True)
+        result = InferenceResult(camera_slot="camera_1")
+        app._on_cycle_complete(result)
+        assert app.sent == [result]
+
+
 class _WritableMockConfig(_MockConfig):
     """`_MockConfig` que además acepta `set()` y `save()`, como hace la calibración."""
 
