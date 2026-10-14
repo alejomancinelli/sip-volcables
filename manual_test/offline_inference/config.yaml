@@ -49,6 +49,8 @@ inference:
       min_detections: 0
       min_result_confidence_pct: 0
   models:
+    # Un slot por cada uno de `Pipeline.model_slots`: un fork con otro pipeline cambia
+    # el nombre acá, y el mock sigue andando sin pesos.
     model_1:
       type: mock
       path: ''

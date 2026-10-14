@@ -1393,12 +1393,12 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
 
 Tests del runner offline: los pipelines del config corridos sobre una imagen suelta.
 
-| Grupo | Tests |
-|---|---:|
-| `TestPipelines` | 7 |
-| `TestLoading` | 3 |
-| `TestPreprocessor` | 2 |
-| `TestHooks` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestPipelines` |  | 7 |
+| `TestLoading` |  | 3 |
+| `TestPreprocessor` |  | 2 |
+| `TestHooks` | El runner usa los hooks de `build_hooks()`, los mismos que la app. | 2 |
 
 <details><summary>Tests</summary>
 
@@ -1419,7 +1419,7 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
   - `test_an_image_that_is_already_a_reference_frame_skips_it`
 - `TestHooks`
   - `test_the_project_analyzer_computes_the_metrics`
-  - `test_the_project_annotator_draws_its_references`
+  - `test_the_project_annotator_draws_on_the_annotated_frame`
 
 </details>
 

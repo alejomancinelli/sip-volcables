@@ -216,6 +216,8 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `system/inference/pipeline.py` | el orden de las etapas y sus cortocircuitos |
 | `system/inference/metrics.py` | la cuenta del proceso |
 | `system/inference/hooks.py` | el cuerpo de `build_hooks()`: classifier, analyzer y annotators con los valores de `process:` |
+| `test/inference/test_hooks.py` | los tests de `build_hooks()`, que cambian con él |
+| `manual_test/offline_inference/config.yaml` | `process:` y un modelo por cada slot de `Pipeline.model_slots`, con el mock, para que la corrida ande sin pesos |
 | `system/version.py` | la versión del fork; se sube en cada release |
 | `setup/jetson/*.txt` | el framework de inferencia en la Jetson: qué versiones se fijan (`constraints.txt`), qué se instala (`requirements.txt`) y qué entra con `--no-deps` (`requirements-nodeps.txt`). Vienen con los ejemplos comentados |
 | `setup/venv-setup/verify_env.py` | **sólo el bloque «What changes in each fork»**: los módulos del framework y cómo se prueba la GPU |
