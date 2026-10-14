@@ -71,6 +71,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
         preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
         hooks.py              classifier, analyzer y annotator del fork, leídos de `process:`
+        offline.py            los pipelines del config sobre imágenes sueltas, como en vivo
       license/                ata el equipo a la máquina para la que se emitió la licencia
         schema.py             nivel 1 — dueño del formato del .lic: campos, token, firma
         verify.py             nivel 0 — Ed25519 contra la clave pública embebida
@@ -135,6 +136,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       ui/                     levanta la app entera con cámaras mock; hace de main.py
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
+      offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo

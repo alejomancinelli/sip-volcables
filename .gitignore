@@ -458,3 +458,9 @@ manual_test/model_protection/*
 # outside the repo, same as the model weights.
 recordings/*
 !recordings/.gitkeep
+
+# Images the offline-inference manual test reads, and the dated folders it writes. Only
+# the script, its config and the empty input folder belong in the repo.
+manual_test/offline_inference/images/*
+!manual_test/offline_inference/images/.gitkeep
+manual_test/offline_inference/output/
