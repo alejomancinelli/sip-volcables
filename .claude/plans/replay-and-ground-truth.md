@@ -1,8 +1,13 @@
 # Plan: probar el sistema con video grabado, imágenes sueltas y ground truth
 
-**Estado: plan, nada implementado.** Branch `machinery/replay-and-ground-truth`, que sale
-del mismo commit que `machinery/local-ci`; conviene cerrar y mergear ésa primero, porque
-la pieza F agrega un subcomando a `ci/check.py`.
+**Estado: en curso.** Branch `machinery/replay-and-ground-truth`, sobre `main`.
+
+- **Pieza A (driver `video_file`): hecha.**
+- **Pieza B (`--replay`): descartada.** Ver §4.
+- **Pieza D: se toma la opción (a)**, los hooks salen de `main.py`.
+- **Pieza F (ground truth): postergada.** Primero video y corrida de imágenes sueltas; el
+  ground truth se retoma después, y para entonces `machinery/local-ci` tiene que estar
+  mergeada, porque agrega un subcomando a `ci/check.py`.
 
 Este documento está escrito para que otra instancia lo tome sin haber visto la
 conversación que lo originó: el porqué de cada decisión está acá y no por referencia.
@@ -28,7 +33,7 @@ receta opcional en `manual_test/`, para otra cosa (ver §9).
 | | Driver `video_file` | Servidor RTSP (MediaMTX + ffmpeg) |
 |---|---|---|
 | Dependencias | ninguna: OpenCV ya está | dos binarios externos por equipo |
-| Arranque | `main.py --replay` | levantar el servidor, publicar cada video, apuntar las cámaras |
+| Arranque | `driver: video_file` en el config | levantar el servidor, publicar cada video, apuntar las cámaras |
 | Loop | lo controla el driver | `-stream_loop -1` de ffmpeg; un corte del publicador deja la cámara caída |
 | Testeable en la suite | sí, con un video de 10 frames en `tmp_path` | no sin red ni procesos externos |
 | Qué ejercita | todo menos el transporte | además, el `RtspDriver`: reconexión, credenciales, latencia |
@@ -73,32 +78,18 @@ Contrato, sobre el de `AbstractCameraDriver`:
   decodificación bloquea demasiado al hilo de captura, se copia el patrón de cola de dos
   de `RtspDriver`.
 
-## 4. Pieza B — `main.py --replay [carpeta]`
+## 4. Pieza B — `main.py --replay`: descartada
 
-Un flag que reemplaza, **sólo en esta corrida**, el driver de las cámaras que tengan video:
+La idea era un flag que cambiara el driver de cada cámara por la corrida, sin tocar el
+`config.yaml`. No hace falta: el video se prueba en la máquina de desarrollo, antes de que
+exista la configuración final del equipo, así que editar el config no pone en riesgo nada.
+Cada cámara que se quiera reproducir declara `driver: video_file` y su `address` en el
+config, y `CaptureThread` queda como está.
 
-    replay/
-      camera_1/          → camera_1 se reproduce de acá (carpeta = playlist)
-      camera_2.mp4       → o un archivo con el nombre del slot
-
-- Sin valor, la carpeta es `replay/` de la raíz. Un slot sin video conserva su driver
-  real, así que se puede mezclar una cámara física con una grabada.
-- **El reemplazo no pasa por `ConfigManager`.** Si se escribiera en el config, guardar
-  desde la pantalla de configuración dejaría `driver: video_file` en el `config.yaml` del
-  equipo. Por eso `CaptureThread` gana un parámetro opcional `driver=` (inyección, el
-  mismo recurso que los tests) y `main.py` le pasa `create_camera()` sobre una copia de la
-  sección con `driver` y `address` cambiados. El resto de la sección —ROI, calibración,
-  `image_adjust`, `illumination_min`— es el de la cámara real, que es lo que se quiere
-  probar.
-- Una línea de log por cámara reemplazada, en WARNING: en headless el log es lo único que
-  dice que lo que sale no es la línea.
-- `replay/` se crea con `.gitkeep` y el contenido se ignora, igual que `models/`: los
-  videos pesan y no se versionan.
-- El mapeo carpeta → slots es una función pura en `main.py`, testeable sin Qt.
-
-`driver: video_file` también se puede declarar a mano en un config —el de un
-`manual_test/`, por ejemplo—; el flag es el atajo para no tener un config duplicado que
-se desincroniza del real.
+Los videos viven en `recordings/` de la raíz, con `.gitkeep` y el contenido ignorado por
+git, igual que `models/`: pesan y no se versionan. Una carpeta por cámara
+(`recordings/camera_1/`) cuando cada una tiene que ver su propia escena; si todas apuntan
+a la misma carpeta, todas reproducen lo mismo, casi en sincronía.
 
 ## 5. Pieza C — el motor corre un frame de forma sincrónica
 
@@ -258,10 +249,10 @@ es determinista: es la prueba de punta a punta del runner y del evaluador.
   reconexión, credenciales—, no el sistema. Es lo último y opcional.
 - **`docs/offline_testing.md`** —documento con público propio—: cómo tienen que ser los
   videos (resolución de la cámara real, frames crudos, sin overlay, H.264 en `.mp4` o MJPG
-  en `.avi`), `--replay`, los tres comandos y el formato del ground truth. El README de
+  en `.avi`), cómo se declara la cámara, los tres comandos y el formato del ground truth. El README de
   `ground_truth/` apunta ahí.
 - **CLAUDE.md**: el mapa (driver, `system/offline/`, `hooks.py`, `preprocessing.py`,
-  `ground_truth/`, `replay/`), una decisión vigente por §2, §4 y §8, y «Qué se toca en un
+  `ground_truth/`, `recordings/`), una decisión vigente por §2 y §8, y «Qué se toca en un
   fork» si se toma (a) en §6. **README.md**: la tabla de archivos. `system/version.py`
   sube en el commit que cierra.
 
@@ -270,8 +261,6 @@ es determinista: es la prueba de punta a punta del runner y del evaluador.
 | Archivo | Qué prueba |
 |---|---|
 | `test/tools/camera/test_video_file_driver.py` | loop, playlist en orden, ruta inexistente, carpeta vacía, ritmo con reloj falso, salteo de frames, `is_synthetic`, rotación. El video se escribe en `tmp_path` con `VideoWriter` en MJPG, que no depende de codecs del sistema |
-| `test/test_main.py` | el mapeo `replay/` → slots y que el override no toque el config |
-| `test/camera/test_capture_thread.py` | el driver inyectado |
 | `test/inference/test_engine.py` | `process()` no emite ni cuenta, y levanta con el hilo corriendo |
 | `test/inference/test_preprocessing.py` | lo que se mueve de `main.py`, sin cambio de comportamiento |
 | `test/offline/test_ground_truth.py` | tolerancias, matching por IoU, claves ausentes, borradores |
@@ -303,19 +292,19 @@ es determinista: es la prueba de punta a punta del runner y del evaluador.
 
 ## 11. Decisiones abiertas
 
-1. **Sacar los hooks del fork de `main.py`** (§6, opción a). Recomendado; cambia una regla
+1. ~~Sacar los hooks del fork de `main.py`~~: **decidido, opción (a).** Cambia una regla
    de fork y obliga a migrar los forks existentes.
 2. **Git plano o LFS para las imágenes** del ground truth. Recomendado plano con el
    presupuesto de §8, y LFS el día que un fork lo pase.
-3. **Nombre de las carpetas**: `replay/` y `ground_truth/` en la raíz, como `models/`.
-   La alternativa es `data/replay/`, pero `data/` es lo que la app escribe en runtime.
+3. **Nombre de las carpetas**: `recordings/` y `ground_truth/` en la raíz, como `models/`.
+   No van en `data/`, que es lo que la app escribe en runtime.
 
 ## 12. Orden de implementación
 
 Un commit por paso, todos de maquinaria:
 
-1. Driver `video_file`, catálogo y su test.
-2. `CaptureThread(driver=)`, `--replay`, `replay/` con `.gitkeep` y `.gitignore`.
+1. Driver `video_file`, catálogo y su test. **Hecho.**
+2. ~~`--replay`~~: descartado (§4). `recordings/` ya existe.
 3. `InferenceThread.process()`.
 4. `preprocessing.py` y `hooks.py` fuera de `main.py`, sin cambio de comportamiento.
 5. `system/offline/`: runner y `run`.

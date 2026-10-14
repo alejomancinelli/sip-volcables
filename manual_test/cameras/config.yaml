@@ -65,7 +65,7 @@ cameras:
   # alfabético. La ruta relativa se ancla a la raíz del repo, no a esta carpeta.
   replay:
     driver: video_file
-    address: test_videos
+    address: recordings
     rotation: null
     acquisition:
       fps_limit: 0              # 0 = el fps del video
