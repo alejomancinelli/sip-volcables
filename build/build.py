@@ -163,7 +163,7 @@ def main() -> int:
         return done.returncode
 
     print(f"\n  {_size_mb(dist):.0f} MB en {_count(dist)} archivos, {elapsed / 60:.1f} min")
-    print(f"\n  Ahora el entregable:")
+    print("\n  Ahora el entregable:")
     print(f"    .venv\\Scripts\\python.exe build\\make_release.py --dist {args.out}/main.dist")
     return 0
 

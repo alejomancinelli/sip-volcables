@@ -92,7 +92,8 @@ class AbstractCameraDriver(ABC):
         self._capture_enabled = enabled
         self._apply_capture_enabled()
 
-    def _apply_capture_enabled(self):
+    # Vacío a propósito y no abstracto: el hook es opcional para cada driver.
+    def _apply_capture_enabled(self):  # noqa: B027
         """
         Hook para cortar o retomar la captura en el hardware.
 

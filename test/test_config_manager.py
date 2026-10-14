@@ -3,7 +3,6 @@ aislamiento de los valores que entrega, guardado atómico y acceso concurrente."
 
 import logging
 import os
-import sys
 import threading
 
 import pytest
@@ -339,7 +338,7 @@ class TestThreadSafety:
         writer.start()
         try:
             for _ in range(300):
-                for slot, data in cfg.get("cameras", {}).items():
+                for slot, _data in cfg.get("cameras", {}).items():
                     assert slot
         except RuntimeError as error:
             errors.append(error)
