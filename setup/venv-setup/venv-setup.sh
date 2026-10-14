@@ -11,6 +11,11 @@
 #     ./setup/venv-setup/venv-setup.sh
 #     ./setup/venv-setup/venv-setup.sh --force
 #     ./setup/venv-setup/venv-setup.sh --skip-install
+#     ./setup/venv-setup/venv-setup.sh --dev
+#
+# --dev is for a development machine: it installs requirements-dev.txt (the app plus
+# pytest and ruff) and points git at the versioned hooks in .githooks/. A plant
+# machine gets requirements.txt only.
 #
 # Exits with the code of verify_env.py, so it can gate an install script.
 
@@ -18,10 +23,12 @@ set -euo pipefail
 
 FORCE=0
 SKIP_INSTALL=0
+DEV=0
 for _arg in "$@"; do
     case "$_arg" in
         --force)        FORCE=1 ;;
         --skip-install) SKIP_INSTALL=1 ;;
+        --dev)          DEV=1 ;;
         *) echo "unknown option: $_arg" >&2; exit 2 ;;
     esac
 done
@@ -32,6 +39,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENV_PATH="$PROJECT_ROOT/.venv"
 VENV_PYTHON="$VENV_PATH/bin/python"
 REQUIREMENTS="$PROJECT_ROOT/requirements.txt"
+[ "$DEV" -eq 1 ] && REQUIREMENTS="$PROJECT_ROOT/requirements-dev.txt"
 PACKAGES_DIR="$PROJECT_ROOT/packages"
 VERIFY_SCRIPT="$SCRIPT_DIR/verify_env.py"
 
@@ -94,8 +102,17 @@ fi
 step "3/5  Installing dependencies (large download: TensorFlow is ~250 MB)"
 
 "$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel || fail "Failed to upgrade pip."
-"$VENV_PYTHON" -m pip install -r "$REQUIREMENTS" || fail "'pip install -r requirements.txt' failed."
-ok "requirements.txt installed"
+"$VENV_PYTHON" -m pip install -r "$REQUIREMENTS" || fail "'pip install -r $(basename "$REQUIREMENTS")' failed."
+ok "$(basename "$REQUIREMENTS") installed"
+
+if [ "$DEV" -eq 1 ]; then
+    # Versioned hooks: lint before each commit, tests before each push.
+    if git -C "$PROJECT_ROOT" config core.hooksPath .githooks; then
+        ok "git hooks enabled (core.hooksPath = .githooks)"
+    else
+        note "Could not set core.hooksPath - is this a git checkout?"
+    fi
+fi
 
 # --- 4/5  stapipy (Sentech) from the local wheel -----------------------------
 # Not published on PyPI: it ships inside the SentechSDK. Watch the architecture -
@@ -139,7 +156,7 @@ if [ "$VERIFY_EXIT" -eq 0 ]; then
     echo ""
     echo " Run:    .venv/bin/python main.py             (with window)"
     echo "         .venv/bin/python main.py --headless  (no window)"
-    echo " Tests:  .venv/bin/python -m pytest -q"
+    [ "$DEV" -eq 1 ] && echo " Checks: .venv/bin/python ci/check.py   (lint + tests)"
 else
     echo " Environment INCOMPLETE - review the failures above."
     echo "======================================================================"

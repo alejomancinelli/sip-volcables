@@ -45,7 +45,8 @@ REQUIRED = [
     ("tensorflow", "tensorflow", True),
     ("stardist", "stardist", True),
     ("csbdeep", "csbdeep", True),
-    ("pytest", "pytest", True),
+    # Development only: requirements-dev.txt, which a plant machine does not install.
+    ("pytest", "pytest", False),
     # Cameras: at least one SDK is needed to capture from real hardware.
     ("pypylon.pylon", "pypylon", False),
     ("stapipy", "SentechSDK wheel in packages/", False),

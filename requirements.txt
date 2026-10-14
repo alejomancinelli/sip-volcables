@@ -67,5 +67,4 @@ paho-mqtt>=1.6,<3
 # tiene que quedar cerrado.
 cryptography>=42.0
 
-# Tests
-pytest>=7.4
+# Los tests y el lint están en requirements-dev.txt, que incluye este archivo.
