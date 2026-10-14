@@ -79,8 +79,8 @@ process:
   # sección que se reescribe entera en cada fork y la única cuya forma cambia entre
   # proyectos.
   #
-  # Ningún módulo de la maquinaria la lee: la lee `main.py` y se la pasa al analyzer
-  # (system/inference/metrics.py) y a los annotators (system/inference/annotations.py), que
+  # Ningún módulo de la maquinaria la lee: la lee system/inference/hooks.py y se la pasa al
+  # analyzer (metrics.py) y a los annotators (annotations.py) de esa misma carpeta, que
   # así se siguen testeando con tres números y sin archivo. Un valor obligatorio que falte
   # tiene que frenar el arranque: publicar milímetros calculados con una escala inventada
   # es peor que no arrancar.

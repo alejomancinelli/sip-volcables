@@ -2,8 +2,8 @@
 Dibujos propios de la instalación, encima del anotado estándar.
 
 Módulo puro: sin Qt, sin ConfigManager y sin I/O. Cada factory devuelve un annotator —una
-función que recibe el frame ya anotado y el resultado, y dibuja in-place— y `main.py` los
-compone y se los pasa al motor:
+función que recibe el frame ya anotado y el resultado, y dibuja in-place— y `hooks.py` los
+compone para el motor:
 
     engine = InferenceThread(config, pipeline, analyzer=compute_metrics,
                              annotator=chain(
@@ -17,9 +17,9 @@ Separado de `overlay` porque ese archivo se copia al próximo proyecto sin cambi
 no.
 
 Las factories reciben la geometría en píxeles y no leen el config: quién lee la sección
-`process` es `main.py`, igual que con las condiciones de guardado del recolector. El mismo
-valor alimenta al annotator que dibuja el límite y al analyzer que calcula el porcentaje
-contra ese límite, así que se lee una vez y no pueden discrepar. Así un annotator se
+`process` es `hooks.py`, igual que `main.py` con las condiciones de guardado del
+recolector. El mismo valor alimenta al annotator que dibuja el límite y al analyzer que
+calcula el porcentaje contra ese límite, así que se lee una vez y no pueden discrepar. Así un annotator se
 testea con tres números y sin archivo, y la misma función sirve para una cámara o para
 diez.
 

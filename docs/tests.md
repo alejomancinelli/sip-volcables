@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**61 archivos, 341 grupos, 1695 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**65 archivos, 355 grupos, 1749 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,19 +14,19 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 258 |
+| [test/](#test) | 6 | 253 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 4 | 75 |
 | [test/image_collector/](#testimage_collector) | 2 | 77 |
-| [test/inference/](#testinference) | 7 | 228 |
+| [test/inference/](#testinference) | 10 | 261 |
 | [test/inference/models/](#testinferencemodels) | 4 | 86 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 4 | 93 |
+| [test/tools/camera/](#testtoolscamera) | 5 | 119 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/ui/](#testui) | 7 | 45 |
 | [test/video/](#testvideo) | 3 | 182 |
@@ -188,7 +188,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 55 tests
+### [test_main.py](../test/test_main.py) — 50 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -205,7 +205,6 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
 | `TestLensCalibration` |  | 7 |
-| `TestPreprocessor` | La cadena que arma el frame de referencia: corrección de lente y ajuste de imagen. | 5 |
 | `TestGpioRegisters` |  | 5 |
 | `TestGpioShutdown` |  | 1 |
 | `TestHeadlessUi` |  | 1 |
@@ -266,12 +265,6 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_the_new_reference_takes_effect_without_a_restart`
   - `test_it_tells_the_screen_to_reload_the_reference`
   - `test_calibrating_one_camera_leaves_the_others_alone`
-- `TestPreprocessor`
-  - `test_with_both_the_geometry_goes_first`
-  - `test_with_only_the_lens_it_is_the_undistorter_itself`
-  - `test_with_only_the_adjustment_it_is_the_adjustment_itself`
-  - `test_with_neither_there_is_no_preprocessor`
-  - `test_the_adjustment_is_read_from_each_camera`
 - `TestGpioRegisters`
   - `test_both_words_say_there_is_no_gpio_without_the_library`
   - `test_the_inputs_word_carries_the_last_polled_reading`
@@ -1258,7 +1251,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 76 tests
+### [test_engine.py](../test/inference/test_engine.py) — 82 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1275,6 +1268,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestAnalyzer` |  | 5 |
 | `TestAnnotation` |  | 13 |
 | `TestLifecycle` |  | 5 |
+| `TestSynchronousProcess` | `process()` corre el ciclo del hilo sobre un frame suelto, sin arrancarlo. | 6 |
 
 <details><summary>Tests</summary>
 
@@ -1365,6 +1359,67 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_serves_every_camera_of_the_pipeline`
   - `test_the_result_names_its_pipeline_and_camera`
   - `test_the_inference_time_is_measured`
+- `TestSynchronousProcess`
+  - `test_it_returns_the_result_without_starting_the_thread`
+  - `test_it_runs_the_same_cycle_as_the_thread`
+  - `test_it_does_not_emit_the_result`
+  - `test_it_does_not_add_to_the_counters_of_the_thread`
+  - `test_it_does_not_load_the_pipeline`
+  - `test_it_refuses_to_run_while_the_thread_is_running`
+
+</details>
+
+### [test_hooks.py](../test/inference/test_hooks.py) — 6 tests
+
+Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
+
+| Grupo | Tests |
+|---|---:|
+| `TestTemplateHooks` | 6 |
+
+<details><summary>Tests</summary>
+
+- `TestTemplateHooks`
+  - `test_it_returns_the_hooks_object`
+  - `test_the_template_does_not_filter_detections`
+  - `test_the_analyzer_is_the_generic_count`
+  - `test_without_a_load_limit_there_is_no_annotator`
+  - `test_a_declared_load_limit_is_drawn_on_its_camera`
+  - `test_the_load_limit_is_not_drawn_on_other_cameras`
+
+</details>
+
+### [test_offline.py](../test/inference/test_offline.py) — 14 tests
+
+Tests del runner offline: los pipelines del config corridos sobre una imagen suelta.
+
+| Grupo | Tests |
+|---|---:|
+| `TestPipelines` | 7 |
+| `TestLoading` | 3 |
+| `TestPreprocessor` | 2 |
+| `TestHooks` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestPipelines`
+  - `test_an_image_goes_through_the_pipeline_like_in_the_app`
+  - `test_the_overlay_is_always_drawn`
+  - `test_the_mock_model_marks_the_result_as_synthetic`
+  - `test_there_is_one_result_per_pipeline_that_takes_the_camera`
+  - `test_a_disabled_pipeline_is_not_built`
+  - `test_a_pipeline_only_takes_its_own_cameras`
+  - `test_a_camera_no_pipeline_takes_gives_no_results`
+- `TestLoading`
+  - `test_without_loading_the_result_says_there_is_no_model`
+  - `test_unloading_leaves_the_pipelines_without_model`
+  - `test_the_status_reports_each_pipeline_and_its_models`
+- `TestPreprocessor`
+  - `test_the_camera_preprocessor_is_applied`
+  - `test_an_image_that_is_already_a_reference_frame_skips_it`
+- `TestHooks`
+  - `test_the_project_analyzer_computes_the_metrics`
+  - `test_the_project_annotator_draws_its_references`
 
 </details>
 
@@ -1475,6 +1530,29 @@ Tests de la maquinaria del pipeline: carga de las etapas por slot, tiempos por e
   - `test_a_verdict_does_not_survive_the_next_frame`
   - `test_the_labels_are_a_copy`
   - `test_a_synthetic_stage_marks_the_pipeline`
+
+</details>
+
+### [test_preprocessing.py](../test/inference/test_preprocessing.py) — 7 tests
+
+Tests del preprocessor del motor: la cadena que arma el frame de referencia.
+
+| Grupo | Tests |
+|---|---:|
+| `TestChain` | 5 |
+| `TestConfig` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestChain`
+  - `test_with_both_the_geometry_goes_first`
+  - `test_with_both_the_name_says_what_runs`
+  - `test_with_only_the_lens_it_is_the_undistorter_itself`
+  - `test_with_only_the_adjustment_it_is_the_adjustment_itself`
+  - `test_with_neither_there_is_no_preprocessor`
+- `TestConfig`
+  - `test_the_adjustment_is_read_from_each_camera`
+  - `test_without_cameras_there_is_no_preprocessor`
 
 </details>
 
@@ -2645,6 +2723,58 @@ Tests del driver Sentech: la reconexión del thread de captura.
   - `test_a_second_connect_does_not_raise_another_thread`
   - `test_disconnecting_while_waiting_does_not_wait_out_the_timeout`
   - `test_without_the_sdk_it_refuses_without_a_thread`
+
+</details>
+
+### [test_video_file_driver.py](../test/tools/camera/test_video_file_driver.py) — 26 tests
+
+Tests del driver de video grabado: la playlist, el loop y el ritmo por reloj.
+
+| Grupo | Tests |
+|---|---:|
+| `TestPlaylist` | 5 |
+| `TestUnplayableAddress` | 5 |
+| `TestLoop` | 2 |
+| `TestPacing` | 7 |
+| `TestCaptureEnabled` | 3 |
+| `TestStatus` | 3 |
+| `TestRotation` | 1 |
+
+<details><summary>Tests</summary>
+
+- `TestPlaylist`
+  - `test_a_single_file_plays`
+  - `test_a_folder_plays_its_videos_in_alphabetical_order`
+  - `test_files_that_are_not_videos_are_ignored`
+  - `test_a_relative_address_is_anchored_to_the_installation`
+  - `test_a_video_added_to_the_folder_enters_on_the_next_connect`
+- `TestUnplayableAddress`
+  - `test_an_address_without_video_does_not_connect`
+  - `test_a_folder_without_videos_does_not_connect`
+  - `test_a_file_that_does_not_open_is_skipped`
+  - `test_a_list_where_nothing_opens_does_not_connect`
+  - `test_a_successful_connect_clears_the_error`
+- `TestLoop`
+  - `test_the_video_starts_again_after_the_last_frame`
+  - `test_the_playlist_starts_again_after_the_last_video`
+- `TestPacing`
+  - `test_frames_come_out_at_the_video_fps`
+  - `test_a_late_consumer_gets_the_frame_of_now_and_loses_the_ones_between`
+  - `test_a_long_delay_is_recovered_by_seeking`
+  - `test_a_delay_past_the_end_moves_on_to_the_next_video`
+  - `test_fps_limit_below_the_video_fps_spaces_the_deliveries`
+  - `test_a_frame_not_due_within_the_timeout_returns_none`
+  - `test_an_fps_the_container_does_not_report_falls_back_to_fps_limit`
+- `TestCaptureEnabled`
+  - `test_disabled_capture_yields_no_frames_while_still_connected`
+  - `test_the_clock_keeps_running_while_capture_is_disabled`
+  - `test_a_disconnected_driver_yields_no_frames`
+- `TestStatus`
+  - `test_status_has_the_stable_keys`
+  - `test_recorded_video_is_marked_as_synthetic`
+  - `test_the_driver_builds_without_an_address`
+- `TestRotation`
+  - `test_rotation_comes_from_the_base_class`
 
 </details>
 

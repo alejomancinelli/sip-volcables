@@ -74,6 +74,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
+        preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
+        hooks.py              classifier, analyzer y annotator del fork, leídos de `process:`
+        offline.py            los pipelines del config sobre imágenes sueltas, como en vivo
       license/                ata el equipo a la máquina para la que se emitió la licencia
         schema.py             nivel 1 — dueño del formato del .lic: campos, token, firma
         verify.py             nivel 0 — Ed25519 contra la clave pública embebida
@@ -109,6 +112,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         basler_driver.py      pypylon
         st_driver.py          stapipy (Sentech / Omron)
         rtsp_driver.py        cámara IP por RTSP, con FFmpeg de OpenCV
+        video_file_driver.py  video grabado en loop, al ritmo del reloj, como cámara en vivo
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
@@ -137,6 +141,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       ui/                     levanta la app entera con cámaras mock; hace de main.py
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
+      offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
@@ -150,8 +155,10 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               ui.md, influxdb.md (la estructura de las series) y
                               licensing.md (cómo se pide y se renueva una licencia)
                               mqtt.md (la misma estructura, en tópicos y JSON),
-                              model_protection.md (cómo se protege y se reemplaza un modelo) y
+                              model_protection.md (cómo se protege y se reemplaza un modelo),
+                              offline_testing.md (video grabado e imágenes sueltas) y
                               tests.md (el índice de la suite, generado)
+    recordings/               videos que el driver `video_file` reproduce; no se versionan
     data/                     logs y dataset en runtime
 
 La dirección de las dependencias y las reglas de límites están en la skill
@@ -189,7 +196,7 @@ Son punteros: el contrato vive en el archivo, no acá.
 - **Preprocessor** — `system/inference/engine.py`: `(frame, camera_slot) -> frame`, y lo
   que devuelve es el frame de referencia del ciclo. Lo cumplen el corrector de lente
   (`tools/image/undistort.py`) y el ajuste de imagen por cámara (`tools/image/enhance.py`),
-  que `main.py` encadena en ese orden.
+  que `system/inference/preprocessing.py` encadena en ese orden.
 - **Classifier** — `system/inference/engine.py`: `(detections, camera_slot) -> detections`,
   entre el pipeline y el promedio de confianza. Corre **después** de devolver las
   detecciones al espacio del frame completo, así que es donde va lo que necesita posiciones
@@ -272,6 +279,20 @@ Lo que no se deduce leyendo un archivo suelto:
 - Un hilo por cámara, y el ritmo lo pone la cámara (free-run). Si alguna vez se
   captura por trigger, el ritmo y el orden de los disparos son de quien orqueste
   la captura, no del hilo.
+- **El video grabado entra como una cámara más, leído del archivo y no por un servidor
+  RTSP.** `driver: video_file` se declara en el config —se prueba en la máquina de
+  desarrollo, antes de la configuración final, así que no hace falta un flag que lo
+  sobreescriba— y el ritmo lo pone el reloj: un consumidor lento pierde frames y el video no
+  se estira. Un servidor RTSP probaría además el transporte, pero agrega dos binarios y
+  fallas que no son del proyecto justo en la herramienta que tiene que ser la más
+  confiable. La cámara va marcada como sintética: es imagen real, pero no la línea ahora, y
+  el estado que lee el PLC lo dice. Los videos van en `recordings/`, que no se versiona.
+- **Lo que se prueba sin la línea corre el código de la línea.** La corrida de imágenes
+  sueltas (`system/inference/offline.py`) arma los pipelines como la app —el mismo
+  `Pipeline`, `build_preprocessor()` y `build_hooks()`— y corre el ciclo del motor con
+  `InferenceThread.process()`, sin arrancar el hilo. Un segundo camino de inferencia
+  podría dar distinto que el primero, y una imagen que pasa la prueba no diría nada de la
+  línea. Por eso lo del fork que entra al motor vive en `hooks.py` y no en `main.py`.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -304,7 +325,7 @@ Lo que no se deduce leyendo un archivo suelto:
   de la telemetría y a los registros del PLC.
 - **Los parámetros de lo que se mide viven en la sección `process` del config**, que es la
   única cuya forma cambia entre proyectos. No la lee ningún módulo de la maquinaria: la lee
-  `main.py` y se la pasa al analyzer y a los annotators, que así reciben números y se
+  `system/inference/hooks.py` y se la pasa al classifier, al analyzer y a los annotators, que así reciben números y se
   testean sin archivo. Un valor que alimenta a dos consumidores —la altura del límite de
   carga, que se dibuja y se mide— se lee una sola vez, para que el operador y el PLC no
   puedan estar mirando cosas distintas.
@@ -576,15 +597,16 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
 
 - **Se reescriben**: `config.yaml` —sección `process:` incluida—,
   `system/modbus/register_map.yaml`, `system/inference/pipeline.py`,
-  `system/inference/metrics.py`, este archivo y el `README.md`.
+  `system/inference/metrics.py`, `system/inference/hooks.py`, este archivo y el `README.md`.
 - **Se agregan sin editar lo que ya está**: el modelo del proyecto en
   `system/inference/` (+1 línea en la fábrica), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
   `manual_test/` y `docs/`.
-- **De `main.py` se completan tres métodos**, los del bloque marcado: el widget del
-  monitor, el analyzer y los annotators. El resto del archivo es cableado y se
-  cross-portea.
+- **De `main.py` se completan dos métodos**, los del bloque marcado: el widget del
+  monitor y el contexto que se guarda con el dataset. Lo que entra al motor —classifier,
+  analyzer y annotators— es de `hooks.py`, porque también lo usa la corrida de imágenes
+  sueltas. El resto del archivo es cableado y se cross-portea.
 - **De `ui/` sólo se agrega**: el widget del monitor, los textos que ese widget necesite
   en `strings.py`, y —si el fork quiere editar `process:` desde la pantalla— una pestaña
   en `views/config/` con +1 línea en `_TAB_CLASSES`. Las pestañas genéricas, los widgets,
@@ -599,8 +621,8 @@ La tabla completa, archivo por archivo, está en `README.md`.
 ## Qué todavía no existe
 
 - Del template ya no falta el cableado: `main.py` instancia todo y conecta las señales,
-  y de sus tres métodos marcados sale lo del fork —el widget del monitor, el analyzer y
-  los annotators—. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
+  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los dos
+  métodos marcados de `main.py`: el widget del monitor y el contexto del dataset. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
   pero qué publica es lo más específico de cada fork y se declara al escribirlo.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección
@@ -621,6 +643,10 @@ La tabla completa, archivo por archivo, está en `README.md`.
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
+- **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
+  esperado, versionadas en el repo del fork, y un comando que dice cuáles pasan. Ya existen
+  las dos piezas en las que se apoya —el driver de video y la corrida de imágenes sueltas—;
+  el diseño está en `.claude/plans/replay-and-ground-truth.md`.
 - **El servidor de tests en la Jetson**, que correría la suite contra el hardware y la GPU
   de producción, está en pausa. Hoy todo corre en la máquina de desarrollo y lo que pide
   hardware sigue en `manual_test/`. La guía de partida es `.claude/plans/ci-testing-guide.md`.

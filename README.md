@@ -39,6 +39,13 @@ entre los hilos.
 Python 3.10 de 64 bits. La suite completa corre sin hardware, sin GUI y sin red. Lo que
 sí necesita hardware vive en `manual_test/<tema>/`, cada uno con su `config.yaml` al lado.
 
+Para probar sin la línea hay dos caminos, los dos sobre el mismo código que corre en
+producción: una cámara con `driver: video_file` reproduce en loop los videos de
+`recordings/` como si fueran en vivo, y `manual_test/offline_inference/run_images.py` corre
+los pipelines sobre una carpeta de imágenes y deja el resultado en una carpeta fechada.
+Cómo se preparan los videos y cómo se lee el resultado está en
+[docs/offline_testing.md](docs/offline_testing.md).
+
 ## Cómo se crea el repo del proyecto
 
 Una aclaración de vocabulario antes: en este repo y en `CLAUDE.md`, **«fork» significa
@@ -182,10 +189,12 @@ trae:
    telemetría y en los registros.
 8. **`register_map.yaml`**: las filas `producer: inference` en el rango 3-50, y después
    `python -m system.modbus.export_map` para regenerar la tabla del integrador.
-9. **`main.py`**: ya cablea todo. Se completan sus tres métodos marcados —
-   `_build_monitor_content()`, `_build_analyzer()` y `_build_annotator()`—, que son los
-   que leen `process:` y le pasan al motor lo del proyecto. El preprocessor sale solo del
-   config: la calibración del lente y el `image_adjust` de cada cámara.
+9. **`hooks.py`**: `build_hooks()` lee `process:` una vez y arma lo que el motor recibe
+   del proyecto —classifier, analyzer y annotators—. Lo usan la app y la corrida de
+   imágenes sueltas, así que las dos miden igual. El preprocessor sale solo del config: la
+   calibración del lente y el `image_adjust` de cada cámara.
+   **`main.py`** ya cablea todo; se completan sus dos métodos marcados,
+   `_build_monitor_content()` y `_build_dataset_context()`.
 10. **La vista de operador**, si la grilla de cámaras no alcanza: el widget propio se
     devuelve desde `_build_monitor_content()` de `main.py`. Los textos nuevos van a
     `ui/strings.py`, con su clave en inglés y una columna por idioma; el resto de la UI
@@ -206,10 +215,11 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `system/modbus/register_map.yaml` | las filas de inferencia; el resto del mapa es plantilla |
 | `system/inference/pipeline.py` | el orden de las etapas y sus cortocircuitos |
 | `system/inference/metrics.py` | la cuenta del proceso |
+| `system/inference/hooks.py` | el cuerpo de `build_hooks()`: classifier, analyzer y annotators con los valores de `process:` |
 | `system/version.py` | la versión del fork; se sube en cada release |
 | `setup/jetson/*.txt` | el framework de inferencia en la Jetson: qué versiones se fijan (`constraints.txt`), qué se instala (`requirements.txt`) y qué entra con `--no-deps` (`requirements-nodeps.txt`). Vienen con los ejemplos comentados |
 | `setup/venv-setup/verify_env.py` | **sólo el bloque «What changes in each fork»**: los módulos del framework y cómo se prueba la GPU |
-| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor, el analyzer y los annotators. El resto es cableado genérico |
+| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor y el contexto del dataset. El resto es cableado genérico |
 | `CLAUDE.md` | el mapa y las decisiones del fork |
 | `README.md` | esta guía, reemplazada por la del proyecto |
 
@@ -236,9 +246,9 @@ lo que falta es un punto de extensión, no un parche.
 | Carpeta | Archivos |
 |---|---|
 | infraestructura | `system/config_manager.py`, `logger.py`, `paths.py`, `system_monitor.py` |
-| captura | `system/camera/capture_thread.py`, `tools/camera/abstract_driver.py`, `camera_factory.py`, `basler_driver.py`, `st_driver.py`, `rtsp_driver.py`, `mock_driver.py`, `null_driver.py` |
+| captura | `system/camera/capture_thread.py`, `tools/camera/abstract_driver.py`, `camera_factory.py`, `basler_driver.py`, `st_driver.py`, `rtsp_driver.py`, `video_file_driver.py`, `mock_driver.py`, `null_driver.py` |
 | imagen | `tools/image/enhance.py`, `undistort.py` |
-| inferencia | `system/inference/models/*` (menos el del fork), `abstract_pipeline.py`, `result.py`, `overlay.py`, `analysis.py`, `rolling.py`, `engine.py` |
+| inferencia | `system/inference/models/*` (menos el del fork), `abstract_pipeline.py`, `result.py`, `overlay.py`, `analysis.py`, `rolling.py`, `engine.py`, `preprocessing.py` |
 | bitfields | `system/formats/camera_health.py`, `com_status.py`, `system_status.py`, `gpio_status.py` |
 | GPIO | `system/gpio_control.py` |
 | Modbus | `system/modbus/schema.py`, `registers.py`, `server.py`, `export_map.py` |
@@ -393,11 +403,11 @@ genérica la maquinaria y testeable lo del proyecto.
 
 | Punto | Qué hace | Dónde vive |
 |---|---|---|
-| `preprocessor` | sobre qué imagen se mide | `tools/image/undistort.py` y `enhance.py`, desde el config de cada cámara, o del fork |
+| `preprocessor` | sobre qué imagen se mide | `preprocessing.py`, con `tools/image/undistort.py` y `enhance.py` desde el config de cada cámara |
 | `pipeline` | qué modelos corren, en qué orden y qué se hace con lo que devuelven; recibe la cámara | `pipeline.py` |
-| `classifier` | qué detecciones cuentan y con qué clase, en coordenadas del frame completo | del fork, con `process:` |
-| `analyzer` | qué significan las detecciones | `metrics.py` |
-| `annotator` | qué se dibuja además del resultado | `annotations.py` |
+| `classifier` | qué detecciones cuentan y con qué clase, en coordenadas del frame completo | `hooks.py`, con `process:` |
+| `analyzer` | qué significan las detecciones | `metrics.py`, armado en `hooks.py` |
+| `annotator` | qué se dibuja además del resultado | `annotations.py`, compuesto en `hooks.py` |
 | `annotate_gate` | si alguien está mirando el stream anotado | `main.py`, del servidor de video |
 
 Lo que depende de la cámara entra en dos lugares, y la diferencia es dónde están las
