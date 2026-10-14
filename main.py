@@ -543,6 +543,8 @@ class Application(QObject):
                 analyzer=hooks.analyzer,
                 annotator=hooks.annotator,
                 annotate_gate=self._is_annotated_watched,
+                # El anotado se ve como el stream crudo: los dos los mira una persona.
+                canvas_adjust=self._for_display,
             )
             engine.result_ready.connect(self._on_result_ready)
             self._engines.append(engine)

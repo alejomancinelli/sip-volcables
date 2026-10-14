@@ -1,17 +1,25 @@
 """
 Tests del runner offline: los pipelines del config corridos sobre una imagen suelta.
 
-Corre de punta a punta con el `Pipeline` del template y el `MockModel`, que es determinista
+Corre de punta a punta con el `Pipeline` del proyecto y el `MockModel`, que es determinista
 y no necesita framework: lo que se prueba es que el runner arma lo mismo que la app —qué
 pipelines, qué cámaras, preprocessor y hooks— y no el modelo. Sin Qt corriendo, sin GPU y
 sin disco.
+
+**Se cross-portea sin editar.** Un fork reescribe `pipeline.py` y `hooks.py`, así que acá
+no se nombra nada de ellos: los slots de modelo salen de `Pipeline.model_slots`, todos con
+el mock, y los hooks se reemplazan por espías. Lo que hacen los hooks del proyecto se
+prueba en `test_hooks.py`, que sí reescribe cada fork.
 """
 
 import copy
 
 import numpy as np
 
+from system.inference import offline
+from system.inference.hooks import EngineHooks
 from system.inference.offline import OfflineRunner
+from system.inference.pipeline import Pipeline
 from system.inference.result import REASON_NO_MODEL
 
 _DETECTION_COUNT = 3
@@ -32,20 +40,20 @@ class _MockConfig:
         return copy.deepcopy(node)
 
 
-def _config(*, pipelines: dict | None = None, cameras: dict | None = None,
-            process: dict | None = None) -> _MockConfig:
+def _config(*, pipelines: dict | None = None, cameras: dict | None = None) -> _MockConfig:
     return _MockConfig({
         "cameras": cameras if cameras is not None else {"camera_1": {}},
-        "process": process or {},
+        "process": {},
         "inference": {
             # Sin hora ni panel: dibujan el instante y el tiempo de inferencia, y dos
             # anotados de la misma imagen tienen que poder compararse.
             "overlay": {"draw_timestamp": False, "draw_summary": False},
             "pipelines": pipelines if pipelines is not None else {
                 "pipeline_1": {"enabled": True, "cameras": []}},
-            "models": {"model_1": {
+            "models": {model_slot: {
                 "type": "mock", "min_confidence_pct": 0,
-                "params": {"detection_count": _DETECTION_COUNT}}},
+                "params": {"detection_count": _DETECTION_COUNT}}
+                for model_slot in Pipeline.model_slots},
         },
     })
 
@@ -116,7 +124,7 @@ class TestLoading:
         status = _loaded(_config()).get_status()
         assert list(status) == ["pipeline_1"]
         assert status["pipeline_1"]["loaded"] is True
-        assert list(status["pipeline_1"]["models"]) == ["model_1"]
+        assert list(status["pipeline_1"]["models"]) == list(Pipeline.model_slots)
 
 
 class TestPreprocessor:
@@ -134,13 +142,30 @@ class TestPreprocessor:
 
 
 class TestHooks:
-    def test_the_project_analyzer_computes_the_metrics(self):
-        [result] = _loaded(_config()).run_image(_frame(), "camera_1")
-        assert result.metrics["detection_count"] == _DETECTION_COUNT
+    """El runner usa los hooks de `build_hooks()`, los mismos que la app."""
 
-    def test_the_project_annotator_draws_its_references(self):
-        """El límite de carga de `process:` sale en el anotado, igual que en la app."""
-        plain = _loaded(_config()).run_image(_frame(), "camera_1")[0].annotated_bgr
-        with_limit = _loaded(_config(process={"max_load_y_px": {"camera_1": 5}})
-                             ).run_image(_frame(), "camera_1")[0].annotated_bgr
-        assert not np.array_equal(plain, with_limit)
+    def _spy_hooks(self, monkeypatch) -> list:
+        calls: list = []
+
+        def analyzer(result):
+            calls.append(("analyzer", result.camera_slot))
+            return {"spy_metric": 1}
+
+        def annotator(frame_bgr, result):
+            calls.append(("annotator", result.camera_slot))
+            frame_bgr[0, 0] = (1, 2, 3)
+
+        monkeypatch.setattr(offline, "build_hooks",
+                            lambda config: EngineHooks(analyzer=analyzer, annotator=annotator))
+        return calls
+
+    def test_the_project_analyzer_computes_the_metrics(self, monkeypatch):
+        self._spy_hooks(monkeypatch)
+        [result] = _loaded(_config()).run_image(_frame(), "camera_1")
+        assert result.metrics["spy_metric"] == 1
+
+    def test_the_project_annotator_draws_on_the_annotated_frame(self, monkeypatch):
+        calls = self._spy_hooks(monkeypatch)
+        [result] = _loaded(_config()).run_image(_frame(), "camera_1")
+        assert ("annotator", "camera_1") in calls
+        assert tuple(result.annotated_bgr[0, 0]) == (1, 2, 3)
