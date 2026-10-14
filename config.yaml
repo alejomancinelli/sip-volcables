@@ -22,8 +22,8 @@ system:
 
 ui:
   # La interfaz. Los textos que ve el operador salen de ui/strings.py, que es la tabla
-  # de idiomas; `language` elige la columna. `language` y `dark_mode` son las únicas dos
-  # claves que la UI aplica sin reiniciar la app.
+  # de idiomas; `language` elige la columna y toma efecto al reiniciar. `dark_mode` es la
+  # única clave que la UI aplica sin reiniciar la app.
   enabled: true                 # false = sin ventana (headless), igual que `main.py --headless`
   language: es                  # es | en | pt
   dark_mode: true
@@ -135,7 +135,6 @@ inference:
     draw_masks: true            # sólo hace algo si el modelo devuelve máscaras
     draw_labels: true           # nombre de clase y confianza sobre cada caja
     draw_roi: true              # recuadro de la zona que se analizó
-    draw_summary: true          # panel con tiempo de inferencia, confianza, detecciones y métricas
     draw_timestamp: true
     font_scale: 0.6
     thickness: 2
