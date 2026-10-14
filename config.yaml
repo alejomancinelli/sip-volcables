@@ -7,7 +7,7 @@ project:
 
 system:
   app_name: APP_NAME
-  device_id: DEVICE_ID
+  device_id: DEVICE_ID          # client_id de MQTT y tag `device`; se fija al instalar, no en la UI
   log_level: INFO               # DEBUG | INFO | WARNING | ERROR
   hard_exit: false
   # Termina el proceso al salir sin desarmar el intérprete. Hace falta sólo cuando el
@@ -22,8 +22,8 @@ system:
 
 ui:
   # La interfaz. Los textos que ve el operador salen de ui/strings.py, que es la tabla
-  # de idiomas; `language` elige la columna. `language` y `dark_mode` son las únicas dos
-  # claves que la UI aplica sin reiniciar la app.
+  # de idiomas; `language` elige la columna y toma efecto al reiniciar. `dark_mode` es la
+  # única clave que la UI aplica sin reiniciar la app.
   enabled: true                 # false = sin ventana (headless), igual que `main.py --headless`
   language: es                  # es | en | pt
   dark_mode: true
@@ -127,17 +127,14 @@ inference:
   # y se mide antes de gastar una pasada del modelo.
   overlay:
     # Dibujado del resultado sobre el frame. Sale una sola vez y el mismo array viaja a
-    # la UI, al stream `annotated` y al dataset.
+    # la UI, al stream `annotated` y al dataset. La sección entera se edita sólo acá: la
+    # UI no la muestra, porque varios valores son de la instalación —`font_scale` se
+    # calibra para el frame de cada cámara—.
     enabled: true
-    # Estas cuatro no están en la pantalla de configuración: apagarlas deja un stream
-    # anotado que no muestra nada, así que van siempre. La clave sigue acá porque el
-    # motor la lee, para el proyecto que de verdad necesite apagar alguna.
     draw_boxes: true
     draw_masks: true            # sólo hace algo si el modelo devuelve máscaras
     draw_labels: true           # nombre de clase y confianza sobre cada caja
     draw_roi: true              # recuadro de la zona que se analizó
-    # Estas dos sí se editan desde la pantalla: tapan parte de la imagen.
-    draw_summary: true          # panel con tiempo de inferencia, confianza, detecciones y métricas
     draw_timestamp: true
     font_scale: 0.6
     thickness: 2
@@ -196,7 +193,9 @@ inference:
       # inferencia en CPU sin darse cuenta.
       min_confidence_pct: 50    # descarta la detección; lo aplica el modelo, no el llamador
       max_side_px: 0            # lado mayor al que se reduce antes de inferir; 0 = nativo
-      class_names: []           # nombre por índice de clase; [] = 'class_<i>'
+      # Nombre por índice de clase; [] = 'class_<i>'. Los que traen los pesos le ganan. No
+      # se edita desde la UI: un orden cambiado no da un error, invierte los porcentajes.
+      class_names: []
       params: {}                # extras propios del framework
       # En un proyecto que cuenta cientos de objetos `min_confidence_pct` va bajo a
       # propósito: el que juzga si el conjunto sirve es el umbral del pipeline, sobre la
@@ -207,11 +206,14 @@ image_collector:
   # el frame de cámara en original/, el anotado en annotated/ y la metadata de
   # inferencia en un .json al lado del anotado.
   enabled: false                # se prende y se apaga en caliente
-  # on_demand: cada guardado lo pide el llamador con save_now(), que es lo que sirve
-  # cuando la inferencia corre cada varios minutos y la luz se enciende solo para la
-  # captura. interval: el recolector guarda por su cuenta un frame por cámara cada
-  # tanto, para los proyectos que infieren de continuo. Cambiar el modo exige
-  # reiniciar el recolector.
+  cameras: []                   # slots que se guardan; [] = todas, también las que se agreguen
+                                # después. Con una lista, una cámara nueva no entra hasta sumarla
+  # on_demand: cada guardado lo pide quien orquesta el ciclo de medición, una vez por
+  # medición, que es lo que sirve cuando la inferencia corre cada varios minutos y la luz
+  # se enciende solo para la captura; sin ningún pipeline con `frames_per_cycle` > 1 no
+  # guarda nunca. interval: el recolector guarda por su cuenta un frame por cámara cada
+  # tanto, para los proyectos que infieren de continuo. Cambiar el modo toma efecto al
+  # reiniciar la aplicación.
   mode: on_demand               # on_demand | interval
   interval_min_s: 60            # solo en modo interval: ventana al azar entre guardados
   interval_max_s: 600           # iguales al mínimo = guardado periódico

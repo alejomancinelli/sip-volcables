@@ -454,6 +454,9 @@ manual_test/model_protection/*
 !manual_test/model_protection/check_protected_weights.py
 !manual_test/model_protection/config.yaml
 
+# Ruff cache.
+.ruff_cache/
+
 # Recorded video that the video_file driver plays as a camera: large, and versioned
 # outside the repo, same as the model weights.
 recordings/*
