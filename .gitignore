@@ -453,3 +453,7 @@ system/license/_public_key.py
 manual_test/model_protection/*
 !manual_test/model_protection/check_protected_weights.py
 !manual_test/model_protection/config.yaml
+
+# Test videos
+test_videos/*
+!test_videos/.gitkeep
