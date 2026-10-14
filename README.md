@@ -32,6 +32,13 @@ entre los hilos.
 Python 3.10 de 64 bits. La suite completa corre sin hardware, sin GUI y sin red. Lo que
 sí necesita hardware vive en `manual_test/<tema>/`, cada uno con su `config.yaml` al lado.
 
+Para probar sin la línea hay dos caminos, los dos sobre el mismo código que corre en
+producción: una cámara con `driver: video_file` reproduce en loop los videos de
+`recordings/` como si fueran en vivo, y `manual_test/offline_inference/run_images.py` corre
+los pipelines sobre una carpeta de imágenes y deja el resultado en una carpeta fechada.
+Cómo se preparan los videos y cómo se lee el resultado está en
+[docs/offline_testing.md](docs/offline_testing.md).
+
 ## Cómo se crea el repo del proyecto
 
 Una aclaración de vocabulario antes: en este repo y en `CLAUDE.md`, **«fork» significa

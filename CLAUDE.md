@@ -147,8 +147,10 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
     docs/                     documentos con público propio: el mapa Modbus generado,
                               ui.md, influxdb.md (la estructura de las series) y
                               licensing.md (cómo se pide y se renueva una licencia)
-                              mqtt.md (la misma estructura, en tópicos y JSON) y
-                              model_protection.md (cómo se protege y se reemplaza un modelo)
+                              mqtt.md (la misma estructura, en tópicos y JSON),
+                              model_protection.md (cómo se protege y se reemplaza un modelo) y
+                              offline_testing.md (video grabado e imágenes sueltas)
+    recordings/               videos que el driver `video_file` reproduce; no se versionan
     data/                     logs y dataset en runtime
 
 La dirección de las dependencias y las reglas de límites están en la skill
@@ -269,6 +271,20 @@ Lo que no se deduce leyendo un archivo suelto:
 - Un hilo por cámara, y el ritmo lo pone la cámara (free-run). Si alguna vez se
   captura por trigger, el ritmo y el orden de los disparos son de quien orqueste
   la captura, no del hilo.
+- **El video grabado entra como una cámara más, leído del archivo y no por un servidor
+  RTSP.** `driver: video_file` se declara en el config —se prueba en la máquina de
+  desarrollo, antes de la configuración final, así que no hace falta un flag que lo
+  sobreescriba— y el ritmo lo pone el reloj: un consumidor lento pierde frames y el video no
+  se estira. Un servidor RTSP probaría además el transporte, pero agrega dos binarios y
+  fallas que no son del proyecto justo en la herramienta que tiene que ser la más
+  confiable. La cámara va marcada como sintética: es imagen real, pero no la línea ahora, y
+  el estado que lee el PLC lo dice. Los videos van en `recordings/`, que no se versiona.
+- **Lo que se prueba sin la línea corre el código de la línea.** La corrida de imágenes
+  sueltas (`system/inference/offline.py`) arma los pipelines como la app —el mismo
+  `Pipeline`, `build_preprocessor()` y `build_hooks()`— y corre el ciclo del motor con
+  `InferenceThread.process()`, sin arrancar el hilo. Un segundo camino de inferencia
+  podría dar distinto que el primero, y una imagen que pasa la prueba no diría nada de la
+  línea. Por eso lo del fork que entra al motor vive en `hooks.py` y no en `main.py`.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -611,6 +627,10 @@ La tabla completa, archivo por archivo, está en `README.md`.
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
+- **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
+  esperado, versionadas en el repo del fork, y un comando que dice cuáles pasan. Ya existen
+  las dos piezas en las que se apoya —el driver de video y la corrida de imágenes sueltas—;
+  el diseño está en `.claude/plans/replay-and-ground-truth.md`.
 - **De la licencia falta la mitad que no es código.** El subsistema está entero y cableado
   —cupo de cámaras, features por pipeline, vencimiento, huella, modo de puesta en marcha
   sin licencia, bit y reloj al PLC, pestaña de diagnóstico, chip de footer y cartel de

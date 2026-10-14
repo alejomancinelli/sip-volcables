@@ -1,13 +1,22 @@
 # Plan: probar el sistema con video grabado, imágenes sueltas y ground truth
 
-**Estado: en curso.** Branch `machinery/replay-and-ground-truth`, sobre `main`.
+**Estado: video e imágenes sueltas hechos; ground truth postergado.** Branch
+`machinery/replay-and-ground-truth`, sobre `main`. Lo operativo de lo que ya existe está en
+`docs/offline_testing.md`; este plan queda por el porqué y por lo que falta.
 
 - **Pieza A (driver `video_file`): hecha.**
 - **Pieza B (`--replay`): descartada.** Ver §4.
-- **Pieza D: se toma la opción (a)**, los hooks salen de `main.py`.
-- **Pieza F (ground truth): postergada.** Primero video y corrida de imágenes sueltas; el
-  ground truth se retoma después, y para entonces `machinery/local-ci` tiene que estar
-  mergeada, porque agrega un subcomando a `ci/check.py`.
+- **Pieza C (`InferenceThread.process()`): hecha.**
+- **Pieza D: hecha con la opción (a).** `system/inference/preprocessing.py` y
+  `system/inference/hooks.py`, con una sola `build_hooks(config)` que devuelve
+  `EngineHooks` y lee `process:` una vez.
+- **Pieza E: hecha, más chica que §7.** El runner es `system/inference/offline.py`
+  (`OfflineRunner`) y no un paquete `system/offline/` con CLI: sin ground truth, el único
+  comando era `run`, y quedó como prueba manual en `manual_test/offline_inference/`, que
+  corre una carpeta de imágenes y escribe en `output/<fecha>_<hora>/`. Al retomar el ground
+  truth, `evaluate` y `snapshot` se apoyan en el mismo runner.
+- **Pieza F (ground truth): postergada.** Para retomarla, `machinery/local-ci` tiene que
+  estar mergeada, porque agrega un subcomando a `ci/check.py`.
 
 Este documento está escrito para que otra instancia lo tome sin haber visto la
 conversación que lo originó: el porqué de cada decisión está acá y no por referencia.
@@ -305,13 +314,15 @@ Un commit por paso, todos de maquinaria:
 
 1. Driver `video_file`, catálogo y su test. **Hecho.**
 2. ~~`--replay`~~: descartado (§4). `recordings/` ya existe.
-3. `InferenceThread.process()`.
-4. `preprocessing.py` y `hooks.py` fuera de `main.py`, sin cambio de comportamiento.
-5. `system/offline/`: runner y `run`.
-6. `ground_truth.py`, `evaluate`, `snapshot`, `ground_truth/README.md` y
+3. `InferenceThread.process()`. **Hecho.**
+4. `preprocessing.py` y `hooks.py` fuera de `main.py`, sin cambio de comportamiento. **Hecho.**
+5. Runner y prueba manual de imágenes sueltas. **Hecho** (ver el estado, arriba).
+6. **Postergado.** `ground_truth.py`, `evaluate`, `snapshot`, `ground_truth/README.md` y
    `ci/check.py ground-truth`.
-7. `docs/offline_testing.md`, CLAUDE.md, README.md y la versión.
-8. (Opcional) la receta RTSP de `manual_test/rtsp_replay/`.
+7. `docs/offline_testing.md`, CLAUDE.md, README.md y la versión (0.7.0). **Hecho.**
+8. ~~La receta RTSP de `manual_test/rtsp_replay/`~~: **descartada.** El `RtspDriver` se
+   prueba con `manual_test/cameras/` contra una cámara RTSP de verdad, que es más fiel que
+   una cámara falsa sirviendo un video.
 
 ## 13. Fuera de alcance
 
