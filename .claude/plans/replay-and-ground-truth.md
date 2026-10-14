@@ -15,8 +15,8 @@
   comando era `run`, y quedó como prueba manual en `manual_test/offline_inference/`, que
   corre una carpeta de imágenes y escribe en `output/<fecha>_<hora>/`. Al retomar el ground
   truth, `evaluate` y `snapshot` se apoyan en el mismo runner.
-- **Pieza F (ground truth): postergada.** Para retomarla, `machinery/local-ci` tiene que
-  estar mergeada, porque agrega un subcomando a `ci/check.py`.
+- **Pieza F (ground truth): postergada.** `ci/check.py` ya está en `main`, así que el
+  subcomando `ground-truth` se puede agregar cuando se retome.
 
 Este documento está escrito para que otra instancia lo tome sin haber visto la
 conversación que lo originó: el porqué de cada decisión está acá y no por referencia.
