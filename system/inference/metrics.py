@@ -22,14 +22,14 @@ Contrato del analyzer, que es cómo lo llama el motor:
   - **No modifica el resultado ni toca los frames**, y no guarda estado entre llamadas:
     el promedio en el tiempo se hace afuera, con `analysis.average_metrics`.
 
-`main.py` lo inyecta en el motor y por eso el motor sigue siendo genérico:
+`hooks.py` lo entrega al motor y por eso el motor sigue siendo genérico:
 
     engine = InferenceThread(config, pipeline, analyzer=compute_metrics)
 
 Cuando la cuenta necesita parámetros de la planta —una escala de píxel, un umbral, la
 altura de un límite—, esto pasa a ser una factory que los recibe ya leídos, igual que los
 annotators y las condiciones del recolector. Quien lee la sección `process` del config es
-`main.py`, y así esta función se sigue testeando con tres números y sin archivo:
+`hooks.py`, y así esta función se sigue testeando con tres números y sin archivo:
 
     engine = InferenceThread(config, pipeline,
                              analyzer=build_analyzer(scale_px_per_mm={"camera_1": 3.2}))

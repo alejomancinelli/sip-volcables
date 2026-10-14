@@ -69,6 +69,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
+        preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
+        hooks.py              classifier, analyzer y annotator del fork, leídos de `process:`
       license/                ata el equipo a la máquina para la que se emitió la licencia
         schema.py             nivel 1 — dueño del formato del .lic: campos, token, firma
         verify.py             nivel 0 — Ed25519 contra la clave pública embebida
@@ -104,6 +106,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         basler_driver.py      pypylon
         st_driver.py          stapipy (Sentech / Omron)
         rtsp_driver.py        cámara IP por RTSP, con FFmpeg de OpenCV
+        video_file_driver.py  video grabado en loop, al ritmo del reloj, como cámara en vivo
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
@@ -181,7 +184,7 @@ Son punteros: el contrato vive en el archivo, no acá.
 - **Preprocessor** — `system/inference/engine.py`: `(frame, camera_slot) -> frame`, y lo
   que devuelve es el frame de referencia del ciclo. Lo cumplen el corrector de lente
   (`tools/image/undistort.py`) y el ajuste de imagen por cámara (`tools/image/enhance.py`),
-  que `main.py` encadena en ese orden.
+  que `system/inference/preprocessing.py` encadena en ese orden.
 - **Classifier** — `system/inference/engine.py`: `(detections, camera_slot) -> detections`,
   entre el pipeline y el promedio de confianza. Corre **después** de devolver las
   detecciones al espacio del frame completo, así que es donde va lo que necesita posiciones
@@ -296,7 +299,7 @@ Lo que no se deduce leyendo un archivo suelto:
   de la telemetría y a los registros del PLC.
 - **Los parámetros de lo que se mide viven en la sección `process` del config**, que es la
   única cuya forma cambia entre proyectos. No la lee ningún módulo de la maquinaria: la lee
-  `main.py` y se la pasa al analyzer y a los annotators, que así reciben números y se
+  `system/inference/hooks.py` y se la pasa al classifier, al analyzer y a los annotators, que así reciben números y se
   testean sin archivo. Un valor que alimenta a dos consumidores —la altura del límite de
   carga, que se dibuja y se mide— se lee una sola vez, para que el operador y el PLC no
   puedan estar mirando cosas distintas.
@@ -560,15 +563,16 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
 
 - **Se reescriben**: `config.yaml` —sección `process:` incluida—,
   `system/modbus/register_map.yaml`, `system/inference/pipeline.py`,
-  `system/inference/metrics.py`, este archivo y el `README.md`.
+  `system/inference/metrics.py`, `system/inference/hooks.py`, este archivo y el `README.md`.
 - **Se agregan sin editar lo que ya está**: el modelo del proyecto en
   `system/inference/` (+1 línea en la fábrica), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
   `manual_test/` y `docs/`.
-- **De `main.py` se completan tres métodos**, los del bloque marcado: el widget del
-  monitor, el analyzer y los annotators. El resto del archivo es cableado y se
-  cross-portea.
+- **De `main.py` se completan dos métodos**, los del bloque marcado: el widget del
+  monitor y el contexto que se guarda con el dataset. Lo que entra al motor —classifier,
+  analyzer y annotators— es de `hooks.py`, porque también lo usa la corrida de imágenes
+  sueltas. El resto del archivo es cableado y se cross-portea.
 - **De `ui/` sólo se agrega**: el widget del monitor, los textos que ese widget necesite
   en `strings.py`, y —si el fork quiere editar `process:` desde la pantalla— una pestaña
   en `views/config/` con +1 línea en `_TAB_CLASSES`. Las pestañas genéricas, los widgets,
@@ -583,8 +587,8 @@ La tabla completa, archivo por archivo, está en `README.md`.
 ## Qué todavía no existe
 
 - Del template ya no falta el cableado: `main.py` instancia todo y conecta las señales,
-  y de sus tres métodos marcados sale lo del fork —el widget del monitor, el analyzer y
-  los annotators—. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
+  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los dos
+  métodos marcados de `main.py`: el widget del monitor y el contexto del dataset. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
   pero qué publica es lo más específico de cada fork y se declara al escribirlo.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección

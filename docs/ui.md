@@ -392,6 +392,7 @@ lo que el operador eligió en el selector.
   La pestaña existe para que el punto de extensión se vea, y su docstring trae los dos
   patrones que cubren casi todo —un valor suelto y un mapa por cámara—. La validación de
   lo obligatorio no va ahí: un valor cuya ausencia corrompe una medición tiene que frenar
-  el arranque, y eso lo chequea `main.py`, que es quien lee la sección y la inyecta.
+  el arranque, y eso lo chequea `system/inference/hooks.py`, que es quien lee la sección
+  y la inyecta.
 - **No hay tests de `ui/`.** La suite del repo corre sin GUI, y así se queda. Lo que sí
   se puede testear sin Qt es `service_status.describe()`, que devuelve strings.
