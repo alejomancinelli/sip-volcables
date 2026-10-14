@@ -131,6 +131,8 @@ trae:
 - **`packages/`** — sólo el `.gitkeep`. El wheel de stapipy **no está en el repo**: hay que
   copiarlo ahí antes de correr `setup/cameras/{windows,linux}/sentech.*`. Ojo con la
   arquitectura: el `cp310-win_amd64` no sirve en la Jetson, que necesita el de aarch64.
+  En la Jetson van también los wheels del framework que no están en PyPI —el torch de
+  NVIDIA, por ejemplo—: `venv-setup.sh` instala todos los `*aarch64.whl` de ahí.
 - **`.venv/`** — lo crea `setup/venv-setup/`: con `-Dev` (`--dev` en Linux) instala
   `requirements-dev.txt` y activa los hooks; sin el flag, sólo `requirements.txt`, que es lo
   que va en el equipo de planta.
@@ -145,10 +147,13 @@ trae:
 
 ## Cómo se arranca un fork
 
-1. **Crear el repo** como arriba, armar el venv con `setup/venv-setup/` y `-Dev` —instala
-   lo de desarrollo y activa los hooks de git, que no viajan con el clon— y
-   copiar el wheel de stapipy a `packages/`. Los SDK de cámara se instalan con los scripts
-   de `setup/cameras/{windows,linux}/`. Cambiar la identidad del proyecto:
+1. **Crear el repo** como arriba y copiar el wheel de stapipy a `packages/`. En la PC, el
+   venv lo arma `setup/venv-setup/venv-setup.ps1 -Dev`, que instala además lo de
+   desarrollo y activa los hooks de git —no viajan con el clon—. En la Jetson, en este
+   orden: `setup/jetson/setup-jetson.sh` (lo de sistema), el SDK de la cámara con
+   `setup/cameras/linux/`, y `setup/venv-setup/venv-setup.sh`, que instala además el
+   framework de `setup/jetson/` y termina corriendo `verify_env.py`. Cambiar la identidad
+   del proyecto:
    `project.project_id` y `system.app_name` en el config, y `system/version.py`. Copiar
    `.env.example` como `.env` y completar los secretos del equipo —token de InfluxDB,
    password del broker, credenciales de las cámaras RTSP—: el `.env` no se versiona.
@@ -202,6 +207,8 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `system/inference/pipeline.py` | el orden de las etapas y sus cortocircuitos |
 | `system/inference/metrics.py` | la cuenta del proceso |
 | `system/version.py` | la versión del fork; se sube en cada release |
+| `setup/jetson/*.txt` | el framework de inferencia en la Jetson: qué versiones se fijan (`constraints.txt`), qué se instala (`requirements.txt`) y qué entra con `--no-deps` (`requirements-nodeps.txt`). Vienen con los ejemplos comentados |
+| `setup/venv-setup/verify_env.py` | **sólo el bloque «What changes in each fork»**: los módulos del framework y cómo se prueba la GPU |
 | `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor, el analyzer y los annotators. El resto es cableado genérico |
 | `CLAUDE.md` | el mapa y las decisiones del fork |
 | `README.md` | esta guía, reemplazada por la del proyecto |
@@ -237,6 +244,7 @@ lo que falta es un punto de extensión, no un parche.
 | Modbus | `system/modbus/schema.py`, `registers.py`, `server.py`, `export_map.py` |
 | telemetría | `system/telemetry/persistence.py`, `backends/*` |
 | video | `system/video/abstract_video_server.py`, `http_server.py`, `rtsp_server.py` |
+| instalación | `setup/cameras/*`, `setup/jetson/setup-jetson.sh`, `setup/venv-setup/*` salvo el bloque del fork de `verify_env.py` |
 | dataset | `system/image_collector/collector.py`, `conditions.py` |
 | licencia | `system/license/*` entero. La clave pública no se edita en ningún fork: la genera el repositorio de firma al compilar, en un `_public_key.py` que no se versiona |
 | verificación | `ci/check.py`, `ci/suite_index.py`, `.githooks/*`, `pyproject.toml`, `requirements-dev.txt` |

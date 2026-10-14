@@ -29,7 +29,8 @@ está en la skill `pruebas`; qué prueba cada archivo, en `docs/tests.md`.
 
 Lo que sí necesita hardware —o una pantalla, como la prueba de la interfaz— vive en
 `manual_test/<tema>/`, cada uno con su `config.yaml` al lado. La instalación de los
-SDK de cámara está en `setup/cameras/{windows,linux}/`.
+SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
+`setup/jetson/`, y el venv lo arma y lo verifica `setup/venv-setup/`.
 
 ## Mapa
 
@@ -45,6 +46,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`.
       gpio_control.py         entradas y salidas digitales sobre libgpiod; sin ella, simulado
       camera/
         capture_thread.py     un hilo por cámara; entrega frames y telemetría por señales
+        capture_scheduler.py  el ciclo de N frames por medición; con `frames_per_cycle: 1`,
+                              un pass-through
         lens_health.py        nivel 1 — ¿el vidrio está sucio? nitidez sobre el ROI
       formats/                módulos puros: cada uno arma un bitfield y nadie más corre bits
         camera_health.py      estado de una cámara: adquisición excluyente + lente sucio
@@ -134,7 +137,11 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`.
       ui/                     levanta la app entera con cámaras mock; hace de main.py
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
-    setup/                    instalación de SDK de cámara (en inglés, ver skill)
+    setup/                    instalación (en inglés, ver skill)
+      cameras/                SDK de cámara, por fabricante y sistema
+      venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
+      jetson/                 lo de sistema de la Jetson; el framework de inferencia y
+                              sus versiones fijadas son de cada fork
     packages/                 wheels que no están en PyPI (stapipy)
     build/                    compilar con Nuitka y armar el entregable; ver su README
     ci/                       verificación: check.py (lint + tests) y suite_index.py (docs/tests.md)

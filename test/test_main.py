@@ -5,6 +5,7 @@ depender de subsistemas. Acá no se arma la aplicación ni se levanta un event l
 
 import asyncio
 import signal
+import threading
 
 import numpy as np
 
@@ -127,6 +128,28 @@ class TestInterruptSignals:
         handled = any(getattr(s, "name", "") == "SIGBREAK" for s in main._interrupt_signals())
         assert handled is expected
 
+    def test_the_handler_schedules_the_quit_instead_of_running_it(self, monkeypatch):
+        """
+        El handler puede correr con un lock tomado, y en Qt 6 `quit()` corre `stop()` en el
+        acto: cerrar desde ahí trababa el cierre con hilos que pedían ese lock.
+        """
+        scheduled, quits = [], []
+
+        class FakeTimer:
+            @staticmethod
+            def singleShot(interval_ms: int, slot: object):
+                scheduled.append((interval_ms, slot))
+
+        class FakeApp:
+            def quit(self):
+                quits.append(True)
+
+        app = FakeApp()
+        monkeypatch.setattr(main, "QTimer", FakeTimer)
+        main._build_interrupt_handler(app)(signal.SIGTERM, None)
+        assert quits == []
+        assert scheduled == [(0, app.quit)]
+
 
 class TestModbusServerWiring:
     """
@@ -225,6 +248,175 @@ class TestInferenceFields:
         fields = main._build_inference_fields(results)
         assert (fields["load_pct_mean"], fields["load_pct_std"],
                 fields["sample_count"]) == (50.0, 10.0, 2)
+
+
+class _FrameSink:
+    """Motor o servidor de video: registra lo que le empujan."""
+
+    def __init__(self, pipeline_slot: str = "", *, raw_clients: bool = False):
+        self.pipeline_slot = pipeline_slot
+        self.raw_clients = raw_clients
+        self.pushed: list = []
+
+    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
+        self.pushed.append((frame_bgr, camera_slot, ignore_interval))
+
+    def has_raw_clients(self, camera_slot: str) -> bool:
+        return self.raw_clients
+
+    def push_raw(self, camera_slot, frame_bgr):
+        self.pushed.append((frame_bgr, camera_slot))
+
+
+class _CycleStub:
+    """El scheduler: qué pipelines miden de a varios frames, y el permiso siempre en sí."""
+
+    def __init__(self, *cycled: str):
+        self._cycled = cycled
+
+    def is_cycled(self, pipeline_slot: str) -> bool:
+        return pipeline_slot in self._cycled
+
+    def take_frame(self, camera_slot: str, pipeline_slot: str) -> bool:
+        return True
+
+
+class _ContentSpy:
+    mode = "raw"
+
+    def __init__(self):
+        self.shown: list = []
+
+    def update_frame(self, frame_bgr, camera_slot):
+        self.shown.append(frame_bgr)
+
+
+def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, content=None):
+    """`Application` sin `__init__` —sí con su QObject— y sólo lo que toca el camino del frame."""
+    import types
+    from PySide6.QtCore import QObject
+    app = main.Application.__new__(main.Application)
+    QObject.__init__(app)
+    app._engines = list(engines)
+    app._scheduler = _CycleStub(*cycled)
+    app._http_video = _FrameSink(raw_clients=raw_clients)
+    app._rtsp_video = _FrameSink()
+    app._display_adjust = None
+    app._last_raw_frame = {}
+    app._gui_frames = {}
+    app._gui_frames_lock = threading.Lock()
+    app._ui = types.SimpleNamespace(monitor_content=content)
+    app.notified = []
+    app._frame_for_gui.connect(app.notified.append)
+    return app
+
+
+class TestFramePath:
+    """
+    El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman
+    en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede.
+    """
+
+    def test_an_uncycled_engine_gets_the_frame_in_the_capture_thread(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        frame = np.zeros((4, 4, 3), np.uint8)
+        app._on_frame_captured(frame, "camera_1")
+        assert engine.pushed == [(frame, "camera_1", False)]
+
+    def test_a_cycled_engine_waits_for_the_gui(self):
+        """Su permiso lo maneja el scheduler, que no es thread-safe."""
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=["pipeline_1"])
+        frame = np.zeros((4, 4, 3), np.uint8)
+        app._on_frame_captured(frame, "camera_1")
+        assert engine.pushed == []
+        app._on_frame_for_gui("camera_1")
+        assert engine.pushed == [(frame, "camera_1", True)]
+
+    def test_the_raw_stream_gets_the_frame_only_with_clients(self):
+        app = _build_frame_application()
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert app._http_video.pushed == []
+        app._http_video.raw_clients = True
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert len(app._http_video.pushed) == 1
+
+    def test_the_gui_is_notified_once_while_a_frame_waits(self):
+        """Con la GUI ocupada, la cola tenía un frame de 9 MB por cada uno capturado."""
+        app = _build_frame_application()
+        for _ in range(5):
+            app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert app.notified == ["camera_1"]
+
+    def test_the_gui_takes_the_latest_frame(self):
+        content = _ContentSpy()
+        app = _build_frame_application(content=content)
+        frames = [np.full((4, 4, 3), value, np.uint8) for value in (1, 2, 3)]
+        for frame in frames:
+            app._on_frame_captured(frame, "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert content.shown == [frames[-1]]
+
+    def test_after_the_gui_takes_it_the_next_frame_notifies_again(self):
+        app = _build_frame_application(content=_ContentSpy())
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert app.notified == ["camera_1", "camera_1"]
+
+    def test_each_camera_has_its_own_mailbox(self):
+        app = _build_frame_application()
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_2")
+        assert app.notified == ["camera_1", "camera_2"]
+
+
+class TestDatasetGating:
+    """
+    Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por
+    frame en la GUI.
+    """
+
+    def _application(self, collector_active: bool):
+        import types
+        app = main.Application.__new__(main.Application)
+        app._annotate_cycle = lambda result: None
+        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._pending_results = {}
+        app._store_metrics = lambda result: None
+        app._collector = types.SimpleNamespace(
+            should_collect=lambda camera_slot: collector_active)
+        app.sent = []
+        app._send_to_dataset = app.sent.append
+        return app
+
+    def test_nothing_is_built_with_the_collector_off(self):
+        app = self._application(collector_active=False)
+        app._on_cycle_complete(InferenceResult(camera_slot="camera_1"))
+        assert app.sent == []
+
+    def test_the_result_goes_to_the_dataset_with_the_collector_on(self):
+        app = self._application(collector_active=True)
+        result = InferenceResult(camera_slot="camera_1")
+        app._on_cycle_complete(result)
+        assert app.sent == [result]
+
+    def test_the_telemetry_keeps_the_numbers_without_the_frames(self):
+        """Guardado entero, cada resultado retenía dos frames de 9 MB hasta el tick."""
+        from system.inference.result import Detection
+        app = self._application(collector_active=False)
+        result = InferenceResult(camera_slot="camera_1", metrics={"load_pct": 60.0})
+        result.source_bgr = np.zeros((8, 8, 3), np.uint8)
+        result.annotated_bgr = np.zeros((8, 8, 3), np.uint8)
+        result.detections = [Detection(class_index=0, class_name="ok",
+                                       confidence_pct=90.0, bbox_px=(0, 0, 4, 4))]
+        app._on_cycle_complete(result)
+
+        (kept,) = app._pending_results[("camera_1", "")]
+        assert (kept.source_bgr, kept.annotated_bgr, kept.detections) == (None, None, [])
+        assert kept.metrics == result.metrics and kept.timestamp_s == result.timestamp_s
+        assert result.source_bgr is not None, "el resultado original no se toca"
 
 
 class _WritableMockConfig(_MockConfig):
