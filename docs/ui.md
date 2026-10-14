@@ -37,8 +37,10 @@ cambiarlo se cambia ahí:
 | Color de algo que se dibuja | `ui/theme.py` (`get_palette`, `get_color`) | el widget lo pide en su `set_dark()` |
 | Color de una serie de gráfica | `ui/theme.py` (`SERIES_COLORS`) | `RealtimeChart(series_role="cpu")` |
 | Color de una detección | `system/inference/overlay.py` | **no es de la UI**: el frame llega anotado |
+| Estilo del anotado (máscaras, texto, grosor, paleta) | `inference.overlay` en `config.yaml` | **no se edita desde la UI**: ninguna pestaña lo muestra |
 | Texto que ve el operador | `ui/strings.py` | `tr("clave")`; nunca un literal |
 | Medida (ancho, alto, margen) | constante `_ALGO_PX` del módulo que la usa | si la usan dos módulos, va en `ui/widgets/form.py` |
+| Ancho de una pestaña | `_CARD_WIDTH_PX` en `ui/widgets/form.py` | uno solo para toda tarjeta centrada, en Configuración y en Diagnóstico: no se ajusta por pestaña |
 | Alto de una pestaña | no se declara: la envuelve un área con scroll | ver «Agregar una pestaña» |
 | Estado de un servicio | `ui/service_status.py` | `describe(service, status)` |
 | Estado de un chip | `ui/widgets/status_chip.py` (`CHIP_*`) | `chip.set_state(CHIP_OK)` |
@@ -295,6 +297,28 @@ la imagen.
 
 Un combo así se conecta por `currentIndexChanged` y no por `currentTextChanged`: el
 índice es lo que identifica la opción cuando el texto no la identifica.
+
+### Una sub-pestaña por slot
+
+Cuando una sección tiene slots —cámaras, modelos, pipelines—, cada slot es una
+sub-pestaña de una barra armada con `build_slot_tabs()`, y el formulario de cada una
+sale de `build_form_page()`. Así una pestaña con slots se ve igual en todas, y la barra
+se porta igual con muchos: con más slots de los que entran a lo ancho muestra flechas de
+desplazamiento y no corta ningún rótulo, porque un slot cortado a la mitad no se
+distingue de otro.
+
+Dos familias de slots no comparten barra. Inferencia tiene dos secciones, «Modelos» y
+«Pipelines», cada una con la suya, y los pipelines van debajo porque nombran modelos.
+
+```python
+box, form = build_group_box(tr("inf_box_models"))
+tabs = build_slot_tabs()
+for model_slot in self._config.get("inference.models", {}) or {}:
+    page, page_form = build_form_page()
+    ...                                   # add_form_row(page_form, ...)
+    tabs.addTab(page, model_slot)
+form.addRow(tabs)
+```
 
 ## Agregar una pestaña de diagnóstico
 
