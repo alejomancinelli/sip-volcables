@@ -13,10 +13,17 @@ nombres, comentarios y límites, en `.claude/skills/`.
 
 ## Cómo se corre
 
-El intérprete del proyecto es el del venv, **no** el `python` del PATH:
+El intérprete del proyecto es el del venv, **no** el `python` del PATH. El lint y los tests
+se corren por un solo punto de entrada, que es el mismo que usan los hooks de git:
 
-    .venv\Scripts\python.exe -m pytest -q          # Windows
-    .venv/bin/python -m pytest -q                  # Linux
+    .venv\Scripts\python.exe ci/check.py           # lint + suite (Windows; ~15 s en paralelo)
+    .venv/bin/python ci/check.py lint              # sólo Ruff y el índice de tests (Linux)
+    .venv/bin/python ci/check.py test -- -k gpio   # pytest con lo que va después de --
+
+No hay CI en servidores: la barrera son dos hooks versionados en `.githooks/`. El de
+**commit** corre el lint y el de **push** corre todo; se activan una vez por clon con
+`git config core.hooksPath .githooks`, que ya hace `setup/venv-setup` con `-Dev`. El índice
+de la suite —qué prueba cada archivo— está en [docs/tests.md](docs/tests.md).
 
 Y la aplicación, con o sin ventana:
 
@@ -124,7 +131,9 @@ trae:
 - **`packages/`** — sólo el `.gitkeep`. El wheel de stapipy **no está en el repo**: hay que
   copiarlo ahí antes de correr `setup/cameras/{windows,linux}/sentech.*`. Ojo con la
   arquitectura: el `cp310-win_amd64` no sirve en la Jetson, que necesita el de aarch64.
-- **`.venv/`** — se crea y se instala con `requirements.txt`.
+- **`.venv/`** — lo crea `setup/venv-setup/`: con `-Dev` (`--dev` en Linux) instala
+  `requirements-dev.txt` y activa los hooks; sin el flag, sólo `requirements.txt`, que es lo
+  que va en el equipo de planta.
 - **`data/`** — logs y dataset se generan en runtime.
 - **`license.lic`** — la licencia es de una máquina y no sirve en otra, así que no se
   versiona ninguna. Desde el código fuente no hace falta: la validación sólo corre en un
@@ -136,7 +145,8 @@ trae:
 
 ## Cómo se arranca un fork
 
-1. **Crear el repo** como arriba, `pip install -r requirements.txt` en un venv nuevo y
+1. **Crear el repo** como arriba, armar el venv con `setup/venv-setup/` y `-Dev` —instala
+   lo de desarrollo y activa los hooks de git, que no viajan con el clon— y
    copiar el wheel de stapipy a `packages/`. Los SDK de cámara se instalan con los scripts
    de `setup/cameras/{windows,linux}/`. Cambiar la identidad del proyecto:
    `project.project_id` y `system.app_name` en el config, y `system/version.py`. Copiar
@@ -229,6 +239,7 @@ lo que falta es un punto de extensión, no un parche.
 | video | `system/video/abstract_video_server.py`, `http_server.py`, `rtsp_server.py` |
 | dataset | `system/image_collector/collector.py`, `conditions.py` |
 | licencia | `system/license/*` entero. La clave pública no se edita en ningún fork: la genera el repositorio de firma al compilar, en un `_public_key.py` que no se versiona |
+| verificación | `ci/check.py`, `ci/suite_index.py`, `.githooks/*`, `pyproject.toml`, `requirements-dev.txt` |
 | interfaz | `ui/` entero salvo lo de arriba: `strings.py`, `theme.py`, `service_status.py`, `main_window.py`, las tres vistas, `views/config/*`, `views/diagnostics/*`, `widgets/*`, `dialogs/*`, `styles/*` |
 
 Dos excepciones acotadas: `model_factory.py` y `camera_factory.py` reciben **una línea**
@@ -238,6 +249,9 @@ cada uno cuando el fork agrega una implementación. Eso es registro, no lógica.
 
 `docs/modbus_map.md` y `docs/modbus_map.csv` salen de
 `python -m system.modbus.export_map`. La fuente única es `register_map.yaml`.
+
+`docs/tests.md` sale de `python ci/suite_index.py`, y la fuente es `test/`. Un fork que
+agrega tests lo regenera, y el hook de commit no deja pasar uno desactualizado.
 
 ## Cómo devolver una mejora al template
 

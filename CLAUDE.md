@@ -15,14 +15,17 @@ archivo de qué se toca están en `README.md`.
 
 ## Cómo se corre
 
-El intérprete del proyecto es el del venv, **no** el `python` del PATH:
+El intérprete del proyecto es el del venv, **no** el `python` del PATH. Lint y tests salen
+de un solo punto de entrada, el mismo que corren los hooks de git:
 
-    .venv\Scripts\python.exe -m pytest -q          # Windows
-    .venv/bin/python -m pytest -q                  # Linux
+    .venv\Scripts\python.exe ci/check.py           # lint + suite, en paralelo (~15 s)
+    .venv/bin/python ci/check.py lint              # Ruff + índice de tests al día
+    .venv/bin/python ci/check.py test -- <args>    # pytest con lo que va después de --
 
 Python 3.10 de 64 bits, fijado por el wheel cp310 de stapipy. La suite completa
 corre sin hardware, sin GUI y sin red: todo lo externo se reemplaza por dobles
-dentro del propio archivo de test.
+dentro del propio archivo de test. Cómo se escribe un test y qué se hace cuando uno falla
+está en la skill `pruebas`; qué prueba cada archivo, en `docs/tests.md`.
 
 Lo que sí necesita hardware —o una pantalla, como la prueba de la interfaz— vive en
 `manual_test/<tema>/`, cada uno con su `config.yaml` al lado. La instalación de los
@@ -134,11 +137,14 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`.
     setup/                    instalación de SDK de cámara (en inglés, ver skill)
     packages/                 wheels que no están en PyPI (stapipy)
     build/                    compilar con Nuitka y armar el entregable; ver su README
+    ci/                       verificación: check.py (lint + tests) y suite_index.py (docs/tests.md)
+    .githooks/                pre-commit corre el lint, pre-push corre todo; activados por clon
     docs/                     documentos con público propio: el mapa Modbus generado,
                               ui.md, influxdb.md (la estructura de las series) y
                               licensing.md (cómo se pide y se renueva una licencia)
-                              mqtt.md (la misma estructura, en tópicos y JSON) y
-                              model_protection.md (cómo se protege y se reemplaza un modelo)
+                              mqtt.md (la misma estructura, en tópicos y JSON),
+                              model_protection.md (cómo se protege y se reemplaza un modelo) y
+                              tests.md (el índice de la suite, generado)
     data/                     logs y dataset en runtime
 
 La dirección de las dependencias y las reglas de límites están en la skill
@@ -482,6 +488,14 @@ Lo que no se deduce leyendo un archivo suelto:
   es la forma en el cable —MQTT publica un JSON plano en `<topic_base>/<measurement>`, con
   los tags y los fields fusionados—, y eso está en `docs/mqtt.md`, que apunta a
   `docs/influxdb.md` para los campos en vez de repetirlos.
+- **La verificación es local y la barrera son los hooks de git, no un servidor.** El
+  pre-commit corre Ruff y el índice de tests; el pre-push, además, la suite entera en
+  paralelo. Los dos llaman a `ci/check.py`, que es el único lugar donde se decide cómo se
+  corre algo. El lint es sólo lint —pyflakes, bugbear y errores de sintaxis—, sin
+  formatter ni orden de imports: los forks cross-portean la maquinaria, y reformatear el
+  template haría chocar cada línea en el próximo merge. La suite corre en orden aleatorio
+  (pytest-randomly) para que un test que deja estado se note acá y no en otra máquina.
+  `--no-verify` saltea todo, y por eso no se usa: no hay otra red detrás.
 - **El mapa Modbus es un archivo de datos, no código.** Vive en
   `system/modbus/register_map.yaml` porque es lo que cambia en cada instalación, y
   es fuente única: la tabla que lee el integrador se genera con
@@ -600,6 +614,9 @@ La tabla completa, archivo por archivo, está en `README.md`.
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
+- **El servidor de tests en la Jetson**, que correría la suite contra el hardware y la GPU
+  de producción, está en pausa. Hoy todo corre en la máquina de desarrollo y lo que pide
+  hardware sigue en `manual_test/`. La guía de partida es `.claude/plans/ci-testing-guide.md`.
 - **De la licencia falta la mitad que no es código.** El subsistema está entero y cableado
   —cupo de cámaras, features por pipeline, vencimiento, huella, modo de puesta en marcha
   sin licencia, bit y reloj al PLC, pestaña de diagnóstico, chip de footer y cartel de
