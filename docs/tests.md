@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**72 archivos, 399 grupos, 1972 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**72 archivos, 400 grupos, 1975 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -19,7 +19,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
-| [test/image_collector/](#testimage_collector) | 2 | 77 |
+| [test/image_collector/](#testimage_collector) | 2 | 80 |
 | [test/inference/](#testinference) | 12 | 317 |
 | [test/inference/models/](#testinferencemodels) | 4 | 86 |
 | [test/license/](#testlicense) | 8 | 138 |
@@ -1111,7 +1111,7 @@ Tests de la palabra de estado del sistema: con cualquier bit en 1 las mediciones
 
 ## test/image_collector/
 
-### [test_collector.py](../test/image_collector/test_collector.py) — 62 tests
+### [test_collector.py](../test/image_collector/test_collector.py) — 65 tests
 
 Tests del recolector de dataset: los dos modos de operación, los filtros, el buffer circular y la guardia de disco.
 
@@ -1129,6 +1129,7 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
 | `TestIntervalMode` |  | 8 |
 | `TestIntervalSchedule` |  | 4 |
 | `TestStats` |  | 4 |
+| `TestSameInstant` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1206,6 +1207,10 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
   - `test_counters_start_at_zero`
   - `test_last_save_is_stamped`
   - `test_reports_mode_and_running`
+- `TestSameInstant`
+  - `test_two_captures_in_the_same_instant_are_both_kept`
+  - `test_the_names_keep_the_order_of_the_captures`
+  - `test_each_camera_keeps_its_own_instant`
 
 </details>
 
