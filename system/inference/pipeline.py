@@ -78,3 +78,39 @@ class Pipeline(AbstractPipeline):
 
     def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
         return self._run_stage("model_1", frame_bgr)
+
+
+class GrainFlowPipeline(AbstractPipeline):
+    """
+    ¿Cae grano del camión? Un clasificador sobre la vista de la tolva.
+
+    El veredicto es del frame entero, así que sale en el label `grain_flow` con la clase más
+    confiable y no como detección: una caja del tamaño del frame no dice nada. Sin
+    detecciones el label es `none`.
+    """
+
+    model_slots = ("grain_cls",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        detections = self._run_stage("grain_cls", frame_bgr)
+        top = max(detections, key=lambda detection: detection.confidence_pct, default=None)
+        self._set_label("grain_flow", top.class_name if top is not None else "none")
+        return []
+
+
+class PersonPipeline(AbstractPipeline):
+    """Personas en la escena: una etapa de detección. La zona la juzga el analyzer."""
+
+    model_slots = ("person_det",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        return self._run_stage("person_det", frame_bgr)
+
+
+class StopperPipeline(AbstractPipeline):
+    """Calzas y ruedas, una cámara por lado: una etapa de segmentación."""
+
+    model_slots = ("stopper_seg",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        return self._run_stage("stopper_seg", frame_bgr)

@@ -56,13 +56,18 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     """
     Arma los hooks del proyecto con los valores de `process:`.
 
-    El template no filtra ni reetiqueta, cuenta con el analyzer genérico, y dibuja el
-    límite de carga sólo si alguna cámara lo declara.
+    No filtra ni reetiqueta y cuenta con el analyzer genérico. Dibuja el límite de carga
+    sólo si alguna cámara lo declara, y el panel de veredictos —el `grain_flow` del
+    clasificador— sólo si el config declara la sección `process.grain_flow`.
     """
     max_load_y_px = config.get("process.max_load_y_px", {}) or {}
+    has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
 
-    annotator = None
+    selected = []
+    if has_grain_flow:
+        selected.append(annotations.labels_panel_annotator())
     if max_load_y_px:
-        annotator = annotations.chain(annotations.max_load_line_annotator(max_load_y_px))
+        selected.append(annotations.max_load_line_annotator(max_load_y_px))
+    annotator = annotations.chain(*selected) if selected else None
 
     return EngineHooks(analyzer=compute_metrics, annotator=annotator)

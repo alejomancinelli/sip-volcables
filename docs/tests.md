@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**67 archivos, 366 grupos, 1808 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**67 archivos, 368 grupos, 1814 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -20,7 +20,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 4 | 75 |
 | [test/image_collector/](#testimage_collector) | 2 | 77 |
-| [test/inference/](#testinference) | 12 | 304 |
+| [test/inference/](#testinference) | 12 | 310 |
 | [test/inference/models/](#testinferencemodels) | 4 | 86 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -1238,7 +1238,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 15 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 17 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1246,6 +1246,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 |---|---:|
 | `TestMaxLoadLine` | 9 |
 | `TestChain` | 6 |
+| `TestLabelsPanel` | 2 |
 
 <details><summary>Tests</summary>
 
@@ -1266,6 +1267,9 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_an_empty_chain_draws_nothing`
   - `test_none_entries_are_skipped`
   - `test_it_names_the_annotators_it_carries`
+- `TestLabelsPanel`
+  - `test_a_result_with_labels_gets_a_panel`
+  - `test_a_result_without_labels_draws_nothing`
 
 </details>
 
@@ -1436,13 +1440,13 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 
 </details>
 
-### [test_hooks.py](../test/inference/test_hooks.py) — 6 tests
+### [test_hooks.py](../test/inference/test_hooks.py) — 7 tests
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
 | Grupo | Tests |
 |---|---:|
-| `TestTemplateHooks` | 6 |
+| `TestTemplateHooks` | 7 |
 
 <details><summary>Tests</summary>
 
@@ -1452,6 +1456,7 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_the_analyzer_is_the_generic_count`
   - `test_without_a_load_limit_there_is_no_annotator`
   - `test_a_declared_load_limit_is_drawn_on_its_camera`
+  - `test_a_declared_grain_flow_draws_the_verdict_panel`
   - `test_the_load_limit_is_not_drawn_on_other_cameras`
 
 </details>
@@ -1571,14 +1576,15 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 
 </details>
 
-### [test_pipeline.py](../test/inference/test_pipeline.py) — 17 tests
+### [test_pipeline.py](../test/inference/test_pipeline.py) — 20 tests
 
 Tests de la maquinaria del pipeline: carga de las etapas por slot, tiempos por etapa, encadenado en cascada y el pipeline de una etapa del template.
 
-| Grupo | Tests |
-|---|---:|
-| `TestLoading` | 5 |
-| `TestRunning` | 12 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestLoading` |  | 5 |
+| `TestRunning` |  | 12 |
+| `TestProjectPipelines` | Los pipelines de esta instalación: grano, personas y calzas. | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1601,6 +1607,10 @@ Tests de la maquinaria del pipeline: carga de las etapas por slot, tiempos por e
   - `test_a_verdict_does_not_survive_the_next_frame`
   - `test_the_labels_are_a_copy`
   - `test_a_synthetic_stage_marks_the_pipeline`
+- `TestProjectPipelines`
+  - `test_grain_flow_is_a_label_with_the_most_confident_class`
+  - `test_grain_flow_without_detections_says_none`
+  - `test_a_one_stage_pipeline_returns_what_its_model_found`
 
 </details>
 

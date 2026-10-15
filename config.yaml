@@ -89,6 +89,9 @@ process:
   scale_px_per_mm: {}           # {camera_1: 3.2} — calibración; sin esto no hay medidas físicas
   max_load_y_px: {}             # {camera_1: 430} — altura del límite de carga de la cinta
   min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
+  # Caída de grano. Declarada, el anotado muestra el veredicto `grain_flow` del clasificador
+  # en un panel; acá va a ir el canal de GPIO de la señal de volteo de cada cámara.
+  grain_flow: {}
   #
   # VARIOS PROCESOS. Una instalación con más de un proceso —cuatro cintas iguales, cada
   # una con su calibración— abre una sub-sección por proceso y declara qué cámaras mide
@@ -136,6 +139,9 @@ inference:
     draw_labels: true           # nombre de clase y confianza sobre cada caja
     draw_roi: true              # recuadro de la zona que se analizó
     draw_timestamp: true
+    # Sólo el recorte del ROI en el anotado. Con varios pipelines sobre una cámara el
+    # anotado no se combina: muestra uno por vez.
+    crop_to_roi: false
     font_scale: 0.6
     thickness: 2
     class_colors_bgr: []        # [[B,G,R], ...] por índice de clase; [] = paleta del módulo
@@ -148,7 +154,7 @@ inference:
       # Ausente = `default`. Dos slots del mismo tipo son dos hilos con sus propios pesos:
       # así se reparten cámaras entre hilos. Un tipo no registrado deja el pipeline sin
       # cargar, con resultados no confiables.
-      type: default
+      type: grain_flow
       # Qué addon comercial es este pipeline: UN nombre. Lo lee el subsistema de licencia
       # (`system/license/`) y un pipeline cuyo feature no está habilitado no se instancia.
       # Ausente = `core`, que es el pipeline normal y el que tiene toda instalación.
@@ -162,8 +168,8 @@ inference:
       # solo el cliente que no compró la vigilancia perdería también la medición que sí
       # pagó, porque el pipeline entero no arranca.
       feature: core
-      cameras: [camera_1]       # cámaras que entran a este hilo; [] = todas las que le pusheen
-      interval_s: 0.0           # período mínimo entre frames de una misma cámara; 0 = todos
+      cameras: [camera_1, camera_2]   # cámaras que entran a este hilo; [] = todas las que le pusheen
+      interval_s: 0.5           # período mínimo entre frames de una misma cámara; 0 = todos
       # Umbrales del resultado completo, no de cada detección: por debajo, el resultado se
       # emite igual pero marcado como no confiable, y sus números no se publican como
       # medición. El descarte por detección es del modelo (`min_confidence_pct`).
@@ -187,10 +193,41 @@ inference:
       # imagen mientras tanto, así que viene apagado. Al prenderlo, `capture_timeout_s`
       # tiene que cubrir lo que la cámara tarda en rearmar la adquisición: si el primer
       # frame llega después del timeout, la ronda se queda esperando algo que no salió.
+    pipeline_2:
+      # Personas sobre las mismas dos cámaras que el grano, a su propio ritmo: es el caso
+      # del anotado combinado —las cajas de personas y el panel del grano juntos—.
+      enabled: true
+      type: person_safety
+      feature: person_safety
+      cameras: [camera_1, camera_2]
+      interval_s: 0.0
+      min_detections: 0
+      min_result_confidence_pct: 0
+      frames_per_cycle: 1
+      cycle_interval_s: 0.0
+      capture_timeout_s: 30
+      idle_cameras_between_cycles: false
+    pipeline_3:
+      # Calzas: una cámara por lado, sin otro pipeline encima.
+      enabled: true
+      type: stopper_check
+      feature: stopper_check
+      cameras: [camera_3, camera_4]
+      interval_s: 0.5
+      min_detections: 0
+      min_result_confidence_pct: 0
+      frames_per_cycle: 1
+      cycle_interval_s: 0.0
+      capture_timeout_s: 30
+      idle_cameras_between_cycles: false
   models:
     # Una entrada por modelo, numeradas model_1 … model_N. El slot es el nombre con el que
     # el pipeline pide el modelo en `model_slots`.
-    model_1:
+    #
+    # Los tres van en `mock` hasta que exista el wrapper de YOLO (`yolo_cls`, `yolo_det`,
+    # `yolo_seg`): las detecciones son sintéticas y el `path` queda vacío. Los pesos
+    # reales esperan en models/cls.pt, models/det.pt y models/seg.pt.
+    grain_cls:
       type: mock                # ver REGISTERED_MODELS en model_factory.py
       path: ''                  # pesos del modelo; relativo a la raíz del repo
       # El dispositivo no se configura: la implementación usa la GPU si hay CUDA
@@ -200,11 +237,29 @@ inference:
       max_side_px: 0            # lado mayor al que se reduce antes de inferir; 0 = nativo
       # Nombre por índice de clase; [] = 'class_<i>'. Los que traen los pesos le ganan. No
       # se edita desde la UI: un orden cambiado no da un error, invierte los porcentajes.
-      class_names: []
-      params: {}                # extras propios del framework
+      class_names: [no_flow, flow]
+      params:                   # extras propios del framework
+        detection_count: 1      # mock: el clasificador da una clase por frame
       # En un proyecto que cuenta cientos de objetos `min_confidence_pct` va bajo a
       # propósito: el que juzga si el conjunto sirve es el umbral del pipeline, sobre la
       # confianza promediada.
+    person_det:
+      type: mock
+      path: ''
+      min_confidence_pct: 50
+      max_side_px: 0
+      class_names: [person]
+      params:
+        detection_count: 1      # mock: una caja por clase declarada, sin máscara
+    stopper_seg:
+      type: mock
+      path: ''
+      min_confidence_pct: 50
+      max_side_px: 0
+      class_names: [stopper, wheel]
+      params:
+        detection_count: 2      # mock: calza y rueda, con máscara
+        with_masks: true
 
 image_collector:
   # Dataset de imágenes en `system.paths.dataset`, una carpeta por fecha y cámara:
@@ -337,16 +392,19 @@ lens_health:
 cameras:
   # Una entrada por cámara física, numeradas camera_1 … camera_N. La clave es el
   # slot: es la identidad con la que la cámara aparece en el resto del sistema.
+  #
+  # Las cuatro son video grabado (`driver: video_file`, ver docs/offline_testing.md): la
+  # imagen es de la planta pero no es la línea ahora, y el estado que lee el PLC lo dice.
   camera_1:
-    name: CAMERA_NAME           # texto que muestra la UI; se puede cambiar sin romper nada
+    name: Acoplado              # texto que muestra la UI; se puede cambiar sin romper nada
     enabled: true               # false = conectada pero sin capturar (ver get_status)
-    brand: BRAND_NAME           # clave de CAMERA_CATALOG en camera_catalog.py
-    model: MODEL_NAME           # uno de los "models" de ese fabricante
-    driver: DRIVER_USED         # ver REGISTERED_DRIVERS en camera_factory.py
-    address: IP_ADDRESS         # IP o ID de GenTL según el driver
+    brand: replay               # clave de CAMERA_CATALOG en camera_catalog.py
+    model: file                 # uno de los "models" de ese fabricante
+    driver: video_file          # ver REGISTERED_DRIVERS en camera_factory.py
+    address: recordings/acoplado.mp4   # IP, ID de GenTL o ruta al video, según el driver
     rotation: null              # null | 90cw | 90ccw | 180
     acquisition:
-      fps_limit: 15
+      fps_limit: 1              # tope de frames por segundo; 0 = el fps del video (10)
       exposure_time_us: 25000
       gain: 1.0
     roi:
@@ -355,7 +413,7 @@ cameras:
       y_px: 0
       width_px: 0
       height_px: 0
-    illumination_min: 50        # brillo medio mínimo del ROI 0–100
+    illumination_min: 0         # brillo medio mínimo del ROI 0–100; 0 mientras se prueba con video
     lens_health:
       # Referencia de vidrio limpio de ESTA cámara, contra la que se compara la nitidez
       # medida. La escribe la calibración desde la pantalla; a mano se toca sólo para
@@ -398,3 +456,102 @@ cameras:
       # aplica al reiniciar, como todo lo de la cámara.
       brightness_factor: 1.0    # x0.1–x5.0, lineal y saturado en 255; 1.0 = sin cambio
       clahe_clip: 0.0           # contraste local 0–8; 0 = apagado
+  camera_2:
+    name: Chasis
+    enabled: true
+    brand: replay
+    model: file
+    driver: video_file
+    address: recordings/chasis.mp4
+    rotation: null
+    acquisition:
+      fps_limit: 1
+      exposure_time_us: 25000
+      gain: 1.0
+    roi:
+      enabled: false
+      x_px: 0
+      y_px: 0
+      width_px: 0
+      height_px: 0
+    illumination_min: 0
+    lens_health:
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0
+  camera_3:
+    name: Calza izquierda
+    enabled: true
+    brand: replay
+    model: file
+    driver: video_file
+    address: recordings/calza_izq.mp4
+    rotation: null
+    acquisition:
+      fps_limit: 1
+      exposure_time_us: 25000
+      gain: 1.0
+    roi:
+      enabled: false
+      x_px: 0
+      y_px: 0
+      width_px: 0
+      height_px: 0
+    illumination_min: 0
+    lens_health:
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0
+  camera_4:
+    name: Calza derecha
+    enabled: true
+    brand: replay
+    model: file
+    driver: video_file
+    address: recordings/calza_der.mp4
+    rotation: null
+    acquisition:
+      fps_limit: 1
+      exposure_time_us: 25000
+      gain: 1.0
+    roi:
+      enabled: false
+      x_px: 0
+      y_px: 0
+      width_px: 0
+      height_px: 0
+    illumination_min: 0
+    lens_health:
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0

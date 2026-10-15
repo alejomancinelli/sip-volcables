@@ -19,7 +19,7 @@ from system.logger import logger
 
 from .abstract_pipeline import AbstractPipeline
 from .null_pipeline import NullPipeline
-from .pipeline import Pipeline
+from .pipeline import GrainFlowPipeline, PersonPipeline, Pipeline, StopperPipeline
 
 DEFAULT_PIPELINE = "default"
 
@@ -27,6 +27,9 @@ DEFAULT_PIPELINE = "default"
 # NullPipeline no figura acá — no se elige por config, es la salida ante un fallo.
 _PIPELINE_CLASSES: dict[str, type[AbstractPipeline]] = {
     DEFAULT_PIPELINE: Pipeline,
+    "grain_flow": GrainFlowPipeline,
+    "person_safety": PersonPipeline,
+    "stopper_check": StopperPipeline,
 }
 
 # Valores válidos de `type`, para mensajes de error y para el combo de la UI.

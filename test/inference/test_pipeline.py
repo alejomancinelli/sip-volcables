@@ -9,7 +9,9 @@ import pytest
 
 from system.inference.models.abstract_model import AbstractModel
 from system.inference.abstract_pipeline import AbstractPipeline
-from system.inference.pipeline import Pipeline
+from system.inference.pipeline import (
+    GrainFlowPipeline, PersonPipeline, Pipeline, StopperPipeline,
+)
 from system.inference.result import Detection
 
 _PIPELINE = "pipeline_1"
@@ -258,3 +260,53 @@ class TestRunning:
         pipeline = Pipeline(config, _PIPELINE)
         pipeline.load()
         assert pipeline.is_synthetic is True
+
+
+class _ScriptedModel(_FakeModel):
+    """Modelo que devuelve las detecciones que el test le dicta."""
+
+    def __init__(self, config_manager, model_slot: str, detections: list[Detection]):
+        super().__init__(config_manager, model_slot)
+        self._detections = detections
+
+    def predict(self, frame_bgr, previous=None) -> list[Detection]:
+        return list(self._detections)
+
+
+def _detection(class_name: str, confidence_pct: float) -> Detection:
+    return Detection(class_index=0, class_name=class_name, confidence_pct=confidence_pct,
+                     bbox_px=(0, 0, 10, 10))
+
+
+class TestProjectPipelines:
+    """Los pipelines de esta instalación: grano, personas y calzas."""
+
+    def _loaded(self, monkeypatch, pipeline_class, model_slot: str,
+                detections: list[Detection]):
+        config = _MockConfig(**{model_slot: {"type": "mock"}})
+        _install_models(monkeypatch,
+                        {model_slot: _ScriptedModel(config, model_slot, detections)})
+        pipeline = pipeline_class(config, _PIPELINE)
+        pipeline.load()
+        return pipeline
+
+    def test_grain_flow_is_a_label_with_the_most_confident_class(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls",
+                                [_detection("no_flow", 30.0), _detection("flow", 80.0)])
+        assert pipeline.run(_frame(), _SLOT) == []
+        assert pipeline.labels == {"grain_flow": "flow"}
+
+    def test_grain_flow_without_detections_says_none(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls", [])
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.labels == {"grain_flow": "none"}
+
+    @pytest.mark.parametrize("pipeline_class, model_slot", [
+        (PersonPipeline, "person_det"),
+        (StopperPipeline, "stopper_seg"),
+    ])
+    def test_a_one_stage_pipeline_returns_what_its_model_found(self, monkeypatch,
+                                                               pipeline_class, model_slot):
+        found = [_detection("x", 90.0)]
+        pipeline = self._loaded(monkeypatch, pipeline_class, model_slot, found)
+        assert [d.class_name for d in pipeline.run(_frame(), _SLOT)] == ["x"]
