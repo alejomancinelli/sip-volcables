@@ -1,6 +1,7 @@
 # Plan: using the Jetson's fixed-function accelerators (template)
 
-**Status: Phase 0 implemented, waiting for its first run on the Jetson.** The work is on
+**Status: Phase 0 implemented and run once on the Jetson (results in §4). A second run
+decides where the app reads engine load without root.** The work is on
 `machinery/jetson-accelerators` in `sip-volcables`, branched from `fork/mock-pipelines` so
 the Jetson clone can also run the mock pipelines on recorded video. It's machinery: these
 commits go back to `cv_projects_template` as their own PR.
@@ -162,6 +163,58 @@ whether the next one is worth doing.
      already in NVMM, and that gain may not carry over.
 
    **Phases 1–4 only go ahead for stages that show up in this profile.**
+
+#### First run (2026-10-15, Orin NX 8 GB, 20W, clocks not pinned)
+
+Process CPU ms per 1920×1080 frame. Clocks weren't pinned, so these numbers are only
+approximate.
+
+| Stage | CPU path | Engine path | Reading |
+|---|---|---|---|
+| RTSP H.264 | `h264_sw` 43.8 · current `h264_hw` 23.9 | BGRx → nvvidconv → NVENC 6.9 † | **Phase 1 confirmed**, the largest win |
+| Decode + resize to 640×360 | 22.1 | NVDEC + VIC resize 6.2 | **Phase 3 confirmed**, but only with the resize |
+| Decode at full size | 13.5 | NVDEC 12.8 | No gain: the full-size BGRx→BGR copy costs what decoding saved |
+| MJPEG 960×540 | 10.8 | NVJPG 6.8 † | Modest; Phase 2 stays conditional |
+| Resize / letterbox from numpy | 6.0 / 10.3 | VIC 16.6 / 16.6 | **VIC loses**: the round trip costs more than the resize |
+| Undistort remap | 109.6 | — | Very expensive |
+| Debayer | 3.0 | — | Not worth moving |
+
+† These two rows excluded the app's BGR→BGRx conversion. The bench now includes it, and
+the second run re-measures them.
+
+What changes in the plan:
+
+- **No VIC for a frame that's already a numpy array** (GigE frames, display resize,
+  letterbox). The VIC only pays when the frame is already in NVMM, i.e. coming out of
+  NVDEC. Phase 4's VIC paths are dropped. Model input stays on the CPU, or moves to the
+  GPU in the YOLO wrapper.
+- **Phase 3 is NVDEC *with* resize at decode, or nothing.** Decoding at full size and
+  copying out costs the same as the CPU path.
+- **Undistort is the most expensive CPU stage measured.** It doesn't matter for a fork
+  that doesn't enable it. For one that does, a VPI remap on CUDA comes first: VPI isn't
+  in the venv today and has to be linked in, like `gi`.
+- **Debayer stays on the CPU.**
+- **`config.yaml` ships `video.rtsp.codec: h264_sw`.** On the NX that costs far more CPU
+  than `h264_hw`, so a Jetson install should switch now, even before Phase 1.
+
+**`tegrastats` publishes the engines only as root.** Without root, the line has
+`GR3D_FREQ` and nothing else: no EMC, VIC, NVENC, NVDEC or NVJPG. With `sudo` it has all
+of them. That rules out `tegrastats` as the app's source as it stands. The options, in
+order of preference:
+
+1. **sysfs without root**: runtime-PM state (`active`/`suspended`) and devfreq of each
+   engine. That gives on/off and frequency, but no load %. The probe now prints both and
+   samples them during each engine's pipeline. The second run says whether they exist.
+2. **A sudoers rule pinned to the exact command**, e.g.
+   `<user> ALL=(root) NOPASSWD: /usr/bin/tegrastats --interval 1000`, installed by
+   `setup-jetson.sh`. It must never be a bare `tegrastats`: `--logfile` would let the
+   user write any file as root.
+3. GPU load only, which sysfs already gives the app today.
+
+The first run's "NO SE ENCENDIÓ" (didn't turn on) on every pipeline was a bug in the
+probe: an engine that `tegrastats` doesn't report was being read as off. The probe now
+says "no publicado" (not reported). The NVENC/NVDEC lines in its stderr show the engines
+did run.
 
 ### Phase 1: fix the RTSP path that already uses NVENC (small, low risk)
 
@@ -360,21 +413,23 @@ are already in JetPack and cover the four engines.
 
 ## 7. Suggested order and expected value
 
-For the Orin NX 8 GB, with the Volcables results in hand:
+For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand:
 
-1. **Phase 0.** Run both scripts on the Jetson, then do step 2 with whatever `tegrastats`
-   turns out to show without root.
-2. **Phase 3 (NVDEC + VIC resize at decode)** for RTSP cameras and `video_file`. This is
-   the one already proven, and Volcables' cameras are RTSP. Its decoder output size
-   becomes a per-camera config key, so the frame reaches the engine at the size the model
-   uses.
-3. **Phase 1.** Hours of work on code that already exists. It removes two CPU conversions
-   from every RTSP stream.
+1. **Finish Phase 0.** Do the second run: root and non-root, clocks pinned, a real
+   recording. Then do step 2 with the source it settles (sysfs or a pinned sudoers rule).
+2. **Phase 1.** Hours of work on code that already exists, and the largest measured win.
+3. **Phase 3 (NVDEC + VIC resize at decode)** for RTSP cameras and `video_file`. This was
+   proven twice, and Volcables' cameras are RTSP.
+   - The decoder's output size makes it a 640×360 camera as far as the app knows: the
+     ROI, the dataset and the streams all live at that size. So it's a per-camera config
+     key, like a camera's resolution, not a preprocessing step.
+   - Without the resize, it isn't worth doing.
 4. **Rectangular engines** (§6) in the YOLO wrapper and its export notes. This is a
    fork/export decision, not engine code, but it was the largest model-side gain.
-5. **Phase 2 (NVJPG)**, if the bench shows the round trip from numpy still pays off.
-6. **Phase 4.** Model input on the GPU or the VIC, then undistort/debayer, as the
-   profile dictates.
+5. **Phase 2 (NVJPG)**, if the re-measure with the BGR→BGRx conversion included still
+   shows a gain.
+6. **Undistort on VPI/CUDA**, only for a fork that enables undistort. The rest of
+   Phase 4's VIC paths are dropped.
 
 ## 8. Open decisions
 
