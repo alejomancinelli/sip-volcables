@@ -1,0 +1,44 @@
+# Config de las pruebas manuales de aceleradores, separada del config.yaml de la app.
+# La leen probe_report.py y stage_bench.py; cada uno usa su sección.
+
+# Intervalo de `tegrastats` mientras corre una prueba. Más corto que el de la app: una
+# prueba de un par de segundos tiene que dejar varias muestras para ver el motor encendido.
+tegrastats_interval_ms: 100
+
+probe:
+  # Pipelines de prueba de cada motor (videotestsrc → motor → fakesink). Con menos de
+  # ~1 s de trabajo el motor puede no llegar a verse en `tegrastats`.
+  width_px: 1920
+  height_px: 1080
+  frame_count: 120
+
+bench:
+  # Frame de entrada: el tamaño que entrega la cámara. Las cámaras de volcables son
+  # 1920x1080 y 2560x1440.
+  width_px: 1920
+  height_px: 1080
+  # Frames medidos por variante, después de `warmup_frames` que no cuentan: el primero
+  # paga la negociación del pipeline y el arranque del motor.
+  frame_count: 200
+  warmup_frames: 10
+
+  # Tamaño al que se reduce en `resize` y en `decode` con reducción: el que recibieron
+  # los modelos en el benchmark de volcables.
+  output_width_px: 640
+  output_height_px: 360
+
+  # `jpeg`: lo que hace el stream MJPEG —reducir a este ancho y codificar—.
+  jpeg_width_px: 960
+  jpeg_quality: 80
+
+  # `letterbox`: entrada del modelo, alto x ancho. El rectangular de volcables.
+  model_height_px: 384
+  model_width_px: 640
+
+  # `decode`: un video H.264 de la planta (recordings/...). Vacío = se fabrica uno con
+  # x264enc del tamaño de `width_px` x `height_px`; sin x264enc la etapa se saltea.
+  video_path: ""
+
+  # Etapas a correr, en este orden. Todas: resize, jpeg, h264, decode, debayer, remap,
+  # letterbox.
+  stages: [resize, jpeg, h264, decode, debayer, remap, letterbox]
