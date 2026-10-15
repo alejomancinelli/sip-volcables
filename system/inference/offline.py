@@ -95,4 +95,4 @@ class OfflineRunner:
         devuelve lista vacía.
         """
         return [engine.process(frame_bgr, camera_slot) for engine in self._engines
-                if not engine.camera_slots or camera_slot in engine.camera_slots]
+                if engine.has_camera(camera_slot)]

@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**66 archivos, 360 grupos, 1771 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**66 archivos, 360 grupos, 1775 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,13 +14,13 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 257 |
+| [test/](#test) | 6 | 258 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 4 | 75 |
 | [test/image_collector/](#testimage_collector) | 2 | 77 |
-| [test/inference/](#testinference) | 11 | 275 |
+| [test/inference/](#testinference) | 11 | 278 |
 | [test/inference/models/](#testinferencemodels) | 4 | 86 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -188,7 +188,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 54 tests
+### [test_main.py](../test/test_main.py) — 55 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -200,7 +200,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
-| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 7 |
+| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 4 |
 | `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
 | `TestLensInterval` |  | 4 |
@@ -239,6 +239,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_cycle_the_stats_are_derived`
 - `TestFramePath`
   - `test_an_uncycled_engine_gets_the_frame_in_the_capture_thread`
+  - `test_an_engine_only_gets_its_own_cameras`
   - `test_a_cycled_engine_waits_for_the_gui`
   - `test_the_raw_stream_gets_the_frame_only_with_clients`
   - `test_the_gui_is_notified_once_while_a_frame_waits`
@@ -1257,13 +1258,13 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 82 tests
+### [test_engine.py](../test/inference/test_engine.py) — 85 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
-| `TestConstruction` |  | 4 |
+| `TestConstruction` |  | 7 |
 | `TestQueue` |  | 10 |
 | `TestConfigCache` | El config se lee una vez, no por frame: cada `get` es un lock global y una copia. | 2 |
 | `TestRoiAndIllumination` |  | 7 |
@@ -1281,6 +1282,9 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 - `TestConstruction`
   - `test_the_slot_comes_from_the_pipeline`
   - `test_cameras_are_read_from_its_own_section`
+  - `test_it_has_the_cameras_it_declares`
+  - `test_without_a_list_it_has_every_camera`
+  - `test_asking_for_a_foreign_camera_does_not_warn`
   - `test_status_is_available_before_starting`
   - `test_status_reports_the_models_of_the_pipeline`
 - `TestQueue`

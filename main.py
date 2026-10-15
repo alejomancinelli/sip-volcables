@@ -807,8 +807,10 @@ class Application(QObject):
         self._last_raw_frame[camera_slot] = frame_bgr
         for engine in self._engines:
             # Sin ciclo el permiso es siempre que sí, y el ritmo lo sigue poniendo el
-            # `interval_s` del motor.
-            if not self._scheduler.is_cycled(engine.pipeline_slot):
+            # `interval_s` del motor. Se le pregunta antes si la cámara es suya: con varios
+            # pipelines repartiéndose cámaras, un frame ajeno lo descarta avisando.
+            if (not self._scheduler.is_cycled(engine.pipeline_slot)
+                    and engine.has_camera(camera_slot)):
                 engine.push_frame(frame_bgr, camera_slot)
         # Lo que mira una persona puede llevar gamma y contraste local; lo que se mide,
         # nunca. Sin clientes en el crudo no se ajusta nada: `_for_display` crea un frame.

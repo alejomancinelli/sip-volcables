@@ -454,7 +454,8 @@ class _DemoApp(QObject):
             self._grid.update_frame(frame_bgr, camera_slot)
         self._http_video.push_raw(camera_slot, frame_bgr)
         for engine in self._engines:
-            engine.push_frame(frame_bgr, camera_slot)
+            if engine.has_camera(camera_slot):
+                engine.push_frame(frame_bgr, camera_slot)
 
     @Slot(object, str)
     def _on_camera_status(self, status: dict, camera_slot: str):

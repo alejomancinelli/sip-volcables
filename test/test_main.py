@@ -256,10 +256,15 @@ class TestInferenceFields:
 class _FrameSink:
     """Motor o servidor de video: registra lo que le empujan."""
 
-    def __init__(self, pipeline_slot: str = "", *, raw_clients: bool = False):
+    def __init__(self, pipeline_slot: str = "", *, raw_clients: bool = False,
+                 cameras: tuple = ()):
         self.pipeline_slot = pipeline_slot
         self.raw_clients = raw_clients
+        self._cameras = cameras
         self.pushed: list = []
+
+    def has_camera(self, camera_slot: str) -> bool:
+        return not self._cameras or camera_slot in self._cameras
 
     def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
         self.pushed.append((frame_bgr, camera_slot, ignore_interval))
@@ -326,6 +331,15 @@ class TestFramePath:
         frame = np.zeros((4, 4, 3), np.uint8)
         app._on_frame_captured(frame, "camera_1")
         assert engine.pushed == [(frame, "camera_1", False)]
+
+    def test_an_engine_only_gets_its_own_cameras(self):
+        """Dos pipelines repartiéndose cámaras: un frame ajeno ni se le ofrece."""
+        first = _FrameSink("pipeline_1", cameras=("camera_1",))
+        second = _FrameSink("pipeline_2", cameras=("camera_2",))
+        app = _build_frame_application(engines=[first, second])
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_2")
+        assert first.pushed == []
+        assert [camera_slot for _, camera_slot, _ in second.pushed] == ["camera_2"]
 
     def test_a_cycled_engine_waits_for_the_gui(self):
         """Su permiso lo maneja el scheduler, que no es thread-safe."""

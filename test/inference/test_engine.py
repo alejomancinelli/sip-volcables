@@ -167,6 +167,22 @@ class TestConstruction:
         config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.cameras": [_SLOT, _OTHER_SLOT]})
         assert _engine(_FakePipeline(), config).camera_slots == (_SLOT, _OTHER_SLOT)
 
+    def test_it_has_the_cameras_it_declares(self):
+        config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.cameras": [_SLOT]})
+        engine = _engine(_FakePipeline(), config)
+        assert engine.has_camera(_SLOT) is True
+        assert engine.has_camera(_OTHER_SLOT) is False
+
+    def test_without_a_list_it_has_every_camera(self):
+        assert _engine(_FakePipeline()).has_camera(_OTHER_SLOT) is True
+
+    def test_asking_for_a_foreign_camera_does_not_warn(self, caplog):
+        """Es la pregunta de quien reparte frames: el aviso es de `push_frame`."""
+        config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.cameras": [_SLOT]})
+        with caplog.at_level("WARNING"):
+            _engine(_FakePipeline(), config).has_camera(_OTHER_SLOT)
+        assert _OTHER_SLOT not in caplog.text
+
     def test_status_is_available_before_starting(self):
         status = _engine(_FakePipeline()).get_status()
         assert status["pipeline_slot"] == _PIPELINE

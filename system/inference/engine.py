@@ -161,6 +161,17 @@ class InferenceThread(QThread):
         return self._cached(key, lambda: tuple(
             str(slot) for slot in (self._config.get(key, []) or [])))
 
+    def has_camera(self, camera_slot: str) -> bool:
+        """
+        True si esa cámara entra a este pipeline. Sin lista declarada, entran todas.
+
+        Barata y sin avisos: es para quien reparte frames entre varios motores y le
+        pregunta a cada uno antes de empujar. `push_frame` descarta igual un frame ajeno,
+        pero lo avisa, porque ahí sí es un error de cableado.
+        """
+        camera_slots = self.camera_slots
+        return not camera_slots or camera_slot in camera_slots
+
     def push_frame(self, frame_bgr: np.ndarray | None, camera_slot: str, *,
                    ignore_interval: bool = False):
         """
@@ -314,9 +325,8 @@ class InferenceThread(QThread):
     # ── Cola de frames ───────────────────────────────────────────────────────
 
     def _accepts(self, camera_slot: str) -> bool:
-        """True si esa cámara está asignada al pipeline. Sin lista declarada, todas."""
-        camera_slots = self.camera_slots
-        if not camera_slots or camera_slot in camera_slots:
+        """`has_camera()`, avisando si no: un frame ajeno que llega acá es un cableado mal hecho."""
+        if self.has_camera(camera_slot):
             return True
         self._warn_throttled(
             f"foreign_{camera_slot}",
