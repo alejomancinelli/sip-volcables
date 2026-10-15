@@ -30,9 +30,9 @@ Las etapas, y de qué parte de la app sale cada una:
     resize     cv2.resize vs nvvidconv (VIC), ida y vuelta desde un array de numpy:
                el frame de una cámara GigE ya está en memoria de CPU.
     jpeg       reducir + cv2.imencode (stream MJPEG, dataset) vs nvvidconv + nvjpegenc.
-    h264       los pipelines tal como los arma `rtsp_server` (`h264_sw`, `h264_hw`) y la
-               variante propuesta para la fase 1: BGRx directo a nvvidconv, sin la
-               conversión a I420 por CPU. Mide caudal, no latencia.
+    h264       los pipelines tal como los arma `rtsp_server` (`h264_sw`, `h264_hw`) y, de
+               referencia, el `h264_hw` previo a la fase 1, que convertía a I420 por CPU
+               antes del VIC. Mide caudal, no latencia.
     decode     cv2.VideoCapture (rtsp_driver, video_file_driver) vs nvv4l2decoder
                (NVDEC), con y sin reducir en el VIC al salir del decodificador.
     debayer    cv2.cvtColor de Bayer a BGR (st_driver). Sólo CPU: es la referencia para
@@ -400,29 +400,33 @@ def _encode_throughput(settings: _Settings, frames: list[np.ndarray], launch: st
 
 def _bench_h264(settings: _Settings, frames: list[np.ndarray],
                 new_watch: _NewWatch) -> list[_Result]:
+    names = ("h264_sw", "h264_hw", "h264_hw previo")
     if Gst is None:
-        return [_skipped("h264", name, _GST_ERROR)
-                for name in ("h264_sw", "h264_hw", "h264_hw bgrx")]
+        return [_skipped("h264", name, _GST_ERROR) for name in names]
     width_px, height_px = settings.width_px, settings.height_px
     bgr_caps = f"video/x-raw,format=BGR,width={width_px},height={height_px},framerate=30/1"
     results = []
 
     for codec in ("h264_sw", "h264_hw"):
         # El pipeline tal como lo arma el servidor RTSP, con un fakesink donde iría el
-        # cliente: lo que se mide es lo que se entrega.
+        # cliente, y el frame preparado como lo prepara el servidor: lo que se mide es lo
+        # que se entrega.
         launch = rtsp_server._build_launch_string(codec) + " ! fakesink sync=false"
+        is_nvmm = rtsp_server._CODEC_PIPELINES[codec].is_nvmm
+        caps = _bgrx_caps(width_px, height_px) if is_nvmm else bgr_caps
         results.append(_run_variant(
             "h264", f"{codec} (rtsp_server)", settings, new_watch,
-            lambda launch=launch: _encode_throughput(settings, frames, launch, bgr_caps)))
+            lambda launch=launch, caps=caps, is_nvmm=is_nvmm: _encode_throughput(
+                settings, frames, launch, caps, to_bgrx=is_nvmm)))
 
-    def proposed():
+    def before_phase_1():
+        # Referencia: el `h264_hw` anterior, que convertía a I420 por CPU antes del VIC.
         launch = ("appsrc name=source is-live=true block=true format=GST_FORMAT_TIME "
-                  "! nvvidconv ! video/x-raw(memory:NVMM),format=NV12 ! nvv4l2h264enc "
+                  "! videoscale ! videoconvert ! video/x-raw,format=I420 "
+                  "! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! nvv4l2h264enc "
                   "! rtph264pay config-interval=1 pt=96 ! fakesink sync=false")
-        wall_ms, cpu_ms, note = _encode_throughput(
-            settings, frames, launch, _bgrx_caps(width_px, height_px), to_bgrx=True)
-        return wall_ms, cpu_ms, note + "; incluye BGR a BGRx"
-    results.append(_run_variant("h264", "h264_hw bgrx (fase 1)", settings, new_watch, proposed))
+        return _encode_throughput(settings, frames, launch, bgr_caps)
+    results.append(_run_variant("h264", names[2], settings, new_watch, before_phase_1))
     return results
 
 

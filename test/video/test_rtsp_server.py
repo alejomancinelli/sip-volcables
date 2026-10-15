@@ -158,6 +158,72 @@ class TestLaunchString:
         launch = _build_launch_string("h264_sw")
         assert launch.index("videoscale") < launch.index("x264enc")
 
+    @pytest.mark.parametrize("codec", ["h264_hw", "h265_hw"])
+    def test_the_hardware_path_does_no_conversion_on_the_cpu(self, codec):
+        """El VIC escala y convierte: videoconvert y videoscale costaban la mitad del CPU."""
+        launch = _build_launch_string(codec)
+        assert "videoconvert" not in launch
+        assert "videoscale" not in launch
+
+    @pytest.mark.parametrize("codec", ["h264_hw", "h265_hw"])
+    def test_the_hardware_scale_filter_is_the_vic_into_nvmm(self, codec):
+        launch = _build_launch_string(codec)
+        assert (f"! nvvidconv interpolation-method={rtsp._NVVIDCONV_BILINEAR} "
+                f"! capsfilter name={rtsp._SCALE_CAPS_NAME} caps=\"{rtsp._NVMM_CAPS}\"") in launch
+        assert "width=" not in launch
+
+    @pytest.mark.parametrize("codec, keyframe", [
+        ("h264_sw", "key-int-max=10"),
+        ("h265_sw", "key-int-max=10"),
+        ("h264_hw", "iframeinterval=10 idrinterval=10"),
+        ("h265_hw", "iframeinterval=10 idrinterval=10"),
+    ])
+    def test_there_is_one_keyframe_per_second(self, codec, keyframe):
+        """Un cliente que se conecta a mitad de stream espera, como mucho, un segundo."""
+        assert keyframe in _build_launch_string(codec, fps=10)
+
+    @pytest.mark.parametrize("codec, bitrate", [
+        ("h264_sw", "bitrate=4000 "),
+        ("h265_sw", "bitrate=4000 "),
+        ("h264_hw", "bitrate=4000000 "),
+        ("h265_hw", "bitrate=4000000 "),
+    ])
+    def test_the_bitrate_goes_in_each_encoder_unit(self, codec, bitrate):
+        """x264 y x265 lo piden en kbit/s; NVENC, en bit/s."""
+        assert bitrate in _build_launch_string(codec, bitrate_kbps=4000)
+
+    @pytest.mark.parametrize("codec", list(rtsp._CODEC_PIPELINES))
+    def test_a_zero_bitrate_leaves_the_encoder_default(self, codec):
+        assert "bitrate=" not in _build_launch_string(codec, bitrate_kbps=0)
+
+    def test_mjpeg_takes_no_bitrate(self):
+        assert "bitrate=" not in _build_launch_string("mjpeg", bitrate_kbps=4000)
+
+
+class TestPrepareFrame:
+    def test_the_cpu_path_takes_the_bgr_frame_as_it_is(self):
+        frame = np.zeros((4, 6, 3), np.uint8)
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=False)
+        assert prepared is frame
+        assert caps_format == "BGR"
+
+    def test_the_jetson_path_gets_bgrx(self):
+        """nvvidconv no acepta BGR empaquetado: el cuarto canal es relleno."""
+        frame = np.zeros((4, 6, 3), np.uint8)
+        frame[..., 0], frame[..., 1], frame[..., 2] = 10, 20, 30
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=True)
+        assert caps_format == "BGRx"
+        assert prepared.shape == (4, 6, 4)
+        np.testing.assert_array_equal(prepared[..., :3], frame)
+
+    @pytest.mark.parametrize("is_nvmm", [False, True])
+    def test_a_gray_frame_goes_as_gray8_on_both_paths(self, is_nvmm):
+        """Declararlo BGR haría que el buffer no mida lo que dice el caps."""
+        frame = np.zeros((4, 6), np.uint8)
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=is_nvmm)
+        assert prepared is frame
+        assert caps_format == "GRAY8"
+
 
 class _FakeGLibError(Exception):
     """Lo que levanta `Gst.parse_launch` cuando falta un elemento."""
