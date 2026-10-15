@@ -1,6 +1,7 @@
 # Plan: using the Jetson's fixed-function accelerators (template)
 
-**Status: Phase 0 done. Phase 1 implemented, waiting for validation on the Jetson.**
+**Status: Phase 0 done. Phase 1 implemented and validated with the bench on the Jetson;
+the end-to-end stream with a real client is still pending.**
 Engine telemetry reads sysfs without root. Next is Phase 3 (NVDEC + VIC resize at decode). The work is on
 `machinery/jetson-accelerators` in `sip-volcables`, branched from `fork/mock-pipelines` so
 the Jetson clone can also run the mock pipelines on recorded video. It's machinery: these
@@ -255,7 +256,11 @@ pipeline turned its runtime-PM node `active` and raised its devfreq clock. Root
 
 ### Phase 1: fix the RTSP path that already uses NVENC (small, low risk)
 
-**Implemented; pending validation on the Jetson.** What went in:
+**Implemented. Bench validated on the Orin NX, end-to-end stream still pending.**
+`stage_bench.py h264` with clocks pinned, 1080p, process CPU ms per frame: `h264_sw` 37.6,
+previous `h264_hw` 22.4, new `h264_hw` **12.0**. The new pipeline is also about 3× faster
+in wall time (6.5 ms vs 19.1). The stream through `manual_test/rtsp_video/` with a real
+client hasn't been seen yet. What went in:
 - The `_hw` codecs take BGRx: the pusher converts with OpenCV, and `nvvidconv` scales
   (bilinear) and converts to NV12 in NVMM.
 - Mono frames go as `GRAY8` on both paths.
