@@ -814,7 +814,8 @@ class RtspVideoServer(AbstractVideoServer):
         try:
             self._glib_loop = GLib.MainLoop.new(context, False)
             port = self._config.get("video.rtsp.port", _DEFAULT_PORT)
-            self._servers = [self._create_server(address, port) for address in self._addresses]
+            self._servers = [self._create_server(address, port, context)
+                             for address in self._addresses]
             self._status = STATUS_ACTIVE
             self._log_urls(port)
             self._ready_event.set()
@@ -827,9 +828,16 @@ class RtspVideoServer(AbstractVideoServer):
         finally:
             context.pop_thread_default()
 
-    def _create_server(self, address: str, port: int):
+    def _create_server(self, address: str, port: int, context: object):
         """
-        Servidor RTSP escuchando en una dirección, con un endpoint por stream.
+        Servidor RTSP escuchando en una dirección, con un endpoint por stream, atendido
+        por el loop de `context`.
+
+        Se engancha a `context` y no a None: `attach(None)` usa el contexto global de
+        GLib, no el de este hilo. El socket queda abierto igual y acepta conexiones,
+        pero nadie contesta ni el primer pedido del cliente. En la app con ventana
+        andaba de casualidad, porque Qt en Linux atiende ese contexto global desde el
+        hilo de la interfaz.
 
         `attach` no levanta excepción cuando la dirección no se puede tomar:
         devuelve 0. Sin mirarlo, un puerto ocupado o una IP que ya no está en el
@@ -848,7 +856,7 @@ class RtspVideoServer(AbstractVideoServer):
                     _StreamFactory(key, self._store, self._watchers, self._config),
                 )
 
-        if server.attach(None) == 0:
+        if server.attach(context) == 0:
             raise OSError(f"no se pudo escuchar en {address}:{port} "
                           f"(¿puerto en uso o dirección inexistente?)")
         return server

@@ -570,6 +570,55 @@ class TestFramePacer:
         assert _marker_of(annotated.get_next().frame_bgr) == 2
 
 
+class _FakeMountPoints:
+    def __init__(self):
+        self.paths = []
+
+    def add_factory(self, path: str, _factory: object):
+        self.paths.append(path)
+
+
+class _FakeRtspServer:
+    """`GstRtspServer.RTSPServer` reducido a lo que usa `_create_server`."""
+
+    def __init__(self):
+        self.mounts = _FakeMountPoints()
+        self.attached_to = "nunca"
+
+    def set_address(self, _address: str):
+        pass
+
+    def set_service(self, _service: str):
+        pass
+
+    def get_mount_points(self) -> _FakeMountPoints:
+        return self.mounts
+
+    def attach(self, context: object) -> int:
+        self.attached_to = context
+        return 1
+
+
+class TestCreateServer:
+    @pytest.fixture
+    def server(self, monkeypatch) -> RtspVideoServer:
+        monkeypatch.setattr(rtsp, "GstRtspServer",
+                            type("_GstRtspServer", (), {"RTSPServer": _FakeRtspServer}),
+                            raising=False)
+        monkeypatch.setattr(rtsp, "_StreamFactory", lambda *_args: object(), raising=False)
+        return RtspVideoServer(_MockConfig())
+
+    def test_it_is_attached_to_the_context_of_its_own_loop(self, server):
+        """
+        `attach(None)` lo enganchaba al contexto global de GLib: el socket aceptaba la
+        conexión pero nadie contestaba el primer pedido, salvo que Qt atendiera ese
+        contexto desde el hilo de la interfaz.
+        """
+        context = object()
+        created = server._create_server("0.0.0.0", 8554, context)
+        assert created.attached_to is context
+
+
 class TestLifecycle:
     """Sin GStreamer el módulo no levanta nada y expone la misma API."""
 

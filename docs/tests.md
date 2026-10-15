@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 393 grupos, 1945 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 394 grupos, 1946 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -30,7 +30,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
-| [test/video/](#testvideo) | 3 | 191 |
+| [test/video/](#testvideo) | 3 | 192 |
 
 ## test/
 
@@ -3523,7 +3523,7 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 88 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 89 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
@@ -3538,6 +3538,7 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
 | `TestStreamUrls` |  | 4 |
 | `TestFrameStore` |  | 13 |
 | `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 10 |
+| `TestCreateServer` |  | 1 |
 | `TestLifecycle` | Sin GStreamer el módulo no levanta nada y expone la misma API. | 8 |
 | `TestWatchers` | Las altas y bajas de media son lo único que dice quién está mirando qué. | 6 |
 | `TestPushGating` | Lo que ahorra el gating: un stream que nadie mira no retiene frames. | 8 |
@@ -3617,6 +3618,8 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_the_last_frame_is_resent_after_the_keepalive`
   - `test_a_faster_camera_does_not_speed_up_the_stream`
   - `test_each_stream_has_its_own_pacer`
+- `TestCreateServer`
+  - `test_it_is_attached_to_the_context_of_its_own_loop`
 - `TestLifecycle`
   - `test_disabled_in_config_is_not_an_error`
   - `test_enabled_without_gstreamer_reports_error`
