@@ -467,3 +467,4 @@ recordings/*
 manual_test/offline_inference/images/*
 !manual_test/offline_inference/images/.gitkeep
 manual_test/offline_inference/output/
+manual_test/cameras/output/
