@@ -16,7 +16,7 @@ import copy
 
 import numpy as np
 
-from system.inference import offline
+from system.inference import offline, pipeline_factory
 from system.inference.hooks import EngineHooks
 from system.inference.offline import OfflineRunner
 from system.inference.pipeline import Pipeline
@@ -107,6 +107,31 @@ class TestPipelines:
     def test_a_camera_no_pipeline_takes_gives_no_results(self):
         pipelines = {"pipeline_1": {"enabled": True, "cameras": ["camera_1"]}}
         assert _loaded(_config(pipelines=pipelines)).run_image(_frame(), "camera_9") == []
+
+
+class _SpyPipeline(Pipeline):
+    """Las etapas del proyecto, con una marca de que fue esta clase la que corrió."""
+
+    def _run(self, frame_bgr, camera_slot):
+        self._set_label("pipeline_class", "spy")
+        return super()._run(frame_bgr, camera_slot)
+
+
+class TestPipelineClass:
+    """Cada slot corre la clase de su `type`, igual que en la app: la arma la fábrica."""
+
+    def test_each_slot_runs_the_class_its_type_declares(self, monkeypatch):
+        monkeypatch.setitem(pipeline_factory._PIPELINE_CLASSES, "spy", _SpyPipeline)
+        pipelines = {"pipeline_1": {"enabled": True, "cameras": []},
+                     "pipeline_2": {"enabled": True, "cameras": [], "type": "spy"}}
+        first, second = _loaded(_config(pipelines=pipelines)).run_image(_frame(), "camera_1")
+        assert "pipeline_class" not in first.labels
+        assert second.labels["pipeline_class"] == "spy"
+
+    def test_an_unregistered_type_runs_nothing_in_its_place(self):
+        pipelines = {"pipeline_1": {"enabled": True, "cameras": [], "type": "unknown"}}
+        [result] = _loaded(_config(pipelines=pipelines)).run_image(_frame(), "camera_1")
+        assert result.invalid_reason == REASON_NO_MODEL
 
 
 class TestLoading:
