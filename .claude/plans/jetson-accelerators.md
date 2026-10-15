@@ -1,7 +1,7 @@
 # Plan: using the Jetson's fixed-function accelerators (template)
 
-**Status: Phase 0 run twice on the Jetson (results in §4). Engine telemetry will read sysfs,
-without root. What's left of Phase 0 is wiring it into `get_metrics()`.** The work is on
+**Status: Phase 0 done. Phase 1 implemented, waiting for validation on the Jetson.**
+Engine telemetry reads sysfs without root. Next is Phase 3 (NVDEC + VIC resize at decode). The work is on
 `machinery/jetson-accelerators` in `sip-volcables`, branched from `fork/mock-pipelines` so
 the Jetson clone can also run the mock pipelines on recorded video. It's machinery: these
 commits go back to `cv_projects_template` as their own PR.
@@ -255,6 +255,22 @@ pipeline turned its runtime-PM node `active` and raised its devfreq clock. Root
 
 ### Phase 1: fix the RTSP path that already uses NVENC (small, low risk)
 
+**Implemented; pending validation on the Jetson.** What went in:
+- The `_hw` codecs take BGRx: the pusher converts with OpenCV, and `nvvidconv` scales
+  (bilinear) and converts to NV12 in NVMM.
+- Mono frames go as `GRAY8` on both paths.
+- Every H.264/H.265 codec gets a keyframe per second. x264's default was ~250 frames,
+  more than 15 s at 15 fps before a joining client saw an image.
+- New key `video.rtsp.bitrate_kbps`, in the config tab too, converted to each encoder's
+  unit.
+- Not added: `maxperf-enable`, `preset-level` and `insert-sps-pps`. `rtph264pay
+  config-interval=1` already sends SPS/PPS, and the other two weren't measured.
+
+A change from the Config view takes effect when a stream is reopened, with no restart.
+That's how two codecs or bitrates get compared on an installed system.
+
+The design that came before the implementation:
+
 The `_hw` pipelines in `rtsp_server.py` still do two CPU steps before the hardware:
 `videoscale` (CPU scaling) and `videoconvert ! format=I420/NV12` (a full CPU color
 conversion). `nvvidconv` can't take packed 3-channel BGR, but it does take `BGRx` and
@@ -456,10 +472,10 @@ are already in JetPack and cover the four engines.
 
 For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand:
 
-1. **Finish Phase 0: step 2.** Engine `active` + MHz from sysfs into `get_metrics()` and
-   the `system` series. It needs approval to extend the key list that
-   `test_system_monitor.py` pins.
-2. **Phase 1.** Hours of work on code that already exists, and the largest measured win.
+1. ~~Finish Phase 0: step 2.~~ Done: `engines` and `overcurrent_count` in
+   `get_metrics()`, `engine_<engine>_active` / `_mhz` in the `system` series.
+2. ~~Phase 1.~~ Implemented; validate on the Jetson with `manual_test/rtsp_video/` and
+   `stage_bench.py h264`.
 3. **Phase 3 (NVDEC + VIC resize at decode)** for RTSP cameras and `video_file`. This was
    proven twice, and Volcables' cameras are RTSP.
    - The decoder's output size makes it a 640×360 camera as far as the app knows: the

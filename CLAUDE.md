@@ -697,12 +697,13 @@ La tabla completa, archivo por archivo, está en `README.md`.
 - El modelo del proyecto. El template trae el mock —detecciones sintéticas, sin
   framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
-- **Los motores de la Jetson (VIC, NVENC, NVDEC, NVJPG) todavía no los usa la app**, salvo
-  NVENC en los codecs `_hw` del RTSP. Está la fase 0: `tools/jetson/` lee qué tiene el
-  equipo y cuánto trabaja cada motor, y `manual_test/jetson_accelerators/` lo prueba y mide
-  cada etapa por CPU contra su motor. Falta correrla en la Jetson, publicar la carga de los
-  motores en la telemetría y, con esos números, las fases siguientes. El plan está en
-  `.claude/plans/jetson-accelerators.md`.
+- **De los motores de la Jetson, la app usa hoy el VIC y NVENC en los codecs `_hw` del
+  RTSP**, sin conversión de color por CPU más que BGR a BGRx. La telemetría publica qué
+  motor está en uso, leído de sysfs sin root. Falta decodificar las cámaras RTSP y los
+  videos con NVDEC y reducir en el VIC al salir del decodificador, que es lo que más CPU
+  ahorra medido en el Orin NX. Para un frame que ya está en numpy —el de una cámara GigE—
+  el VIC y NVJPG no convienen: copiarlo al motor y de vuelta cuesta más de lo que
+  ahorran. Las mediciones y el plan están en `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
