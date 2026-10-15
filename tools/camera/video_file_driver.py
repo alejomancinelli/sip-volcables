@@ -1,12 +1,12 @@
 import os
 import time
 
-import cv2
 import numpy as np
 
 from system.logger import logger
 from system.paths import resolve
 
+from . import decoder
 from .abstract_driver import AbstractCameraDriver
 
 # Extensiones que se toman de una carpeta; el resto de los archivos se ignora.
@@ -36,6 +36,10 @@ class VideoFileDriver(AbstractCameraDriver):
                   instalación
         acquisition:
             fps_limit : tope de frames entregados por segundo; 0 = el fps del video
+        decode:
+            backend   : cpu | nvdec | auto — quién decodifica (ver decoder.py)
+            width_px  : tamaño al que sale el frame; los dos en 0 = el del video
+            height_px
         rotation : opcional — la aplica la base
 
     Una carpeta es una playlist: se reproducen sus videos (.mp4 .avi .mkv .mov) en orden
@@ -65,6 +69,7 @@ class VideoFileDriver(AbstractCameraDriver):
         self._address = str(config_cam.get("address", "") or "").strip()
         self._fps_limit = float(config_cam.get("acquisition", {}).get("fps_limit") or 0.0)
         self._min_delivery_period_s = 1.0 / self._fps_limit if self._fps_limit > 0 else 0.0
+        self._decode = decoder.read_decode_settings(config_cam, self._address)
         self.is_connected = False
 
         self._playlist: list[str] = []
@@ -93,7 +98,7 @@ class VideoFileDriver(AbstractCameraDriver):
         self.is_connected = True
         logger.info(
             f"[VideoFileDriver] Reproduciendo {len(self._playlist)} video(s) de "
-            f"{self._address} en loop."
+            f"{self._address} en loop ({self._decode.describe()})."
         )
         return True
 
@@ -166,9 +171,8 @@ class VideoFileDriver(AbstractCameraDriver):
     def _open_clip(self, index: int) -> bool:
         self._close_capture()
         path = self._playlist[index]
-        capture = cv2.VideoCapture(path)
-        if not capture.isOpened():
-            capture.release()
+        capture = decoder.open_file(path, self._decode)
+        if capture is None:
             logger.warning(f"[VideoFileDriver] {path} no abrió: se saltea.")
             return False
 
@@ -180,8 +184,8 @@ class VideoFileDriver(AbstractCameraDriver):
         logger.debug(f"[VideoFileDriver] {path} desde el principio, a {self._clip_fps:g} fps.")
         return True
 
-    def _read_clip_fps(self, capture: cv2.VideoCapture, path: str) -> float:
-        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    def _read_clip_fps(self, capture: decoder.Capture, path: str) -> float:
+        fps = capture.get_fps()
         if 0.0 < fps <= _MAX_CLIP_FPS:
             return fps
         fallback_fps = self._fps_limit or _DEFAULT_FPS
@@ -223,7 +227,7 @@ class VideoFileDriver(AbstractCameraDriver):
         """Lee el frame `frame_index` del video actual; None pasado el final."""
         skip_count = frame_index - self._next_frame_index
         if skip_count > _MAX_SKIP_FRAMES:
-            self._capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            self._capture.seek(frame_index)
         else:
             for _ in range(skip_count):
                 if not self._capture.grab():

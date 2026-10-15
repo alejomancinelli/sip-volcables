@@ -73,3 +73,37 @@ cameras:
   # Verifica la salida por configuración inválida: debe dar un NullDriver.
   unregistered:
     driver: DOES_NOT_EXIST
+
+  # Decodificación por NVDEC y el VIC (tools/camera/decoder.py), para probar en la Jetson
+  # sin una cámara IP: la fuente es el servidor de manual_test/rtsp_video corriendo en el
+  # mismo equipo, en otra terminal. Los dos casos tienen que entregar el mismo tamaño —lo
+  # pone `decode`, no el backend— y el log dice cuál decodificó.
+  rtsp_local_nvdec:
+    driver: rtsp
+    address: rtsp://127.0.0.1:8654/camera_1/raw
+    rotation: null
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360
+
+  rtsp_local_cpu:
+    driver: rtsp
+    address: rtsp://127.0.0.1:8654/camera_1/raw
+    rotation: null
+    decode:
+      backend: cpu
+      width_px: 640
+      height_px: 360
+
+  # Las grabaciones de recordings/ como cámara, decodificadas por NVDEC.
+  video_nvdec:
+    driver: video_file
+    address: recordings
+    rotation: null
+    acquisition:
+      fps_limit: 0
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360

@@ -412,6 +412,21 @@ cameras:
       fps_limit: 1              # tope de frames por segundo; 0 = el fps del video (10)
       exposure_time_us: 25000
       gain: 1.0
+    decode:
+      # Quién decodifica el video de una cámara `rtsp` o `video_file` (tools/camera/decoder.py);
+      # las GigE no lo leen. `nvdec` usa el decodificador y el VIC de la Jetson, y `auto`
+      # lo usa si el equipo lo tiene. `nvdec` en un equipo sin él no cae a la CPU: la
+      # cámara no abre y el log dice por qué.
+      #
+      # El tamaño es de la cámara y no del backend: con los dos en 0 sale al del video, y
+      # con un tamaño lo reduce el VIC o la CPU, los dos bilineales. Para la app la cámara
+      # pasa a ser de ese tamaño, como si se le bajara la resolución: el ROI, el dataset y
+      # los streams quedan en él, y cambiarlo obliga a revisar el ROI y a recalibrar la
+      # nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
+      # que decodificar y reducir por CPU; NVDEC sin reducir ahorra poco.
+      backend: cpu              # cpu | nvdec | auto; se aplica al reiniciar
+      width_px: 0               # 0 y 0 = tamaño del video
+      height_px: 0
     roi:
       enabled: false
       x_px: 0
@@ -473,6 +488,10 @@ cameras:
       fps_limit: 1
       exposure_time_us: 25000
       gain: 1.0
+    decode:
+      backend: cpu
+      width_px: 0
+      height_px: 0
     roi:
       enabled: false
       x_px: 0
@@ -506,6 +525,10 @@ cameras:
       fps_limit: 1
       exposure_time_us: 25000
       gain: 1.0
+    decode:
+      backend: cpu
+      width_px: 0
+      height_px: 0
     roi:
       enabled: false
       x_px: 0
@@ -539,6 +562,10 @@ cameras:
       fps_limit: 1
       exposure_time_us: 25000
       gain: 1.0
+    decode:
+      backend: cpu
+      width_px: 0
+      height_px: 0
     roi:
       enabled: false
       x_px: 0

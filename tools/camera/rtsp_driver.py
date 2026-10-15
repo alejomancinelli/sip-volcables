@@ -4,11 +4,11 @@ import time
 from queue import Empty, Queue
 from urllib.parse import quote, urlsplit, urlunsplit
 
-import cv2
 import numpy as np
 
 from system.logger import logger
 
+from . import decoder
 from .abstract_driver import AbstractCameraDriver
 
 # Esquema con el que se completa una `address` que trae sólo el host.
@@ -117,14 +117,18 @@ def _mask_credentials(url: str) -> str:
 
 class RtspDriver(AbstractCameraDriver):
     """
-    Implementación de AbstractCameraDriver para cámaras IP que publican RTSP, leído
-    con el backend FFmpeg de OpenCV.
+    Implementación de AbstractCameraDriver para cámaras IP que publican RTSP,
+    decodificado por CPU con OpenCV o por NVDEC y el VIC de la Jetson (ver `decoder.py`).
 
     Claves de config_cam que usa:
         address         : URL del stream, o sólo el host si lo publica en la raíz
         credentials_env : opcional — sufijo de las variables de entorno de esta cámara
         acquisition:
             fps_limit : tope de frames entregados por segundo; 0 = todos los que lleguen
+        decode:
+            backend   : cpu | nvdec | auto — quién decodifica (ver decoder.py)
+            width_px  : tamaño al que sale el frame; los dos en 0 = el del stream
+            height_px
         rotation        : opcional — la aplica la base
 
     `exposure_time_us` y `gain` no se aplican y se ignoran sin avisar: una cámara IP no
@@ -151,9 +155,10 @@ class RtspDriver(AbstractCameraDriver):
     always-fresh del contrato, y es también quien reabre el stream cuando se corta:
     `connect()` sólo espera la primera apertura y después informa el estado.
 
-    El transporte lo elige FFmpeg y no se puede fijar por captura. Si la imagen llega
-    con artefactos de pérdida de paquetes, se fuerza TCP con
-    OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp en el entorno del proceso.
+    Por CPU el transporte lo elige FFmpeg y no se puede fijar por captura. Si la imagen
+    llega con artefactos de pérdida de paquetes, se fuerza TCP con
+    OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp en el entorno del proceso. Por NVDEC
+    va siempre por TCP.
     """
 
     def __init__(self, config_cam: dict):
@@ -164,6 +169,7 @@ class RtspDriver(AbstractCameraDriver):
         credentials_env = str(config_cam.get("credentials_env", "") or "").strip().upper()
         self._url = _build_stream_url(self._address, credentials_env)
         self._safe_url = _mask_credentials(self._url) or "(sin address)"
+        self._decode = decoder.read_decode_settings(config_cam, self._safe_url)
         self.is_connected = False
 
         fps_limit = float(config_cam.get("acquisition", {}).get("fps_limit") or 0.0)
@@ -315,16 +321,10 @@ class RtspDriver(AbstractCameraDriver):
         self._close_capture()
 
     def _open_capture(self) -> bool:
-        capture = cv2.VideoCapture(
-            self._url,
-            cv2.CAP_FFMPEG,
-            [
-                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, _OPEN_TIMEOUT_MS,
-                cv2.CAP_PROP_READ_TIMEOUT_MSEC, _READ_TIMEOUT_MS,
-            ],
-        )
-        if not capture.isOpened():
-            capture.release()
+        capture = decoder.open_stream(self._url, self._decode,
+                                      open_timeout_ms=_OPEN_TIMEOUT_MS,
+                                      read_timeout_ms=_READ_TIMEOUT_MS)
+        if capture is None:
             self.is_connected = False
             # FFmpeg devuelve lo mismo para las tres causas, así que se nombran las tres:
             # el que lee el log es el que va a ir a probar cuál era.
@@ -334,13 +334,9 @@ class RtspDriver(AbstractCameraDriver):
             )
             return False
 
-        # Buffer mínimo, hasta donde el backend lo respete: sin esto, un consumidor que
-        # se atrasa deja una fila de frames viejos por delante del actual.
-        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
         self._capture = capture
         self.is_connected = True
-        logger.info(f"[RtspDriver] {self._safe_url} capturando.")
+        logger.info(f"[RtspDriver] {self._safe_url} capturando ({self._decode.describe()}).")
         return True
 
     def _close_capture(self):
