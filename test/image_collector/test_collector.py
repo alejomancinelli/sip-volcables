@@ -10,6 +10,7 @@ un segundo: lo que se prueba es la cadencia, no el piso.
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -692,3 +693,49 @@ class TestStats:
         collector.start()
         stats = collector.get_stats()
         assert (stats["mode"], stats["running"], stats["active"]) == ("interval", True, True)
+
+
+class _FrozenClock:
+    """`datetime` del módulo con `now()` fijo: el reloj de Windows que no avanzó."""
+
+    instant = datetime(2026, 10, 15, 12, 9, 24, 589410)
+
+    @classmethod
+    def now(cls) -> datetime:
+        return cls.instant
+
+
+class TestSameInstant:
+    def test_two_captures_in_the_same_instant_are_both_kept(self, dataset_path,
+                                                            build_collector, monkeypatch):
+        """
+        En Windows el reloj avanza de a un milisegundo o más: dos guardados seguidos
+        traían el mismo nombre y el segundo pisaba al primero sin avisar.
+        """
+        monkeypatch.setattr(ic, "datetime", _FrozenClock)
+        collector = build_collector(_MockConfig(dataset_path))
+        for seed in range(3):
+            assert collector.save_now("camera_1", _frame(seed)) is True
+        assert len(_pngs(dataset_path)) == 3
+
+    def test_the_names_keep_the_order_of_the_captures(self, dataset_path, build_collector,
+                                                      monkeypatch):
+        monkeypatch.setattr(ic, "datetime", _FrozenClock)
+        collector = build_collector(_MockConfig(dataset_path))
+        for seed in range(3):
+            collector.save_now("camera_1", _frame(seed))
+        names = [os.path.basename(path) for path in _pngs(dataset_path)]
+        assert names == sorted(names)
+        assert names[0] == "camera_1_20261015_120924589410.png"
+        assert names[2] == "camera_1_20261015_120924589412.png"
+
+    def test_each_camera_keeps_its_own_instant(self, dataset_path, build_collector,
+                                               monkeypatch):
+        """Que la otra cámara haya guardado en ese instante no corre el nombre de esta."""
+        monkeypatch.setattr(ic, "datetime", _FrozenClock)
+        collector = build_collector(_MockConfig(dataset_path))
+        collector.save_now("camera_1", _frame(1))
+        collector.save_now("camera_2", _frame(2))
+        names = sorted(os.path.basename(path) for path in _pngs(dataset_path))
+        assert names == ["camera_1_20261015_120924589410.png",
+                         "camera_2_20261015_120924589410.png"]
