@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**68 archivos, 373 grupos, 1858 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 386 grupos, 1911 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -28,6 +28,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/camera/](#testtoolscamera) | 5 | 119 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
+| [test/tools/jetson/](#testtoolsjetson) | 3 | 53 |
 | [test/ui/](#testui) | 7 | 49 |
 | [test/video/](#testvideo) | 3 | 182 |
 
@@ -3029,6 +3030,123 @@ Tests de la corrección de lente: qué cámara se corrige, qué pasa con una cal
   - `test_keep_field_changes_how_much_is_kept`
   - `test_keep_field_saturates`
   - `test_it_names_the_cameras_it_corrects`
+
+</details>
+
+## test/tools/jetson/
+
+### [test_board.py](../test/tools/jetson/test_board.py) — 18 tests
+
+Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, relojes y contadores de sobrecorriente.
+
+| Grupo | Tests |
+|---|---:|
+| `TestIdentity` | 4 |
+| `TestPowerMode` | 5 |
+| `TestClocks` | 6 |
+| `TestOvercurrent` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestIdentity`
+  - `test_the_module_name_loses_the_trailing_nul`
+  - `test_the_release_is_major_and_revision`
+  - `test_an_unknown_release_text_is_empty`
+  - `test_outside_a_jetson_everything_is_empty`
+- `TestPowerMode`
+  - `test_the_id_gets_its_name_from_the_table`
+  - `test_an_id_missing_from_the_table_keeps_the_id`
+  - `test_a_status_without_a_mode_is_empty`
+  - `test_it_reads_both_files`
+  - `test_without_the_table_the_name_is_empty`
+- `TestClocks`
+  - `test_cpu_policies_and_gpu_come_out_in_mhz`
+  - `test_a_policy_with_a_missing_file_is_skipped`
+  - `test_jetpack_5_gpu_node_name_is_found_too`
+  - `test_pinned_means_every_minimum_equals_its_maximum`
+  - `test_one_free_clock_means_not_pinned`
+  - `test_without_clocks_pinned_is_unknown`
+- `TestOvercurrent`
+  - `test_each_counter_is_named_after_its_hwmon`
+  - `test_a_hwmon_without_a_name_uses_its_directory`
+  - `test_an_unreadable_counter_is_skipped`
+
+</details>
+
+### [test_capabilities.py](../test/tools/jetson/test_capabilities.py) — 16 tests
+
+Tests de la sonda de aceleradores: los pipelines de prueba, cómo se juzga el resultado de cada uno y qué pasa sin GStreamer.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestPipelineChecks` | 4 |
+| `TestCheckPipeline` | 6 |
+| `TestWithoutGstreamer` | 2 |
+| `TestPythonLibs` | 3 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_find_elements_asks_the_registry`
+- `TestPipelineChecks`
+  - `test_there_is_one_check_per_engine`
+  - `test_each_check_goes_through_its_engine`
+  - `test_size_and_frame_count_are_the_ones_asked`
+  - `test_the_vic_halves_to_even_sides`
+- `TestCheckPipeline`
+  - `test_reaching_eos_is_a_pass`
+  - `test_an_error_on_the_bus_is_its_message`
+  - `test_no_message_before_the_timeout_says_so`
+  - `test_a_missing_element_is_the_parse_error`
+  - `test_a_failed_start_reports_the_error_it_left`
+  - `test_the_pipeline_is_always_torn_down`
+- `TestWithoutGstreamer`
+  - `test_no_element_is_found`
+  - `test_a_check_returns_the_import_reason`
+- `TestPythonLibs`
+  - `test_opencv_build_flags_are_read_from_its_build_information`
+  - `test_a_flag_that_is_not_listed_is_empty`
+  - `test_every_library_answers_even_when_missing`
+
+</details>
+
+### [test_tegrastats.py](../test/tools/jetson/test_tegrastats.py) — 19 tests
+
+Tests de la lectura de `tegrastats`: cómo se traduce cada forma de valor, qué se deja afuera de la línea, y el ciclo de vida del proceso lector.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestParseLine` | 9 |
+| `TestReaderWithoutTegrastats` | 2 |
+| `TestReaderLifecycle` | 7 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_the_launch_never_inherits_stdin`
+- `TestParseLine`
+  - `test_an_engine_that_is_off_runs_at_zero`
+  - `test_load_and_frequency_come_out_of_the_percent_at_form`
+  - `test_a_bare_number_is_a_frequency_without_a_known_load`
+  - `test_the_freq_suffix_is_dropped_from_the_name`
+  - `test_a_per_gpc_frequency_reports_the_highest`
+  - `test_a_load_without_frequency_keeps_the_load`
+  - `test_only_the_known_engines_come_out`
+  - `test_an_engine_the_module_does_not_have_is_absent`
+  - `test_a_line_without_engines_is_empty`
+- `TestReaderWithoutTegrastats`
+  - `test_it_does_not_start_and_says_why`
+  - `test_a_launch_that_fails_is_a_reason_not_an_exception`
+- `TestReaderLifecycle`
+  - `test_it_reports_the_engines_of_the_last_line`
+  - `test_the_interval_is_passed_to_tegrastats`
+  - `test_starting_twice_does_not_launch_a_second_process`
+  - `test_stop_ends_the_process`
+  - `test_a_process_that_dies_leaves_no_reading_and_its_exit_code`
+  - `test_a_stale_reading_is_not_reported`
+  - `test_the_returned_dict_is_a_copy`
 
 </details>
 
