@@ -32,6 +32,10 @@ class _FakeBoard:
         monkeypatch.setattr(board, "_GPU_DEVFREQ_GLOB", str(tmp_path / "devfreq" / "17000000.*"))
         monkeypatch.setattr(board, "_OVERCURRENT_GLOB",
                             str(tmp_path / "hwmon" / "hwmon*" / "oc*_event_cnt"))
+        monkeypatch.setattr(board, "_DEVFREQ_GLOB", str(tmp_path / "devfreq" / "*"))
+        monkeypatch.setattr(board, "_RUNTIME_STATUS_GLOBS", tuple(
+            str(tmp_path / "platform" / ("*/" * depth) / "power" / "runtime_status")
+            for depth in (1, 2)))
 
     def write(self, relative: str, text: str):
         path = self.root / relative
@@ -72,6 +76,8 @@ class TestIdentity:
         assert board.read_power_mode() == {}
         assert board.read_clocks() == {"cpu": {}, "gpu": {}}
         assert board.read_overcurrent_counts() == {}
+        assert board.read_devfreq() == {}
+        assert board.find_engine_devices() == {}
 
 
 class TestPowerMode:
@@ -124,6 +130,38 @@ class TestClocks:
 
     def test_without_clocks_pinned_is_unknown(self):
         assert board.are_clocks_pinned({"cpu": {}, "gpu": {}}) is None
+
+
+class TestDevfreq:
+    def test_every_node_comes_out_in_mhz(self, jetson):
+        jetson.set_gpu(408_000_000, 306_000_000, 408_000_000)
+        jetson.write("devfreq/15340000.vic/cur_freq", "729600000\n")
+        jetson.write("devfreq/15340000.vic/min_freq", "115200000\n")
+        jetson.write("devfreq/15340000.vic/max_freq", "729600000\n")
+        assert board.read_devfreq() == {
+            "15340000.vic": {"cur_mhz": 729, "min_mhz": 115, "max_mhz": 729},
+            "17000000.gpu": {"cur_mhz": 408, "min_mhz": 306, "max_mhz": 408},
+        }
+
+
+class TestEngineDevices:
+    def test_only_engine_devices_are_found_at_any_depth(self, jetson):
+        jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "suspended\n")
+        jetson.write("platform/15480000.nvdec/power/runtime_status", "active\n")
+        jetson.write("platform/bus@0/3100000.serial/power/runtime_status", "active\n")
+        devices = board.find_engine_devices()
+        assert set(devices) == {"15340000.vic", "15480000.nvdec"}
+
+    def test_states_are_read_from_the_found_paths(self, jetson):
+        jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "suspended\n")
+        devices = board.find_engine_devices()
+        assert board.read_runtime_states(devices) == {"15340000.vic": "suspended"}
+
+        jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "active\n")
+        assert board.read_runtime_states(devices) == {"15340000.vic": "active"}
+
+    def test_a_node_that_vanished_is_left_out(self, jetson):
+        assert board.read_runtime_states({"15340000.vic": str(jetson.root / "gone")}) == {}
 
 
 class TestOvercurrent:

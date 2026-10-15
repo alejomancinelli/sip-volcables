@@ -4,8 +4,9 @@ de sobrecorriente.
 
 Maquinaria genérica: no conoce la app ni su config. Todo sale de archivos que un usuario
 sin root puede leer —`/proc`, `/etc`, `/var/lib` y sysfs—, así que se puede consultar
-desde la app sin sudo. Lo que pide root (la frecuencia de la memoria, la carga de los
-motores) no está acá: eso es de `tegrastats`.
+desde la app sin sudo. La carga de los motores en % no está acá: `tegrastats` la publica
+sólo como root. Lo que sí está es si cada motor está encendido (runtime PM) y a qué
+frecuencia corre (devfreq), cuando el kernel lo publica.
 
 Ninguna función propaga excepciones: fuera de una Jetson, o en un kernel que no publica
 un nodo, devuelven '' / None / {} según el tipo.
@@ -33,6 +34,12 @@ _CPUFREQ_POLICY_GLOB = "/sys/devices/system/cpu/cpufreq/policy*"
 # `17000000.ga10b` en JetPack 5. La dirección es la misma en todo Orin.
 _GPU_DEVFREQ_GLOB = "/sys/class/devfreq/17000000.*"
 _OVERCURRENT_GLOB = "/sys/class/hwmon/hwmon*/oc*_event_cnt"
+_DEVFREQ_GLOB = "/sys/class/devfreq/*"
+# Los motores cuelgan de /sys/devices/platform a distinta profundidad según el kernel
+# (`bus@0/15340000.vic` en JetPack 6): se buscan hasta tres niveles abajo.
+_RUNTIME_STATUS_GLOBS = tuple(
+    f"/sys/devices/platform/{'*/' * depth}power/runtime_status" for depth in (1, 2, 3))
+_ENGINE_KEYWORDS = ("vic", "nvenc", "nvdec", "nvjpg", "ofa", "nvdla", "pva")
 
 _KHZ_PER_MHZ = 1_000
 _HZ_PER_MHZ = 1_000_000
@@ -140,6 +147,50 @@ def are_clocks_pinned(clocks: dict) -> bool | None:
     if not every_clock:
         return None
     return all(clock["min_mhz"] == clock["max_mhz"] for clock in every_clock)
+
+
+def read_devfreq() -> dict:
+    """
+    Todos los nodos de devfreq, `{nodo: {"cur_mhz", "min_mhz", "max_mhz"}}`.
+
+    Además de la GPU, el kernel puede publicar acá los motores (`15340000.vic`...). Se
+    leen sin root, que es lo que `tegrastats` no permite.
+    """
+    nodes = {}
+    for directory in sorted(glob.glob(_DEVFREQ_GLOB)):
+        clock = _read_clock(directory, ("cur_freq", "min_freq", "max_freq"), _HZ_PER_MHZ)
+        if clock is not None:
+            nodes[os.path.basename(directory)] = clock
+    return nodes
+
+
+def find_engine_devices() -> dict[str, str]:
+    """
+    Los motores con estado de runtime PM: `{dispositivo: ruta de runtime_status}`.
+
+    Se buscan una vez y se leen muchas con `read_runtime_states`: recorrer
+    /sys/devices/platform en cada muestra cuesta más que la muestra.
+    """
+    devices = {}
+    for pattern in _RUNTIME_STATUS_GLOBS:
+        for path in sorted(glob.glob(pattern)):
+            device = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            if any(keyword in device.lower() for keyword in _ENGINE_KEYWORDS):
+                devices.setdefault(device, path)
+    return devices
+
+
+def read_runtime_states(devices: dict[str, str]) -> dict[str, str]:
+    """
+    Estado de runtime PM de cada motor: 'active' mientras está encendido, 'suspended'
+    cuando el kernel lo apagó. Un nodo que no se puede leer no aparece.
+    """
+    states = {}
+    for device, path in devices.items():
+        status = _read_text(path)
+        if status is not None:
+            states[device] = status.strip()
+    return states
 
 
 def read_overcurrent_counts() -> dict:
