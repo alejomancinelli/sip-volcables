@@ -255,7 +255,7 @@ lo que falta es un punto de extensión, no un parche.
 | captura | `system/camera/capture_thread.py`, `tools/camera/abstract_driver.py`, `camera_factory.py`, `basler_driver.py`, `st_driver.py`, `rtsp_driver.py`, `video_file_driver.py`, `mock_driver.py`, `null_driver.py` |
 | imagen | `tools/image/enhance.py`, `undistort.py` |
 | inferencia | `system/inference/models/*` (menos el del fork), `abstract_pipeline.py`, `null_pipeline.py`, `result.py`, `overlay.py`, `composer.py`, `analysis.py`, `rolling.py`, `engine.py`, `preprocessing.py` |
-| bitfields | `system/formats/camera_health.py`, `com_status.py`, `system_status.py`, `gpio_status.py` |
+| bitfields | `system/formats/camera_health.py`, `com_status.py`, `system_status.py`, `gpio_status.py`, `pipeline_status.py` |
 | GPIO | `system/gpio_control.py` |
 | Modbus | `system/modbus/schema.py`, `registers.py`, `server.py`, `export_map.py` |
 | telemetría | `system/telemetry/persistence.py`, `backends/*` |

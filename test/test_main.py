@@ -14,7 +14,7 @@ from system.camera.lens_health import (
     CONDITION_KEYS, LensHealthMonitor, Measurement, Region,
 )
 from system import gpio_control
-from system.formats import gpio_status
+from system.formats import gpio_status, pipeline_status
 from system.inference import pipeline_factory
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.hooks import EngineHooks
@@ -460,6 +460,25 @@ class TestEngines:
             "pipeline_2": {"type": "person", "feature": "safety"}}, "safety")
         assert [engine.pipeline_slot for engine in app._build_engines()] == ["pipeline_1"]
 
+    def test_an_unlicensed_pipeline_is_remembered_for_its_status_word(self, monkeypatch):
+        """Es la decisión del arranque: la palabra no le vuelve a preguntar a la licencia."""
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "grain"},
+            "pipeline_2": {"type": "person", "feature": "safety"},
+            "pipeline_3": {"enabled": False}}, "safety")
+        app._build_engines()
+        assert app._unlicensed_pipelines == {"pipeline_2"}
+
+    def test_each_result_records_whether_its_pair_was_valid(self):
+        import types
+        app = main.Application.__new__(main.Application)
+        app._camera_illumination = {}
+        app._last_valid_by_pair = {}
+        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._on_result_ready(InferenceResult(camera_slot="camera_1",
+                                             pipeline_slot="pipeline_2", is_valid=False))
+        assert app._last_valid_by_pair == {("camera_1", "pipeline_2"): False}
+
 
 def _build_metrics_application(monkeypatch):
     """`Application` sin `__init__`, con lo que guarda y publica las métricas."""
@@ -504,6 +523,126 @@ class TestMetricRegisters:
         with caplog.at_level("WARNING"):
             app._build_metric_registers()
         assert "grain_pct" not in caplog.text
+
+
+class _StatusEngine:
+    """Motor visto desde la palabra de su pipeline: sólo su `get_status()`."""
+
+    def __init__(self, pipeline_slot: str, *, loaded: bool = True, running: bool = True,
+                 synthetic: bool = False):
+        self.pipeline_slot = pipeline_slot
+        self._status = {"loaded": loaded, "running": running, "synthetic": synthetic}
+
+    def get_status(self) -> dict:
+        return dict(self._status)
+
+
+_PIPELINE_WORDS = frozenset(f"pipeline_{i}_state_bitfield" for i in (1, 2, 3))
+
+
+def _build_pipeline_application(monkeypatch, pipelines: dict, *engines,
+                                unlicensed: tuple = ()):
+    """`Application` sin `__init__`, con lo que arma la palabra de cada pipeline."""
+    monkeypatch.setattr(main, "_REGISTER_NAMES", _PIPELINE_WORDS)
+    values = {"inference.pipelines": pipelines}
+    for pipeline_slot, section in pipelines.items():
+        values.update({f"inference.pipelines.{pipeline_slot}.{key}": value
+                       for key, value in section.items()})
+    app = main.Application.__new__(main.Application)
+    app._config = _MockConfig(**values)
+    app._engines = list(engines)
+    app._unlicensed_pipelines = set(unlicensed)
+    app._last_valid_by_pair = {}
+    return app
+
+
+def _pipeline_word(app, pipeline_slot: str = "pipeline_1") -> int:
+    return app._build_pipeline_registers()[f"{pipeline_slot}_state_bitfield"]
+
+
+class TestPipelineWords:
+    """Una palabra por pipeline del config: el que no corre dice por qué."""
+
+    def test_a_healthy_pipeline_is_zero(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        assert _pipeline_word(app) == 0
+
+    def test_an_unlicensed_pipeline_says_so(self, monkeypatch):
+        """No tiene motor, así que además no carga ni corre: el bit 0 dice por qué."""
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          unlicensed=("pipeline_1",))
+        word = _pipeline_word(app)
+        assert word & (1 << pipeline_status.BIT_NOT_LICENSED)
+        assert word & (1 << pipeline_status.BIT_NOT_RUNNING)
+        assert not word & (1 << pipeline_status.BIT_DISABLED)
+
+    def test_a_disabled_pipeline_says_so(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {"enabled": False}})
+        word = _pipeline_word(app)
+        assert word & (1 << pipeline_status.BIT_DISABLED)
+        assert not word & (1 << pipeline_status.BIT_NOT_LICENSED)
+
+    def test_a_mock_pipeline_is_marked_synthetic(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1", synthetic=True))
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_SYNTHETIC
+
+    def test_an_invalid_last_result_on_any_camera_is_reported(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._last_valid_by_pair = {("camera_1", "pipeline_1"): True,
+                                   ("camera_2", "pipeline_1"): False,
+                                   ("camera_2", "pipeline_2"): True}
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_INVALID_RESULT
+
+    def test_another_pipeline_invalid_result_is_not_counted(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._last_valid_by_pair = {("camera_1", "pipeline_2"): False}
+        assert _pipeline_word(app) == 0
+
+    def test_every_declared_pipeline_gets_its_word(self, monkeypatch):
+        app = _build_pipeline_application(
+            monkeypatch, {"pipeline_1": {}, "pipeline_2": {"enabled": False}},
+            _StatusEngine("pipeline_1"))
+        assert set(app._build_pipeline_registers()) == {"pipeline_1_state_bitfield",
+                                                       "pipeline_2_state_bitfield"}
+
+    def test_without_a_row_in_the_map_nothing_is_published(self, monkeypatch):
+        """La instalación publica los pipelines para los que declara fila."""
+        app = _build_pipeline_application(monkeypatch, {"pipeline_9": {}},
+                                          _StatusEngine("pipeline_9"))
+        assert app._build_pipeline_registers() == {}
+
+    def test_the_words_go_out_while_the_license_is_not_valid(self, monkeypatch):
+        """Es salud, no medición: con la licencia caída tiene que seguir moviéndose."""
+        import types
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._config.is_using_fallback = False
+        app._heartbeat = 0
+        app._last_metrics = {}
+        app._capture_threads = {}
+        app._license = types.SimpleNamespace(should_report_invalid=lambda: True,
+                                             is_publishing_allowed=lambda: False)
+        app._get_service_statuses = lambda: {
+            service: "disabled" for service in (
+                main.service_status.SERVICE_VIDEO_RTSP,
+                main.service_status.SERVICE_VIDEO_HTTP,
+                main.service_status.SERVICE_INFLUXDB, main.service_status.SERVICE_MQTT,
+                main.service_status.SERVICE_MODBUS_TCP,
+                main.service_status.SERVICE_MODBUS_RTU)}
+        app._license_days_remaining = lambda: 0
+        app._build_clock_registers = lambda: {}
+        app._build_camera_registers = lambda: {}
+        app._build_gpio_registers = lambda: {}
+        published: dict = {}
+        app._mapped_only = lambda values: published.update(values) or {}
+        app._modbus = types.SimpleNamespace(update_block=lambda registers: None)
+        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
+        app._on_registers_tick()
+        assert published["pipeline_1_state_bitfield"] == 0
 
 
 class _PainterEngine:

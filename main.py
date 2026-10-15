@@ -96,7 +96,9 @@ from system.camera import lens_health
 from system.camera.lens_health import LensHealthMonitor
 from system.config_manager import ConfigManager
 from system.env import load_env_file
-from system.formats import camera_health, com_status, gpio_status, system_status
+from system.formats import (
+    camera_health, com_status, gpio_status, pipeline_status, system_status,
+)
 from system.gpio_control import GpioController, GpioPollingThread
 from system.image_collector.collector import ImageCollector
 from system.inference import analysis
@@ -482,6 +484,8 @@ class Application(QObject):
         # Últimas métricas válidas de cada par (cámara, pipeline), para los registros. Por
         # par y no por cámara: dos pipelines sobre una cámara se pisarían el dict entero.
         self._metrics_by_pair: dict[tuple[str, str], dict] = {}
+        # Si el último resultado de cada par fue confiable, para la palabra de su pipeline.
+        self._last_valid_by_pair: dict[tuple[str, str], bool] = {}
         # Resultados de cada par (cámara, pipeline) desde la última muestra. La clave es el
         # par y no la cámara: una cámara puede entrar a dos pipelines —dos modelos mirando
         # lo mismo con distinto propósito— y con la cámara sola los dos se mezclarían en un
@@ -633,11 +637,15 @@ class Application(QObject):
 
         Las cámaras que comparten pipeline comparten el hilo, así los pesos se cargan una
         vez y el acceso a la GPU queda serializado por construcción.
+
+        Deja en `_unlicensed_pipelines` los que la licencia dejó afuera, para la palabra de
+        cada pipeline: es una decisión del arranque y no se vuelve a preguntar.
         """
         config = self._config
         preprocessor = build_preprocessor(config)
         hooks = build_hooks(config)
         engines: list[InferenceThread] = []
+        self._unlicensed_pipelines: set[str] = set()
         for pipeline_slot in (config.get("inference.pipelines", {}) or {}):
             if not config.get(f"inference.pipelines.{pipeline_slot}.enabled", True):
                 logger.info(f"[Main] {pipeline_slot} deshabilitado: sin hilo de inferencia.")
@@ -651,6 +659,7 @@ class Application(QObject):
                     f"[Main] {pipeline_slot} no arranca: la licencia no habilita "
                     f"'{feature}'. Sin hilo de inferencia para ese pipeline."
                 )
+                self._unlicensed_pipelines.add(pipeline_slot)
                 continue
             engine = InferenceThread(
                 config, create_pipeline(config, pipeline_slot),
@@ -882,13 +891,15 @@ class Application(QObject):
     @Slot(object)
     def _on_result_ready(self, result: InferenceResult):
         """
-        Un resultado del motor, uno por frame: sólo la iluminación de la cámara.
+        Un resultado del motor, uno por frame: la iluminación de la cámara y si el par
+        (cámara, pipeline) dio un resultado confiable.
 
         El frame anotado NO sale de acá. Lo publica `_on_cycle_complete`, con el
         representativo del ciclo: es el único que se corresponde con los números que
         salieron al PLC, y es el que tiene que quedar hasta la medición siguiente.
         """
         self._camera_illumination[result.camera_slot] = result.illumination_pct
+        self._last_valid_by_pair[(result.camera_slot, result.pipeline_slot)] = result.is_valid
         content = self._ui.monitor_content
         if content is not None:
             setter = getattr(content, "set_illumination_pct", None)
@@ -1115,6 +1126,7 @@ class Application(QObject):
                 "power_w": metrics["power_w"],
             })
         values.update(self._build_camera_registers())
+        values.update(self._build_pipeline_registers())
         values.update(self._build_gpio_registers())
         # Con la política `degrade` las mediciones no se publican, pero el canal sigue
         # sirviendo: el latido, la salud del equipo y las palabras de estado salen igual.
@@ -1560,6 +1572,38 @@ class Application(QObject):
                 candidates[f"{camera_slot}_fps"] = status.get("fps_estimated", 0.0)
             values.update({name: value for name, value in candidates.items()
                            if name in _REGISTER_NAMES})
+        return values
+
+    def _build_pipeline_registers(self) -> dict:
+        """
+        Palabra de estado de cada pipeline del config, para los que tengan fila en el mapa.
+
+        Recorre `inference.pipelines` y no sólo los motores: el que no arrancó —sin licencia
+        o deshabilitado— es justo el que tiene que decir por qué. Va con la salud y no con
+        las mediciones, así que sale también con la licencia caída. El nombre lleva el slot
+        —`pipeline_1_state_bitfield`— y se filtra contra el mapa como los de cámara.
+        """
+        engine_by_slot = {engine.pipeline_slot: engine for engine in self._engines}
+        values = {}
+        for pipeline_slot in (self._config.get("inference.pipelines", {}) or {}):
+            name = f"{pipeline_slot}_state_bitfield"
+            if name not in _REGISTER_NAMES:
+                continue
+            engine = engine_by_slot.get(pipeline_slot)
+            status = engine.get_status() if engine is not None else {}
+            last_results = [is_valid for (_, pipeline), is_valid
+                            in self._last_valid_by_pair.items() if pipeline == pipeline_slot]
+            values[name] = pipeline_status.pack(
+                licensed=pipeline_slot not in self._unlicensed_pipelines,
+                # Se lee en caliente porque el motor también: con `enabled: false` deja de
+                # aceptar frames en el siguiente, sin reiniciar.
+                enabled=bool(self._config.get(
+                    f"inference.pipelines.{pipeline_slot}.enabled", True)),
+                loaded=bool(status.get("loaded", False)),
+                running=bool(status.get("running", False)),
+                synthetic=bool(status.get("synthetic", False)),
+                last_result_valid=all(last_results),
+            )
         return values
 
     def _build_metric_registers(self) -> dict:

@@ -53,6 +53,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         camera_health.py      estado de una cámara: adquisición excluyente + lente sucio
         com_status.py         un bit por canal de salida que está andando
         gpio_status.py        las dos palabras de GPIO: entradas leídas y salidas comandadas
+        pipeline_status.py    una palabra por pipeline: ¿sus números son una medición?
         system_status.py      ¿se puede confiar en las mediciones de proceso?
       image_collector/
         collector.py          dataset en disco, por intervalo o a pedido
@@ -645,6 +646,11 @@ La tabla completa, archivo por archivo, está en `README.md`.
   métodos marcados de `main.py`: el widget del monitor y el contexto del dataset. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
   pero qué publica es lo más específico de cada fork y se declara al escribirlo.
+- **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
+  y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
+  `inference.pipelines`, incluidos los que no arrancaron, y se filtra contra el mapa como
+  las de cámara. Ningún mapa declara todavía esas filas, así que no llegan al PLC: falta
+  decidir dónde viven —el hueco de 92-97 o un bloque nuevo después del 100—.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección
   `lens_health:` del config, la pestaña con la calibración por cámara y el bit al PLC
   están. Lo que queda es de cada instalación —calibrar cada cámara con el vidrio limpio,
