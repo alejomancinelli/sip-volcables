@@ -196,8 +196,9 @@ trae:
    del proyecto —classifier, analyzer y annotators—. Lo usan la app y la corrida de
    imágenes sueltas, así que las dos miden igual. El preprocessor sale solo del config: la
    calibración del lente y el `image_adjust` de cada cámara.
-   **`main.py`** ya cablea todo; se completan sus dos métodos marcados,
-   `_build_monitor_content()` y `_build_dataset_context()`.
+   **`main.py`** ya cablea todo; se completan sus tres métodos marcados,
+   `_build_monitor_content()`, `_build_dataset_context()` y, si una señal de la planta
+   tiene que cortar los frames a un pipeline, `_build_frame_gates()`.
 10. **La vista de operador**, si la grilla de cámaras no alcanza: el widget propio se
     devuelve desde `_build_monitor_content()` de `main.py`. Los textos nuevos van a
     `ui/strings.py`, con su clave en inglés y una columna por idioma; el resto de la UI
@@ -224,7 +225,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `system/version.py` | la versión del fork; se sube en cada release |
 | `setup/jetson/*.txt` | el framework de inferencia en la Jetson: qué versiones se fijan (`constraints.txt`), qué se instala (`requirements.txt`) y qué entra con `--no-deps` (`requirements-nodeps.txt`). Vienen con los ejemplos comentados |
 | `setup/venv-setup/verify_env.py` | **sólo el bloque «What changes in each fork»**: los módulos del framework y cómo se prueba la GPU |
-| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor y el contexto del dataset. El resto es cableado genérico |
+| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor, el contexto del dataset y las compuertas de frames. El resto es cableado genérico |
 | `CLAUDE.md` | el mapa y las decisiones del fork |
 | `README.md` | esta guía, reemplazada por la del proyecto |
 

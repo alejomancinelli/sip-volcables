@@ -16,9 +16,18 @@ que resuelve este módulo es la regla, no el dibujo:
     representativo— no maneja: sólo aporta su overlay al frame siguiente, y así el video
     no salta para atrás.
   - **Encima van los demás pipelines de esa cámara**, con su último resultado: `others()`.
-  - **Un resultado viejo se descarta.** Pasado `max(_STALE_MIN_S, _STALE_FACTOR *
-    interval_s)` de su pipeline, deja de dibujarse: un pipeline caído o con su compuerta
-    cerrada no puede quedar congelado en pantalla con su último veredicto.
+  - **Un resultado viejo se descarta.** Pasados `_STALE_FACTOR` períodos de su par
+    (cámara, pipeline) —con piso en `_STALE_MIN_S`— deja de dibujarse: un pipeline caído no
+    puede quedar congelado en pantalla con su último veredicto. El período es el mayor
+    entre el `interval_s` del pipeline y el tiempo que pasó entre sus dos últimos
+    resultados en esa cámara: con `interval_s` en 0 y un modelo que tarda dos segundos, el
+    configurado solo lo daría por muerto entre una inferencia y la siguiente.
+  - **Lo que la planta cortó se olvida en el acto.** `forget()` borra el par —su resultado
+    y su período—: es lo que hace quien cablea cuando una compuerta corta los frames, para
+    que el overlay se vaya en el frame siguiente y no tres períodos después.
+  - **Sin nada vigente, la cámara se ve en vivo.** `has_fresh()` dice si a una cámara le
+    queda algún resultado vigente; sin ninguno, quien cablea muestra el frame de la cámara
+    en lugar de dejar congelado el último anotado.
 
 `compose()` junta las tres cosas: guarda el resultado y, si maneja, devuelve el frame a
 mostrar con los overlays de los demás dibujados encima. El dibujo no es de acá: lo hace el
@@ -42,7 +51,7 @@ import numpy as np
 
 from .result import InferenceResult
 
-_STALE_FACTOR = 3.0   # períodos de su pipeline que un resultado sigue dibujándose
+_STALE_FACTOR = 3.0   # períodos de su par que un resultado sigue vigente
 _STALE_MIN_S = 1.0    # piso: con `interval_s` en 0 el período es el de la cámara
 
 
@@ -58,21 +67,22 @@ class FrameComposer:
     """
     Último resultado de cada par (cámara, pipeline) y el último frame mostrado por cámara.
 
-    `interval_s_by_pipeline` es el período esperado entre resultados de cada pipeline; uno
-    que no figura usa el piso.
+    `interval_s_by_pipeline` es el período configurado entre resultados de cada pipeline;
+    uno que no figura cuenta sólo con el período observado y el piso.
     """
 
     def __init__(self, interval_s_by_pipeline: dict[str, float] | None = None):
-        self._stale_s_by_pipeline: dict[str, float] = {}
+        self._interval_s_by_pipeline: dict[str, float] = {}
         self.set_intervals(interval_s_by_pipeline or {})
-        # (cámara, pipeline) -> (resultado sin frames, instante en que llegó)
-        self._latest: dict[tuple[str, str], tuple[InferenceResult, float]] = {}
+        # (cámara, pipeline) -> (resultado sin frames, instante en que llegó, segundos desde
+        # el resultado anterior del par; 0 si es el primero)
+        self._latest: dict[tuple[str, str], tuple[InferenceResult, float, float]] = {}
         self._shown_timestamp_s: dict[str, float] = {}
 
     def set_intervals(self, interval_s_by_pipeline: dict[str, float]):
-        """Reemplaza los períodos esperados. Lo guardado se conserva."""
-        self._stale_s_by_pipeline = {
-            pipeline_slot: max(_STALE_MIN_S, _STALE_FACTOR * max(0.0, float(interval_s)))
+        """Reemplaza los períodos configurados. Lo guardado se conserva."""
+        self._interval_s_by_pipeline = {
+            pipeline_slot: max(0.0, float(interval_s))
             for pipeline_slot, interval_s in interval_s_by_pipeline.items()
         }
 
@@ -110,8 +120,11 @@ class FrameComposer:
         mostrado. Uno que no maneja igual queda guardado para `others()`.
         """
         camera_slot = result.camera_slot
-        self._latest[(camera_slot, result.pipeline_slot)] = (
-            replace(result, source_bgr=None, annotated_bgr=None), now_s)
+        pair = (camera_slot, result.pipeline_slot)
+        previous = self._latest.get(pair)
+        gap_s = now_s - previous[1] if previous is not None else 0.0
+        self._latest[pair] = (replace(result, source_bgr=None, annotated_bgr=None),
+                              now_s, gap_s)
         shown_s = self._shown_timestamp_s.get(camera_slot)
         if shown_s is not None and result.timestamp_s <= shown_s:
             return False
@@ -124,14 +137,28 @@ class FrameComposer:
         Último resultado vigente de cada otro pipeline de esa cámara.
 
         Excluye el del propio `pipeline_slot` y los que ya pasaron su tiempo de vigencia.
-        El orden es estable —el del primer resultado de cada pipeline—, así que lo que se
-        dibuja encima de qué no cambia de un frame al siguiente.
+        El orden es estable —el del primer resultado de cada pipeline desde que se lo
+        olvidó—, así que lo que se dibuja encima de qué no cambia de un frame al siguiente.
         """
-        others = []
-        for (camera, pipeline), (result, added_s) in self._latest.items():
-            if camera != camera_slot or pipeline == pipeline_slot:
-                continue
-            if now_s - added_s > self._stale_s_by_pipeline.get(pipeline, _STALE_MIN_S):
-                continue
-            others.append(result)
-        return others
+        return [result for (camera, pipeline), (result, added_s, gap_s)
+                in self._latest.items()
+                if camera == camera_slot and pipeline != pipeline_slot
+                and not self._is_stale(pipeline, added_s, gap_s, now_s)]
+
+    def has_fresh(self, camera_slot: str, now_s: float) -> bool:
+        """True si a esa cámara le queda algún resultado vigente, de cualquier pipeline."""
+        return any(camera == camera_slot and not self._is_stale(pipeline, added_s, gap_s, now_s)
+                   for (camera, pipeline), (_, added_s, gap_s) in self._latest.items())
+
+    def forget(self, camera_slot: str, pipeline_slot: str):
+        """
+        Olvida el par: su último resultado deja de dibujarse ya, y su período se vuelve a
+        medir desde el próximo. Sin esto último, la pausa entera contaría como un período y
+        el par quedaría vigente mucho después de morir.
+        """
+        self._latest.pop((camera_slot, pipeline_slot), None)
+
+    def _is_stale(self, pipeline_slot: str, added_s: float, gap_s: float,
+                  now_s: float) -> bool:
+        period_s = max(self._interval_s_by_pipeline.get(pipeline_slot, 0.0), gap_s)
+        return now_s - added_s > max(_STALE_MIN_S, _STALE_FACTOR * period_s)

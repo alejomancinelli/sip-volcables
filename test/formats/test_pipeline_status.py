@@ -5,6 +5,7 @@ import pytest
 
 from system.formats.pipeline_status import (
     BIT_DISABLED,
+    BIT_GATED,
     BIT_INVALID_RESULT,
     BIT_NOT_LICENSED,
     BIT_NOT_LOADED,
@@ -26,8 +27,8 @@ _BIT_BY_FALSE_KEYWORD = {
     "running": BIT_NOT_RUNNING,
     "last_result_valid": BIT_INVALID_RESULT,
 }
-# La que prende su bit cuando es True.
-_BIT_BY_TRUE_KEYWORD = {"synthetic": BIT_SYNTHETIC}
+# Las que prenden su bit cuando son True.
+_BIT_BY_TRUE_KEYWORD = {"synthetic": BIT_SYNTHETIC, "gated": BIT_GATED}
 
 _ALL_GOOD = {**{keyword: True for keyword in _BIT_BY_FALSE_KEYWORD},
              **{keyword: False for keyword in _BIT_BY_TRUE_KEYWORD}}
@@ -64,6 +65,10 @@ class TestPack:
 
     def test_synthetic_sets_its_bit(self):
         assert pack(**{**_ALL_GOOD, "synthetic": True}) == 1 << BIT_SYNTHETIC
+
+    def test_a_closed_gate_sets_its_bit(self):
+        """No es una falla, pero sin el bit un pipeline en pausa se lee como uno sano."""
+        assert pack(**{**_ALL_GOOD, "gated": True}) == 1 << BIT_GATED
 
     def test_flags_accumulate(self):
         assert pack(**_ALL_BAD) == WORD_MASK
