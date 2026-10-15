@@ -33,8 +33,9 @@ Las etapas, y de qué parte de la app sale cada una:
     h264       los pipelines tal como los arma `rtsp_server` (`h264_sw`, `h264_hw`) y, de
                referencia, el `h264_hw` previo a la fase 1, que convertía a I420 por CPU
                antes del VIC. Mide caudal, no latencia.
-    decode     cv2.VideoCapture (rtsp_driver, video_file_driver) vs nvv4l2decoder
-               (NVDEC), con y sin reducir en el VIC al salir del decodificador.
+    decode     el decodificador de los drivers (tools/camera/decoder.py) por CPU y por
+               NVDEC, al tamaño del video y reduciendo: por CPU con cv2.resize, por
+               NVDEC en el VIC al salir del decodificador.
     debayer    cv2.cvtColor de Bayer a BGR (st_driver). Sólo CPU: es la referencia para
                decidir si vale moverlo a la GPU.
     remap      cv2.remap con mapas CV_16SC2 (undistort). Sólo CPU, referencia.
@@ -81,6 +82,7 @@ from engine_watch import (EngineWatch, format_sysfs,   # noqa: E402
                           format_tegrastats)
 from system.config_manager import ConfigManager        # noqa: E402
 from system.video import rtsp_server                   # noqa: E402
+from tools.camera import decoder                       # noqa: E402
 from tools.jetson import board, capabilities           # noqa: E402
 from tools.jetson.tegrastats import TegrastatsReader   # noqa: E402
 
@@ -451,59 +453,46 @@ def _resolve_video(settings: _Settings, workdir: Path) -> tuple[str, str]:
 
 
 def _bench_decode(settings: _Settings, new_watch: _NewWatch) -> list[_Result]:
+    """
+    El decodificador de los drivers (`tools/camera/decoder.py`) por sus dos backends, al
+    tamaño del video y al de `output_*_px`: lo que se mide es lo que corre la cámara.
+    """
     out_w, out_h = settings.output_size_px
+    variants = (
+        ("cpu", decoder.DecodeSettings(decoder.BACKEND_CPU, 0, 0)),
+        ("cpu + resize", decoder.DecodeSettings(decoder.BACKEND_CPU, out_w, out_h)),
+        ("nvdec", decoder.DecodeSettings(decoder.BACKEND_NVDEC, 0, 0)),
+        ("nvdec + vic resize", decoder.DecodeSettings(decoder.BACKEND_NVDEC, out_w, out_h)),
+    )
     results = []
     with tempfile.TemporaryDirectory() as workdir:
         video_path, video_note = _resolve_video(settings, Path(workdir))
         if not video_path:
             return [_skipped("decode", "todas", video_note)]
 
-        for variant, resize in (("cpu cv2.VideoCapture", False), ("cpu + cv2.resize", True)):
-            def cpu(resize=resize):
-                capture = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+        for variant, decode in variants:
+            reason = decoder.get_nvdec_unavailable_reason()
+            if decode.backend == decoder.BACKEND_NVDEC and reason:
+                results.append(_skipped("decode", variant, reason))
+                continue
+
+            def body(decode=decode):
+                capture = decoder.open_file(video_path, decode)
+                if capture is None:
+                    raise RuntimeError("el video no abrió")
 
                 def run_one(_i: int):
-                    is_read, frame = capture.read()
+                    is_read, _frame = capture.read()
                     if not is_read:
-                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        is_read, frame = capture.read()
-                    if resize and is_read:
-                        cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+                        raise RuntimeError("el video se terminó: bajar frame_count o usar "
+                                           "uno más largo")
 
                 try:
                     wall_ms, cpu_ms = _measure(settings, run_one)
                 finally:
                     capture.release()
-                return wall_ms, cpu_ms, video_note
-            results.append(_run_variant("decode", variant, settings, new_watch, cpu))
-
-        if Gst is None:
-            return results + [_skipped("decode", "nvdec", _GST_ERROR)]
-
-        for variant, scale in (("nvdec", ""),
-                               ("nvdec + vic resize", f",width={out_w},height={out_h}")):
-            def nvdec(scale=scale):
-                launch = (f"filesrc location={Path(video_path).as_posix()} ! parsebin "
-                          f"! nvv4l2decoder disable-dpb=true ! nvvidconv interpolation-method=1 "
-                          f"! video/x-raw,format=BGRx{scale} "
-                          f"! appsink name=sink sync=false max-buffers=4")
-                pipeline = _AppPipeline(launch)
-                pulled = {"count": 0}
-
-                def run_one(_i: int):
-                    sample = pipeline.pull()
-                    if sample is None:
-                        raise RuntimeError(f"el video tiene {pulled['count']} frames; bajar "
-                                           f"frame_count o usar uno más largo")
-                    _to_bgr(*sample)
-                    pulled["count"] += 1
-
-                try:
-                    wall_ms, cpu_ms = _measure(settings, run_one)
-                finally:
-                    pipeline.close()
-                return wall_ms, cpu_ms, video_note
-            results.append(_run_variant("decode", variant, settings, new_watch, nvdec))
+                return wall_ms, cpu_ms, f"{video_note}; {decode.describe()}"
+            results.append(_run_variant("decode", variant, settings, new_watch, body))
     return results
 
 

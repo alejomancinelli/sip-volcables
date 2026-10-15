@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 392 grupos, 1940 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**72 archivos, 397 grupos, 1966 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -26,7 +26,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/modbus/](#testmodbus) | 3 | 138 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 5 | 119 |
+| [test/tools/camera/](#testtoolscamera) | 6 | 145 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
@@ -2751,6 +2751,54 @@ Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 - `TestStatusContract`
   - `test_status_has_the_stable_keys`
   - `test_markers_are_declared_on_the_abstraction`
+
+</details>
+
+### [test_decoder.py](../test/tools/camera/test_decoder.py) — 26 tests
+
+Tests del decodificador de los drivers de video: qué backend se elige con qué config, que los dos entreguen el mismo tamaño, cómo se arman los pipelines de la Jetson y qué pasa sin GStreamer.
+
+| Grupo | Tests |
+|---|---:|
+| `TestReadDecodeSettings` | 8 |
+| `TestCpuPath` | 5 |
+| `TestNvdecPipelines` | 7 |
+| `TestBgrxToBgr` | 3 |
+| `TestNvdecWithoutGstreamer` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestReadDecodeSettings`
+  - `test_without_a_section_it_is_the_cpu_at_native_size`
+  - `test_the_section_is_read`
+  - `test_auto_picks_nvdec_where_there_is_one`
+  - `test_auto_picks_the_cpu_where_there_is_none`
+  - `test_nvdec_where_there_is_none_stays_nvdec_and_says_so`
+  - `test_an_unknown_backend_falls_back_to_the_cpu_and_warns`
+  - `test_one_side_alone_leaves_the_native_size`
+  - `test_negative_sizes_are_native`
+- `TestCpuPath`
+  - `test_a_stream_opens_with_ffmpeg_and_the_timeouts`
+  - `test_a_stream_that_does_not_open_is_none_and_released`
+  - `test_the_native_size_is_the_frame_as_it_came`
+  - `test_a_size_resizes_on_the_cpu_like_the_vic_would`
+  - `test_seek_and_fps_go_to_opencv`
+- `TestNvdecPipelines`
+  - `test_the_stream_goes_through_nvdec_and_the_vic_into_bgrx`
+  - `test_the_vic_scales_bilinear`
+  - `test_the_stream_keeps_only_the_newest_frame_over_tcp`
+  - `test_at_native_size_no_size_is_asked`
+  - `test_a_file_drops_nothing_and_keeps_the_reorder_buffer`
+  - `test_credentials_leave_the_url_unescaped`
+  - `test_a_url_without_credentials_stays_as_it_is`
+- `TestBgrxToBgr`
+  - `test_the_padding_byte_is_dropped`
+  - `test_padding_at_the_end_of_each_row_is_skipped`
+  - `test_the_frame_is_its_own_array`
+- `TestNvdecWithoutGstreamer`
+  - `test_a_stream_does_not_open`
+  - `test_a_file_does_not_open`
+  - `test_the_reason_names_what_is_missing`
 
 </details>
 
