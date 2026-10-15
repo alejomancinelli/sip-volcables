@@ -1,9 +1,15 @@
 """
 Prueba manual: qué aceleradores tiene esta Jetson y si cada uno anda de verdad.
 
-Uso — con el intérprete del venv, en la Jetson y sin sudo (la app tampoco lo tiene):
+Uso — con el intérprete del venv, en la Jetson. Dos corridas, porque `tegrastats` publica
+los motores sólo como root y la app corre sin sudo:
 
     .venv/bin/python manual_test/jetson_accelerators/probe_report.py
+    sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \\
+        manual_test/jetson_accelerators/probe_report.py
+
+`PYTHONDONTWRITEBYTECODE` evita que root deje `__pycache__` suyos en el repo, que después
+el usuario no puede reescribir.
 
 Lee la sección `probe` del config.yaml que tiene al lado. Imprime, en este orden:
 
@@ -12,19 +18,20 @@ Lee la sección `probe` del config.yaml que tiene al lado. Imprime, en este orde
   2. Las librerías de Python del venv: si OpenCV trae GStreamer o CUDA, VPI y cuántos DLA
      ve TensorRT.
   3. Los elementos de GStreamer instalados.
-  4. Qué publica `tegrastats` corriendo como este usuario: la línea cruda y los motores
+  4. Las fuentes de sysfs que se leen sin root: los nodos de devfreq y el estado de
+     runtime PM de cada motor.
+  5. Qué publica `tegrastats` corriendo como este usuario: la línea cruda y los motores
      que se entendieron de ella.
-  5. Un pipeline corto por motor (VIC, NVENC, NVDEC, NVJPG) con `tegrastats` mirando: si
-     terminó bien, cuánto tardó y **qué motor se encendió mientras corría**.
+  6. Un pipeline corto por motor (VIC, NVENC, NVDEC, NVJPG) y, mientras corre, qué motor
+     se encendió según `tegrastats` y según sysfs.
 
 Qué mirar:
-    - El punto 4. Si la línea cruda no trae `NVENC`, `NVDEC`, `NVJPG`, `VIC` o `EMC_FREQ`,
-      este usuario no los ve sin root y la app tampoco los va a ver: comparar con
-      `sudo tegrastats --interval 1000` y pasar las dos líneas. De eso depende de dónde
-      lee la carga de los motores la telemetría.
-    - El punto 5. Un pipeline que pasa pero no enciende su motor está cayendo a software
-      sin avisar. El caso esperable es NVJPG en un Orin Nano, que no tiene codificador
-      JPEG; en el Orin NX los cuatro tienen que verse.
+    - En la corrida como root, que cada pipeline diga «motor visto». Uno que pasa pero no
+      enciende su motor está cayendo a software sin avisar. En el Orin NX los cuatro
+      tienen que verse.
+    - En las dos corridas, la línea `sysfs:` de cada pipeline. Si sin root muestra el motor
+      de esa prueba en `active`, o su devfreq subiendo, es la fuente que la telemetría
+      puede usar sin sudo. Si dice «nada» en los dos casos, sysfs no alcanza.
     - Que los relojes digan fijados después de `sudo jetson_clocks`, y que el modo de
       potencia sea el de producción (20W en el NX de volcables).
     - Que los contadores de sobrecorriente no suban entre dos corridas.
@@ -33,6 +40,7 @@ Pasarle la salida completa a quien sigue con la fase 0: las rutas y las formas d
 que no coinciden con este equipo se corrigen en `tools/jetson/`.
 """
 
+import os
 import platform
 import sys
 import time
@@ -48,7 +56,8 @@ if _REPO_ROOT is None:
     raise SystemExit("No se encontró la raíz del repo: ningún directorio padre tiene system/.")
 sys.path.insert(0, str(_REPO_ROOT))
 
-from engine_watch import EngineWatch, format_peaks, is_active  # noqa: E402
+from engine_watch import (EngineWatch, format_sysfs, format_tegrastats,  # noqa: E402
+                          is_active)
 from system.config_manager import ConfigManager                # noqa: E402
 from tools.jetson import board, capabilities                   # noqa: E402
 from tools.jetson.tegrastats import TegrastatsReader           # noqa: E402
@@ -122,21 +131,27 @@ def _start_tegrastats(interval_ms: int) -> TegrastatsReader:
     print(f"  motores:     {reader.get_engines() or '(ninguno)'}")
     if reader.error:
         print(f"  error:       {reader.error}")
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if not is_root and not any(name not in ("gr3d", "emc") for name in reader.get_engines()):
+        print("  sin root, tegrastats no publica los motores: para atribuirlos, correr con")
+        print("  sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python <este script>")
     return reader
 
 
 def _verdict(check: str, watch: EngineWatch, error: str) -> str:
-    """'motor visto', 'NO SE ENCENDIÓ' o 'sin lecturas', para la columna final."""
+    """Según `tegrastats`: 'motor visto', 'NO SE ENCENDIÓ' o 'no publicado'."""
     if error:
         return "-"
-    if not watch.has_readings:
-        return "sin lecturas"
-    seen = any(is_active(watch.peaks[name])
-               for name in _EXPECTED_ENGINES[check] if name in watch.peaks)
+    expected = [name for name in _EXPECTED_ENGINES[check] if watch.has_engine(name)]
+    if not expected:
+        # Sin root, tegrastats no publica los motores: no se puede afirmar que no anduvo.
+        return "no publicado"
+    seen = any(is_active(watch.peaks[name]) for name in expected)
     return "motor visto" if seen else "NO SE ENCENDIÓ"
 
 
-def _run_checks(config: ConfigManager, reader: TegrastatsReader, interval_s: float):
+def _run_checks(config: ConfigManager, reader: TegrastatsReader, interval_s: float,
+                devices: dict[str, str]):
     width_px = int(config.get("probe.width_px", 1920))
     height_px = int(config.get("probe.height_px", 1080))
     frame_count = int(config.get("probe.frame_count", 120))
@@ -145,14 +160,39 @@ def _run_checks(config: ConfigManager, reader: TegrastatsReader, interval_s: flo
     for check, launch in capabilities.build_pipeline_checks(
             width_px, height_px, frame_count).items():
         start_s = time.perf_counter()
-        with EngineWatch(reader, interval_s) as watch:
+        with EngineWatch(reader, interval_s, devices) as watch:
             error = capabilities.check_pipeline(launch)
         elapsed_s = time.perf_counter() - start_s
         status = "PASA" if not error else "FALLA"
-        print(f"  {check:13s} {status:5s} {elapsed_s:6.2f} s  "
-              f"{_verdict(check, watch, error):15s} {format_peaks(watch)}")
+        print(f"  {check:13s} {status:5s} {elapsed_s:6.2f} s  {_verdict(check, watch, error)}")
         if error:
             print(f"      {error}")
+        print(f"      {format_tegrastats(watch)}")
+        print(f"      {format_sysfs(watch)}")
+
+
+def _print_sysfs_sources() -> dict[str, str]:
+    """
+    Las fuentes sin root que podría usar la app: nodos de devfreq y estado de runtime PM
+    de cada motor. Devuelve los motores encontrados, para muestrearlos en cada prueba.
+    """
+    print("\n== sysfs sin root ==")
+    nodes = board.read_devfreq()
+    print("  devfreq:")
+    for node, clock in nodes.items():
+        print(f"    {node:22s} {clock['cur_mhz']:5d} MHz (mín {clock['min_mhz']}, "
+              f"máx {clock['max_mhz']})")
+    if not nodes:
+        print("    (ninguno)")
+
+    devices = board.find_engine_devices()
+    states = board.read_runtime_states(devices)
+    print("  runtime PM de los motores:")
+    for device, path in devices.items():
+        print(f"    {device:22s} {states.get(device, 'no se puede leer'):10s} {path}")
+    if not devices:
+        print("    (ninguno)")
+    return devices
 
 
 def main() -> int:
@@ -165,9 +205,10 @@ def main() -> int:
     _print_board()
     _print_python_libs()
     _print_elements()
+    devices = _print_sysfs_sources()
     reader = _start_tegrastats(interval_ms)
     try:
-        _run_checks(config, reader, interval_ms / 1000.0)
+        _run_checks(config, reader, interval_ms / 1000.0, devices)
     finally:
         reader.stop()
 

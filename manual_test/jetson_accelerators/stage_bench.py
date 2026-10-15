@@ -2,10 +2,15 @@
 Prueba manual: cada etapa que la app hace hoy por CPU, contra su versión en un motor de
 la Jetson.
 
-Uso — con el intérprete del venv, en la Jetson y sin sudo:
+Uso — con el intérprete del venv, en la Jetson, con los relojes fijados para que dos
+corridas den lo mismo:
 
+    sudo jetson_clocks
     .venv/bin/python manual_test/jetson_accelerators/stage_bench.py
     .venv/bin/python manual_test/jetson_accelerators/stage_bench.py jpeg decode
+
+Sin root la columna de motores sale de sysfs; para verla con `tegrastats`, la misma línea
+con `sudo env PYTHONDONTWRITEBYTECODE=1` adelante. Los tiempos no cambian con root.
 
 Sin argumentos corre las etapas de `bench.stages` del config.yaml de al lado; con nombres,
 sólo esas. En la PC de desarrollo corre las variantes por CPU y saltea las de GStreamer
@@ -17,7 +22,8 @@ Por cada variante imprime:
     CPU ms/frame    tiempo de CPU del proceso entero por frame, sumando todos sus hilos
                     —los de GStreamer también—. Es lo que la variante le saca al resto
                     de la app, y es la columna que decide.
-    motores         qué motor se encendió mientras corría, según `tegrastats`
+    motores         qué motor se encendió mientras corría: según `tegrastats` como root,
+                    según sysfs (runtime PM y devfreq) sin root
 
 Las etapas, y de qué parte de la app sale cada una:
 
@@ -71,7 +77,8 @@ if _REPO_ROOT is None:
     raise SystemExit("No se encontró la raíz del repo: ningún directorio padre tiene system/.")
 sys.path.insert(0, str(_REPO_ROOT))
 
-from engine_watch import EngineWatch, format_peaks     # noqa: E402
+from engine_watch import (EngineWatch, format_sysfs,   # noqa: E402
+                          format_tegrastats)
 from system.config_manager import ConfigManager        # noqa: E402
 from system.video import rtsp_server                   # noqa: E402
 from tools.jetson import board, capabilities           # noqa: E402
@@ -101,6 +108,9 @@ _GENERATED_VIDEO_FPS = 10
 _REMAP_DIST_COEFFS = np.array([[-0.28, 0.07, 0.0, 0.0, 0.0]])
 
 _ALL_STAGES = ("resize", "jpeg", "h264", "decode", "debayer", "remap", "letterbox")
+
+
+_NewWatch = Callable[[], EngineWatch]      # arma el EngineWatch de una variante
 
 
 class _Result(NamedTuple):
@@ -166,17 +176,23 @@ def _measure(settings: _Settings, run_one: Callable[[int], None]) -> tuple[float
     return wall_s * 1000 / settings.frame_count, cpu_s * 1000 / settings.frame_count
 
 
-def _run_variant(stage: str, variant: str, settings: _Settings, reader: TegrastatsReader,
+def _run_variant(stage: str, variant: str, settings: _Settings, new_watch: _NewWatch,
                  body: Callable[[], tuple[float, float, str]]) -> _Result:
-    """Corre una variante con `tegrastats` mirando. Un error es una fila, no una caída."""
-    with EngineWatch(reader, settings.interval_s) as watch:
+    """Corre una variante con los motores mirados. Un error es una fila, no una caída."""
+    with new_watch() as watch:
         try:
             wall_ms, cpu_ms, note = body()
         except Exception as e:
             wall_ms, cpu_ms, note = None, None, f"error: {e}"
-    result = _Result(stage, variant, wall_ms, cpu_ms, format_peaks(watch), note)
+    result = _Result(stage, variant, wall_ms, cpu_ms, _format_engines(watch), note)
     _print_result(result)
     return result
+
+
+def _format_engines(watch: EngineWatch) -> str:
+    """Lo que dice `tegrastats` si publica los motores (como root); si no, sysfs."""
+    text = format_tegrastats(watch)
+    return text if "sin motores" not in text else format_sysfs(watch)
 
 
 def _skipped(stage: str, variant: str, reason: str) -> _Result:
@@ -271,14 +287,18 @@ def _to_bgr(data: bytes, caps: object) -> np.ndarray:
                         cv2.COLOR_BGRA2BGR)
 
 
-def _round_trip(settings: _Settings, frames_bgrx: list[np.ndarray], launch: str,
+def _round_trip(settings: _Settings, frames: list[np.ndarray], launch: str,
                 convert: Callable[[bytes, object], object]) -> tuple[float, float, object]:
-    """Mide push + pull de a un frame por `launch`. Devuelve también la última salida."""
+    """
+    Mide push + pull de a un frame BGR por `launch`, con la conversión a BGRx adentro:
+    nvvidconv no acepta BGR empaquetado, así que la app también la pagaría. Devuelve
+    además la última salida.
+    """
     pipeline = _AppPipeline(launch, _bgrx_caps(settings.width_px, settings.height_px))
     last = {}
 
     def run_one(i: int):
-        pipeline.push(frames_bgrx[i % len(frames_bgrx)])
+        pipeline.push(cv2.cvtColor(frames[i % len(frames)], cv2.COLOR_BGR2BGRA))
         pulled = pipeline.pull()
         last["output"] = convert(*pulled)
 
@@ -289,14 +309,10 @@ def _round_trip(settings: _Settings, frames_bgrx: list[np.ndarray], launch: str,
     return wall_ms, cpu_ms, last.get("output")
 
 
-def _to_bgrx(frames: list[np.ndarray]) -> list[np.ndarray]:
-    return [cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA) for frame in frames]
-
-
 # ── Etapas ───────────────────────────────────────────────────────────────────
 
 def _bench_resize(settings: _Settings, frames: list[np.ndarray],
-                  reader: TegrastatsReader) -> list[_Result]:
+                  new_watch: _NewWatch) -> list[_Result]:
     out_w, out_h = settings.output_size_px
     results = []
 
@@ -304,28 +320,18 @@ def _bench_resize(settings: _Settings, frames: list[np.ndarray],
         wall_ms, cpu_ms = _measure(settings, lambda i: cv2.resize(
             frames[i % len(frames)], (out_w, out_h), interpolation=cv2.INTER_LINEAR))
         return wall_ms, cpu_ms, f"{out_w}x{out_h} bilineal"
-    results.append(_run_variant("resize", "cpu cv2.resize", settings, reader, cpu))
+    results.append(_run_variant("resize", "cpu cv2.resize", settings, new_watch, cpu))
 
     if Gst is None:
         return results + [_skipped("resize", "vic nvvidconv", _GST_ERROR)]
 
     def vic():
-        # BGR→BGRx va dentro de la medición: nvvidconv no acepta BGR empaquetado.
         launch = (f"appsrc name=source format=time ! nvvidconv interpolation-method=1 "
                   f"! video/x-raw,format=BGRx,width={out_w},height={out_h} "
                   f"! appsink name=sink sync=false")
-        pipeline = _AppPipeline(launch, _bgrx_caps(settings.width_px, settings.height_px))
-
-        def run_one(i: int):
-            pipeline.push(cv2.cvtColor(frames[i % len(frames)], cv2.COLOR_BGR2BGRA))
-            _to_bgr(*pipeline.pull())
-
-        try:
-            wall_ms, cpu_ms = _measure(settings, run_one)
-        finally:
-            pipeline.close()
+        wall_ms, cpu_ms, _ = _round_trip(settings, frames, launch, _to_bgr)
         return wall_ms, cpu_ms, "incluye BGR a BGRx y vuelta"
-    results.append(_run_variant("resize", "vic nvvidconv", settings, reader, vic))
+    results.append(_run_variant("resize", "vic nvvidconv", settings, new_watch, vic))
     return results
 
 
@@ -337,7 +343,7 @@ def _jpeg_size_px(settings: _Settings) -> tuple[int, int]:
 
 
 def _bench_jpeg(settings: _Settings, frames: list[np.ndarray],
-                reader: TegrastatsReader) -> list[_Result]:
+                new_watch: _NewWatch) -> list[_Result]:
     jpeg_w, jpeg_h = _jpeg_size_px(settings)
     quality = settings.jpeg_quality
     results = []
@@ -353,7 +359,7 @@ def _bench_jpeg(settings: _Settings, frames: list[np.ndarray],
 
         wall_ms, cpu_ms = _measure(settings, run_one)
         return wall_ms, cpu_ms, f"{jpeg_w}x{jpeg_h} q{quality}, {np.mean(sizes) / 1024:.0f} KB"
-    results.append(_run_variant("jpeg", "cpu resize+imencode", settings, reader, cpu))
+    results.append(_run_variant("jpeg", "cpu resize+imencode", settings, new_watch, cpu))
 
     if Gst is None:
         return results + [_skipped("jpeg", "nvjpg nvjpegenc", _GST_ERROR)]
@@ -363,24 +369,28 @@ def _bench_jpeg(settings: _Settings, frames: list[np.ndarray],
                   f"! video/x-raw(memory:NVMM),format=I420,width={jpeg_w},height={jpeg_h} "
                   f"! nvjpegenc quality={quality} ! appsink name=sink sync=false")
         sizes = []
-        wall_ms, cpu_ms, _ = _round_trip(settings, _to_bgrx(frames), launch,
+        wall_ms, cpu_ms, _ = _round_trip(settings, frames, launch,
                                          lambda data, _caps: sizes.append(len(data)))
         return wall_ms, cpu_ms, (f"{jpeg_w}x{jpeg_h} q{quality}, "
-                                 f"{np.mean(sizes) / 1024:.0f} KB; frames ya en BGRx")
-    results.append(_run_variant("jpeg", "nvjpg nvjpegenc", settings, reader, nvjpg))
+                                 f"{np.mean(sizes) / 1024:.0f} KB; incluye BGR a BGRx")
+    results.append(_run_variant("jpeg", "nvjpg nvjpegenc", settings, new_watch, nvjpg))
     return results
 
 
 def _encode_throughput(settings: _Settings, frames: list[np.ndarray], launch: str,
-                       caps: str) -> tuple[float, float, str]:
-    """Empuja todos los frames sin esperar salida y mide hasta el EOS: caudal del encoder."""
+                       caps: str, *, to_bgrx: bool = False) -> tuple[float, float, str]:
+    """
+    Empuja todos los frames sin esperar salida y mide hasta el EOS: caudal del encoder.
+    Con `to_bgrx`, cada frame BGR se convierte adentro de la medición.
+    """
     pipeline = _AppPipeline(launch, caps)
     process = psutil.Process()
     count = settings.frame_count
     try:
         cpu_start_s, wall_start_s = _cpu_s(process), time.perf_counter()
         for i in range(count):
-            pipeline.push(frames[i % len(frames)])
+            frame = frames[i % len(frames)]
+            pipeline.push(cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA) if to_bgrx else frame)
         pipeline.finish()
         wall_s, cpu_s = time.perf_counter() - wall_start_s, _cpu_s(process) - cpu_start_s
     finally:
@@ -389,7 +399,7 @@ def _encode_throughput(settings: _Settings, frames: list[np.ndarray], launch: st
 
 
 def _bench_h264(settings: _Settings, frames: list[np.ndarray],
-                reader: TegrastatsReader) -> list[_Result]:
+                new_watch: _NewWatch) -> list[_Result]:
     if Gst is None:
         return [_skipped("h264", name, _GST_ERROR)
                 for name in ("h264_sw", "h264_hw", "h264_hw bgrx")]
@@ -402,18 +412,17 @@ def _bench_h264(settings: _Settings, frames: list[np.ndarray],
         # cliente: lo que se mide es lo que se entrega.
         launch = rtsp_server._build_launch_string(codec) + " ! fakesink sync=false"
         results.append(_run_variant(
-            "h264", f"{codec} (rtsp_server)", settings, reader,
+            "h264", f"{codec} (rtsp_server)", settings, new_watch,
             lambda launch=launch: _encode_throughput(settings, frames, launch, bgr_caps)))
 
     def proposed():
         launch = ("appsrc name=source is-live=true block=true format=GST_FORMAT_TIME "
                   "! nvvidconv ! video/x-raw(memory:NVMM),format=NV12 ! nvv4l2h264enc "
                   "! rtph264pay config-interval=1 pt=96 ! fakesink sync=false")
-        frames_bgrx = _to_bgrx(frames)
         wall_ms, cpu_ms, note = _encode_throughput(
-            settings, frames_bgrx, launch, _bgrx_caps(width_px, height_px))
-        return wall_ms, cpu_ms, note + "; frames ya en BGRx"
-    results.append(_run_variant("h264", "h264_hw bgrx (fase 1)", settings, reader, proposed))
+            settings, frames, launch, _bgrx_caps(width_px, height_px), to_bgrx=True)
+        return wall_ms, cpu_ms, note + "; incluye BGR a BGRx"
+    results.append(_run_variant("h264", "h264_hw bgrx (fase 1)", settings, new_watch, proposed))
     return results
 
 
@@ -437,7 +446,7 @@ def _resolve_video(settings: _Settings, workdir: Path) -> tuple[str, str]:
     return ("", f"no se pudo fabricar el video: {error}") if error else (str(path), "generado")
 
 
-def _bench_decode(settings: _Settings, reader: TegrastatsReader) -> list[_Result]:
+def _bench_decode(settings: _Settings, new_watch: _NewWatch) -> list[_Result]:
     out_w, out_h = settings.output_size_px
     results = []
     with tempfile.TemporaryDirectory() as workdir:
@@ -462,7 +471,7 @@ def _bench_decode(settings: _Settings, reader: TegrastatsReader) -> list[_Result
                 finally:
                     capture.release()
                 return wall_ms, cpu_ms, video_note
-            results.append(_run_variant("decode", variant, settings, reader, cpu))
+            results.append(_run_variant("decode", variant, settings, new_watch, cpu))
 
         if Gst is None:
             return results + [_skipped("decode", "nvdec", _GST_ERROR)]
@@ -490,23 +499,23 @@ def _bench_decode(settings: _Settings, reader: TegrastatsReader) -> list[_Result
                 finally:
                     pipeline.close()
                 return wall_ms, cpu_ms, video_note
-            results.append(_run_variant("decode", variant, settings, reader, nvdec))
+            results.append(_run_variant("decode", variant, settings, new_watch, nvdec))
     return results
 
 
 def _bench_debayer(settings: _Settings, frames: list[np.ndarray],
-                   reader: TegrastatsReader) -> list[_Result]:
+                   new_watch: _NewWatch) -> list[_Result]:
     bayers = [frame[:, :, 1].copy() for frame in frames[:4]]
 
     def cpu():
         wall_ms, cpu_ms = _measure(settings, lambda i: cv2.cvtColor(
             bayers[i % len(bayers)], cv2.COLOR_BAYER_RG2BGR))
         return wall_ms, cpu_ms, "referencia; sin variante de hardware todavía"
-    return [_run_variant("debayer", "cpu cv2.cvtColor", settings, reader, cpu)]
+    return [_run_variant("debayer", "cpu cv2.cvtColor", settings, new_watch, cpu)]
 
 
 def _bench_remap(settings: _Settings, frames: list[np.ndarray],
-                 reader: TegrastatsReader) -> list[_Result]:
+                 new_watch: _NewWatch) -> list[_Result]:
     width_px, height_px = settings.width_px, settings.height_px
     camera_matrix = np.array([[width_px, 0, width_px / 2],
                               [0, width_px, height_px / 2], [0, 0, 1]], dtype=np.float64)
@@ -518,7 +527,7 @@ def _bench_remap(settings: _Settings, frames: list[np.ndarray],
         wall_ms, cpu_ms = _measure(settings, lambda i: cv2.remap(
             frames[i % len(frames)], map_xy, map_interp, cv2.INTER_LINEAR))
         return wall_ms, cpu_ms, "referencia; VPI (CUDA/VIC) en una fase siguiente"
-    return [_run_variant("remap", "cpu cv2.remap", settings, reader, cpu)]
+    return [_run_variant("remap", "cpu cv2.remap", settings, new_watch, cpu)]
 
 
 def _letterbox_geometry(settings: _Settings) -> tuple[int, int, int, int]:
@@ -541,7 +550,7 @@ def _pad_and_normalize(resized_bgr: np.ndarray, settings: _Settings,
 
 
 def _bench_letterbox(settings: _Settings, frames: list[np.ndarray],
-                     reader: TegrastatsReader) -> list[_Result]:
+                     new_watch: _NewWatch) -> list[_Result]:
     resized_w, resized_h, x_px, y_px = _letterbox_geometry(settings)
     model_w, model_h = settings.model_size_px
     geometry = f"{settings.width_px}x{settings.height_px} a {model_w}x{model_h}"
@@ -554,7 +563,7 @@ def _bench_letterbox(settings: _Settings, frames: list[np.ndarray],
             _pad_and_normalize(resized, settings, (x_px, y_px))
         wall_ms, cpu_ms = _measure(settings, run_one)
         return wall_ms, cpu_ms, geometry
-    results.append(_run_variant("letterbox", "cpu (como ultralytics)", settings, reader, cpu))
+    results.append(_run_variant("letterbox", "cpu (como ultralytics)", settings, new_watch, cpu))
 
     if Gst is None:
         results.append(_skipped("letterbox", "vic resize + cpu", _GST_ERROR))
@@ -564,18 +573,18 @@ def _bench_letterbox(settings: _Settings, frames: list[np.ndarray],
                       f"! video/x-raw,format=BGRx,width={resized_w},height={resized_h} "
                       f"! appsink name=sink sync=false")
             wall_ms, cpu_ms, _ = _round_trip(
-                settings, _to_bgrx(frames), launch,
+                settings, frames, launch,
                 lambda data, caps: _pad_and_normalize(_to_bgr(data, caps), settings,
                                                       (x_px, y_px)))
-            return wall_ms, cpu_ms, geometry + "; frames ya en BGRx"
-        results.append(_run_variant("letterbox", "vic resize + cpu", settings, reader, vic))
+            return wall_ms, cpu_ms, geometry + "; incluye BGR a BGRx"
+        results.append(_run_variant("letterbox", "vic resize + cpu", settings, new_watch, vic))
 
-    results.append(_bench_letterbox_torch(settings, frames, reader, geometry))
+    results.append(_bench_letterbox_torch(settings, frames, new_watch, geometry))
     return results
 
 
 def _bench_letterbox_torch(settings: _Settings, frames: list[np.ndarray],
-                           reader: TegrastatsReader, geometry: str) -> _Result:
+                           new_watch: _NewWatch, geometry: str) -> _Result:
     """La misma entrada armada en la GPU: sube el frame entero y todo lo demás es CUDA."""
     try:
         import torch
@@ -599,7 +608,7 @@ def _bench_letterbox_torch(settings: _Settings, frames: list[np.ndarray],
             torch.cuda.synchronize()
         wall_ms, cpu_ms = _measure(settings, run_one)
         return wall_ms, cpu_ms, geometry + "; queda en la GPU"
-    return _run_variant("letterbox", "torch cuda", settings, reader, gpu)
+    return _run_variant("letterbox", "torch cuda", settings, new_watch, gpu)
 
 
 # ── Principal ────────────────────────────────────────────────────────────────
@@ -651,17 +660,22 @@ def main() -> int:
     frames = _build_frames(settings.width_px, settings.height_px)
     reader = TegrastatsReader(interval_ms=round(settings.interval_s * 1000))
     reader.start()
+    devices = board.find_engine_devices()
+
+    def new_watch() -> EngineWatch:
+        return EngineWatch(reader, settings.interval_s, devices)
+
     overcurrent_before = board.read_overcurrent_counts()
     _print_header(settings, reader)
 
     benches = {
-        "resize": lambda: _bench_resize(settings, frames, reader),
-        "jpeg": lambda: _bench_jpeg(settings, frames, reader),
-        "h264": lambda: _bench_h264(settings, frames, reader),
-        "decode": lambda: _bench_decode(settings, reader),
-        "debayer": lambda: _bench_debayer(settings, frames, reader),
-        "remap": lambda: _bench_remap(settings, frames, reader),
-        "letterbox": lambda: _bench_letterbox(settings, frames, reader),
+        "resize": lambda: _bench_resize(settings, frames, new_watch),
+        "jpeg": lambda: _bench_jpeg(settings, frames, new_watch),
+        "h264": lambda: _bench_h264(settings, frames, new_watch),
+        "decode": lambda: _bench_decode(settings, new_watch),
+        "debayer": lambda: _bench_debayer(settings, frames, new_watch),
+        "remap": lambda: _bench_remap(settings, frames, new_watch),
+        "letterbox": lambda: _bench_letterbox(settings, frames, new_watch),
     }
     try:
         for stage in stages:
