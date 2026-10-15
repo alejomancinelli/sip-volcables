@@ -213,6 +213,47 @@ class TestModbusServerWiring:
         assert main.REGISTER_MAP_ERROR is registers.LOAD_ERROR
 
 
+class TestSystemFields:
+    def _metrics(self, **overrides) -> dict:
+        metrics = {
+            "cpu_usage_pct": 20, "gpu_usage_pct": 35, "power_w": 11.8,
+            "overcurrent_count": 0, "net_mbps": {}, "temps_c": {"cpu-thermal": 47.0},
+            "engines": {},
+        }
+        metrics.update(overrides)
+        return metrics
+
+    def test_each_engine_opens_into_two_scalar_fields(self):
+        fields = main._build_system_fields(self._metrics(engines={
+            "vic": {"is_active": True, "mhz": 512},
+            "nvenc": {"is_active": False, "mhz": 0},
+        }))
+        assert fields["engine_vic_active"] == 1
+        assert fields["engine_vic_mhz"] == 512
+        assert fields["engine_nvenc_active"] == 0
+        assert fields["engine_nvenc_mhz"] == 0
+
+    def test_active_is_an_integer_so_its_mean_is_a_fraction_of_time(self):
+        fields = main._build_system_fields(self._metrics(engines={
+            "vic": {"is_active": True, "mhz": 512}}))
+        assert type(fields["engine_vic_active"]) is int
+
+    def test_the_overcurrent_count_is_published(self):
+        assert main._build_system_fields(self._metrics(overcurrent_count=3))[
+            "overcurrent_count"] == 3
+
+    def test_no_field_is_a_dict(self):
+        """Un field de Influx es escalar: un dict anidado no puede llegar al backend."""
+        fields = main._build_system_fields(self._metrics(
+            engines={"vic": {"is_active": True, "mhz": 512}},
+            net_mbps={"eth0": {"rx_mbps": 1.0, "tx_mbps": 2.0}}))
+        assert not any(isinstance(value, dict) for value in fields.values())
+
+    def test_outside_a_jetson_there_are_no_engine_fields(self):
+        fields = main._build_system_fields(self._metrics())
+        assert not any(name.startswith("engine_") for name in fields)
+
+
 class TestInferenceFields:
     """
     Los fields de un punto de telemetría de inferencia.

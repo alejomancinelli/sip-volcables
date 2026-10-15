@@ -15,6 +15,7 @@ import pytest
 
 
 import system.system_monitor as sm
+from tools.jetson import board
 from system.system_monitor import (
     SystemMonitor,
     _best_temp,
@@ -34,7 +35,7 @@ _MEGABIT = 1_000_000 / 8        # bytes que hacen 1 Mbps en un segundo
 _EXPECTED_KEYS = {
     "cpu_usage_pct", "gpu_usage_pct", "cpu_temp_c", "gpu_temp_c",
     "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w",
-    "net_mbps", "temps_c",
+    "net_mbps", "temps_c", "engines", "overcurrent_count",
 }
 
 
@@ -97,6 +98,8 @@ def _monitor(**config_overrides) -> SystemMonitor:
     monitored = SystemMonitor(_MockConfig(**config_overrides))
     monitored._nvidia_smi_path = None
     monitored._disabled_probes.add(sm._WMI_THERMAL)
+    # Corriendo la suite en una Jetson, el constructor encuentra los motores reales.
+    monitored._engine_devices = {}
     return monitored
 
 
@@ -125,6 +128,10 @@ class _FakeJetson:
         monkeypatch.setattr(sm, "_POWER_GLOBS",
                             ((str(self.power_path / "*" / "in_power0_input"), 1_000.0),))
         monkeypatch.setattr(sm, "_POWER_HWMON_GLOB", str(self.power_path / "hwmon*"))
+        self.sysfs_path = tmp_path / "sysfs"
+        monkeypatch.setattr(board, "_DEVFREQ_GLOB", str(self.sysfs_path / "devfreq" / "*"))
+        monkeypatch.setattr(board, "_OVERCURRENT_GLOB",
+                            str(self.sysfs_path / "hwmon" / "hwmon*" / "oc*_event_cnt"))
         self.monitor = _linux_monitor()
 
     def set_zones(self, *zones: tuple[str, int]):
@@ -137,6 +144,24 @@ class _FakeJetson:
 
     def set_gpu_load(self, per_mille: int):
         self.gpu_load_path.write_text(f"{per_mille}\n")
+
+    def set_engine(self, device: str, status: str, cur_mhz: int = 0):
+        """Un motor con su estado de runtime PM y, si `cur_mhz`, su nodo de devfreq."""
+        status_path = self.sysfs_path / "platform" / device / "runtime_status"
+        status_path.parent.mkdir(parents=True)
+        status_path.write_text(f"{status}\n")
+        self.monitor._engine_devices[device] = str(status_path)
+        if cur_mhz:
+            devfreq_path = self.sysfs_path / "devfreq" / device
+            devfreq_path.mkdir(parents=True)
+            for name in ("cur_freq", "min_freq", "max_freq"):
+                (devfreq_path / name).write_text(f"{cur_mhz * 1_000_000}\n")
+
+    def set_overcurrent(self, hwmon: str, *counts: int):
+        hwmon_path = self.sysfs_path / "hwmon" / hwmon
+        hwmon_path.mkdir(parents=True)
+        for index, count in enumerate(counts, start=1):
+            (hwmon_path / f"oc{index}_event_cnt").write_text(f"{count}\n")
 
     def set_power(self, milli_w: int, channel: str = "1-0040"):
         channel_path = self.power_path / channel
@@ -798,11 +823,14 @@ class TestGetMetrics:
         monkeypatch.setattr(sm, "_GPU_LOAD_PATHS", ())
         monkeypatch.setattr(sm, "_POWER_GLOBS", ())
         monkeypatch.setattr(sm, "_POWER_HWMON_GLOB", str(tmp_path / "missing"))
+        monkeypatch.setattr(board, "_OVERCURRENT_GLOB", str(tmp_path / "missing"))
         metrics = _monitor().get_metrics()
         assert set(metrics) == _EXPECTED_KEYS
         assert metrics["gpu_usage_pct"] == 0
         assert metrics["power_w"] == 0
         assert metrics["temps_c"] == {}
+        assert metrics["engines"] == {}
+        assert metrics["overcurrent_count"] == 0
 
     def test_the_jetson_sources_feed_the_metrics(self, jetson, monkeypatch):
         fake = _FakeProbe("37, 54, 22.11")
@@ -933,3 +961,40 @@ class TestGetMetrics:
         for thread in threads:
             thread.join(timeout=30)
         assert failures == []
+
+
+class TestJetsonEngines:
+    def test_each_engine_reports_whether_it_is_active_and_its_clock(self, jetson):
+        jetson.set_engine("15340000.vic", "active", cur_mhz=512)
+        jetson.set_engine("154c0000.nvenc", "suspended")
+        assert jetson.monitor.get_metrics()["engines"] == {
+            "vic": {"is_active": True, "mhz": 512},
+            "nvenc": {"is_active": False, "mhz": 0},
+        }
+
+    def test_the_state_is_read_again_on_every_call(self, jetson):
+        jetson.set_engine("15480000.nvdec", "suspended")
+        assert jetson.monitor.get_metrics()["engines"]["nvdec"]["is_active"] is False
+        (jetson.sysfs_path / "platform" / "15480000.nvdec" / "runtime_status").write_text(
+            "active\n")
+        assert jetson.monitor.get_metrics()["engines"]["nvdec"]["is_active"] is True
+
+    def test_overcurrent_counters_are_summed(self, jetson):
+        jetson.set_overcurrent("hwmon3", 0, 2, 1)
+        assert jetson.monitor.get_metrics()["overcurrent_count"] == 3
+
+    def test_windows_has_no_engines_and_no_overcurrent(self, windows, monkeypatch):
+        monkeypatch.setattr(sm.subprocess, "run", _FakeProbe("37, 54, 22.11"))
+        metrics = windows.get_metrics()
+        assert metrics["engines"] == {}
+        assert metrics["overcurrent_count"] == 0
+
+    def test_a_failing_engine_source_does_not_drag_the_rest(self, jetson, monkeypatch):
+        def failing(_devices: dict) -> dict:
+            raise OSError("sysfs gone")
+
+        monkeypatch.setattr(sm.board, "read_engines", failing)
+        jetson.set_gpu_load(417)
+        metrics = jetson.monitor.get_metrics()
+        assert metrics["engines"] == {}
+        assert metrics["gpu_usage_pct"] == 41
