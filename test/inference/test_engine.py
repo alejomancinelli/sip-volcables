@@ -15,7 +15,8 @@ from PySide6.QtCore import Qt
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.engine import InferenceThread
 from system.inference.result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
-                                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, Detection)
+                                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, Detection,
+                                     InferenceResult)
 
 _PIPELINE = "pipeline_1"
 _SLOT = "camera_1"
@@ -721,6 +722,81 @@ class TestAnnotation:
                          annotate_gate=lambda camera_slot: seen.append(camera_slot))
         _process_one(engine, _frame())
         assert seen == [_SLOT]
+
+
+def _other_result(roi_px: tuple | None = None) -> InferenceResult:
+    """Resultado de otro pipeline, con una caja, para dibujarlo encima de un lienzo."""
+    return InferenceResult(
+        camera_slot=_SLOT, pipeline_slot="pipeline_2", roi_px=roi_px,
+        detections=[Detection(class_index=0, class_name="person", confidence_pct=90.0,
+                              bbox_px=(100, 100, 160, 180))])
+
+
+class TestDrawOnto:
+    """El overlay de un pipeline encima del anotado de otro: lo que arma el combinado."""
+
+    def test_it_draws_the_boxes_on_the_canvas(self):
+        canvas = _frame()
+        _engine(_FakePipeline()).draw_onto(canvas, _other_result())
+        assert not np.array_equal(canvas[100, 100:160], _frame()[100, 100:160])
+
+    def test_it_draws_the_roi(self):
+        canvas = _frame()
+        _engine(_FakePipeline()).draw_onto(canvas, _other_result(roi_px=(5, 5, 50, 50)))
+        assert not np.array_equal(canvas[5, 5:55], _frame()[5, 5:55])
+
+    def test_it_runs_the_annotator(self):
+        seen = []
+
+        def annotator(frame_bgr, result):
+            seen.append(result.pipeline_slot)
+            frame_bgr[0, 0] = (0, 0, 255)
+
+        canvas = _frame()
+        _engine(_FakePipeline(), annotator=annotator).draw_onto(canvas, _other_result())
+        assert seen == ["pipeline_2"]
+        assert tuple(canvas[0, 0]) == (0, 0, 255)
+
+    def test_it_draws_no_timestamp(self):
+        """La hora es del frame: la pone una vez quien lo arma, al final."""
+        canvas = _frame()
+        _engine(_FakePipeline()).draw_onto(canvas, _other_result())
+        assert tuple(canvas[-1, -1]) == (128, 128, 128)
+
+    def test_it_does_not_adjust_the_canvas(self):
+        """El lienzo ya viene ajustado para mirar: otra pasada lo aclararía dos veces."""
+        canvas = _frame()
+        engine = _engine(_FakePipeline(), canvas_adjust=lambda frame: np.full_like(frame, 255))
+        engine.draw_onto(canvas, _other_result())
+        assert tuple(canvas[0, 0]) == (128, 128, 128)
+
+    def test_with_crop_to_roi_it_draws_nothing(self):
+        """El lienzo es el recorte de otro pipeline: estas coordenadas no tienen por qué caer."""
+        calls = []
+        config = _MockConfig(**{"inference.overlay.crop_to_roi": True})
+        canvas = _frame()
+        engine = _engine(_FakePipeline(), config,
+                         annotator=lambda frame_bgr, result: calls.append(1))
+        engine.draw_onto(canvas, _other_result(roi_px=(5, 5, 50, 50)))
+        assert np.array_equal(canvas, _frame())
+        assert calls == []
+
+    def test_with_the_overlay_off_it_draws_nothing(self):
+        config = _MockConfig(**{"inference.overlay.enabled": False})
+        canvas = _frame()
+        _engine(_FakePipeline(), config).draw_onto(canvas, _other_result())
+        assert np.array_equal(canvas, _frame())
+
+    def test_the_timestamp_is_drawn_on_request(self):
+        canvas = _frame()
+        _engine(_FakePipeline()).draw_timestamp(canvas, _other_result())
+        assert tuple(int(c) for c in canvas[-1, -1]) == (0, 0, 0)
+
+    def test_the_timestamp_obeys_the_config(self):
+        config = _MockConfig(**{"inference.overlay.draw_timestamp": False})
+        canvas = _frame()
+        _engine(_FakePipeline(), config).draw_timestamp(canvas, _other_result())
+        assert np.array_equal(canvas, _frame())
 
 
 # ── Ciclo de vida ────────────────────────────────────────────────────────────

@@ -506,6 +506,101 @@ class TestMetricRegisters:
         assert "grain_pct" not in caplog.text
 
 
+class _PainterEngine:
+    """Motor de un pipeline visto desde el combinado: dibuja su marca en una esquina."""
+
+    def __init__(self, pipeline_slot: str, level: int):
+        self.pipeline_slot = pipeline_slot
+        self._level = level
+
+    def draw_onto(self, canvas_bgr, result):
+        canvas_bgr[0, 0] = self._level
+
+    def draw_timestamp(self, canvas_bgr, result):
+        pass
+
+
+class _AnnotatedSink:
+    """Servidor de video: registra el anotado que le empujan por cámara."""
+
+    def __init__(self):
+        self.pushed: list = []
+
+    def push_annotated(self, camera_slot, frame_bgr):
+        self.pushed.append((camera_slot, frame_bgr))
+
+
+def _build_display_application(*engines, collector_active: bool = False):
+    """`Application` sin `__init__`, con lo que toca el camino del anotado del ciclo."""
+    import types
+    app = main.Application.__new__(main.Application)
+    app._engines = list(engines)
+    app._composer = main.FrameComposer()
+    app._annotate_cycle = lambda result: result.annotated_bgr
+    content = _ContentSpy()
+    content.mode = main.MODE_ANNOTATED
+    app._ui = types.SimpleNamespace(monitor_content=content)
+    app._http_video = _AnnotatedSink()
+    app._rtsp_video = _AnnotatedSink()
+    app._last_annotated = {}
+    app._pending_results = {}
+    app._store_metrics = lambda result: None
+    app._collector = types.SimpleNamespace(
+        should_collect=lambda camera_slot: collector_active)
+    app.sent = []
+    app._send_to_dataset = lambda result: app.sent.append(result.annotated_bgr)
+    return app
+
+
+def _annotated_result(pipeline_slot: str, timestamp_s: float) -> InferenceResult:
+    return InferenceResult(camera_slot="camera_1", pipeline_slot=pipeline_slot,
+                           timestamp_s=timestamp_s,
+                           annotated_bgr=np.zeros((4, 4, 3), np.uint8))
+
+
+class TestMergedAnnotated:
+    """Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas."""
+
+    def test_one_pipeline_per_camera_shows_the_engine_frame_unchanged(self):
+        app = _build_display_application(_PainterEngine("pipeline_1", 50))
+        result = _annotated_result("pipeline_1", 10.0)
+        app._on_cycle_complete(result)
+        assert app._http_video.pushed[-1][1] is result.annotated_bgr
+        assert app._ui.monitor_content.shown[-1] is result.annotated_bgr
+
+    def test_two_pipelines_on_one_camera_show_one_merged_frame(self):
+        app = _build_display_application(_PainterEngine("pipeline_1", 50),
+                                         _PainterEngine("pipeline_2", 90))
+        app._on_cycle_complete(_annotated_result("pipeline_1", 10.0))
+        person = _annotated_result("pipeline_2", 10.1)
+        app._on_cycle_complete(person)
+        shown = app._http_video.pushed[-1][1]
+        assert shown is not person.annotated_bgr
+        assert tuple(shown[0, 0]) == (50, 50, 50), "lleva encima la capa de pipeline_1"
+        assert app._last_annotated["camera_1"] is shown
+        assert app._rtsp_video.pushed[-1][1] is shown
+
+    def test_an_older_result_is_not_shown(self):
+        """Un ciclo con el instante de su representativo no hace saltar el video atrás."""
+        app = _build_display_application(_PainterEngine("pipeline_1", 50),
+                                         _PainterEngine("pipeline_2", 90))
+        app._on_cycle_complete(_annotated_result("pipeline_2", 10.5))
+        app._on_cycle_complete(_annotated_result("pipeline_1", 10.0))
+        assert len(app._http_video.pushed) == 1
+
+    def test_the_dataset_gets_each_pipeline_own_annotated_frame(self):
+        """Su JSON trae sólo las detecciones de ese pipeline: la imagen dice lo mismo."""
+        app = _build_display_application(_PainterEngine("pipeline_1", 50),
+                                         _PainterEngine("pipeline_2", 90),
+                                         collector_active=True)
+        grain = _annotated_result("pipeline_1", 10.0)
+        person = _annotated_result("pipeline_2", 10.1)
+        app._on_cycle_complete(grain)
+        app._on_cycle_complete(person)
+        assert app.sent[0] is grain.annotated_bgr and app.sent[1] is person.annotated_bgr
+        assert tuple(person.annotated_bgr[0, 0]) == (0, 0, 0)
+
+
 class TestDatasetGating:
     """
     Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por

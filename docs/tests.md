@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**66 archivos, 361 grupos, 1778 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**67 archivos, 366 grupos, 1808 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,13 +14,13 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 261 |
+| [test/](#test) | 6 | 265 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 4 | 75 |
 | [test/image_collector/](#testimage_collector) | 2 | 77 |
-| [test/inference/](#testinference) | 11 | 278 |
+| [test/inference/](#testinference) | 12 | 304 |
 | [test/inference/models/](#testinferencemodels) | 4 | 86 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -188,7 +188,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 58 tests
+### [test_main.py](../test/test_main.py) — 62 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -203,6 +203,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 4 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
+| `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
 | `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
@@ -256,6 +257,11 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_two_pipelines_on_one_camera_keep_their_own_metrics`
   - `test_two_pairs_publishing_the_same_metric_are_warned_once`
   - `test_one_pair_per_metric_is_not_warned`
+- `TestMergedAnnotated`
+  - `test_one_pipeline_per_camera_shows_the_engine_frame_unchanged`
+  - `test_two_pipelines_on_one_camera_show_one_merged_frame`
+  - `test_an_older_result_is_not_shown`
+  - `test_the_dataset_gets_each_pipeline_own_annotated_frame`
 - `TestDatasetGating`
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`
@@ -1263,7 +1269,42 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 85 tests
+### [test_composer.py](../test/inference/test_composer.py) — 17 tests
+
+Tests del composer: qué resultado pone el frame de una cámara y qué overlays van encima.
+
+| Grupo | Tests |
+|---|---:|
+| `TestDriving` | 5 |
+| `TestOthers` | 7 |
+| `TestCompose` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestDriving`
+  - `test_the_first_result_of_a_camera_drives`
+  - `test_a_newer_result_drives`
+  - `test_an_older_result_does_not_drive`
+  - `test_an_older_result_still_shows_up_on_the_next_frame`
+  - `test_each_camera_has_its_own_clock`
+- `TestOthers`
+  - `test_it_excludes_the_own_pipeline`
+  - `test_it_excludes_other_cameras`
+  - `test_it_keeps_only_the_latest_result_of_each_pipeline`
+  - `test_a_stale_result_is_dropped`
+  - `test_a_short_interval_has_a_floor`
+  - `test_new_intervals_keep_what_was_stored`
+  - `test_the_stored_result_has_no_frames`
+- `TestCompose`
+  - `test_with_one_pipeline_the_engine_frame_goes_out_unchanged`
+  - `test_a_result_that_does_not_drive_shows_nothing`
+  - `test_the_others_are_drawn_and_the_timestamp_goes_last`
+  - `test_the_own_annotated_frame_is_not_modified`
+  - `test_a_pipeline_without_painter_is_skipped`
+
+</details>
+
+### [test_engine.py](../test/inference/test_engine.py) — 94 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1279,6 +1320,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestLabels` |  | 4 |
 | `TestAnalyzer` |  | 5 |
 | `TestAnnotation` |  | 13 |
+| `TestDrawOnto` | El overlay de un pipeline encima del anotado de otro: lo que arma el combinado. | 9 |
 | `TestLifecycle` |  | 5 |
 | `TestSynchronousProcess` | `process()` corre el ciclo del hilo sobre un frame suelto, sin arrancarlo. | 6 |
 
@@ -1368,6 +1410,16 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_a_failing_annotator_keeps_the_standard_frame`
   - `test_the_annotator_also_sees_invalid_results`
   - `test_the_gate_receives_the_camera_slot`
+- `TestDrawOnto`
+  - `test_it_draws_the_boxes_on_the_canvas`
+  - `test_it_draws_the_roi`
+  - `test_it_runs_the_annotator`
+  - `test_it_draws_no_timestamp`
+  - `test_it_does_not_adjust_the_canvas`
+  - `test_with_crop_to_roi_it_draws_nothing`
+  - `test_with_the_overlay_off_it_draws_nothing`
+  - `test_the_timestamp_is_drawn_on_request`
+  - `test_the_timestamp_obeys_the_config`
 - `TestLifecycle`
   - `test_the_thread_loads_and_unloads_the_pipeline`
   - `test_it_stops_with_frames_still_queued`

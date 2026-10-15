@@ -100,6 +100,7 @@ from system.formats import camera_health, com_status, gpio_status, system_status
 from system.gpio_control import GpioController, GpioPollingThread
 from system.image_collector.collector import ImageCollector
 from system.inference import analysis
+from system.inference.composer import FrameComposer
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
 from system.inference.pipeline_factory import create_pipeline
@@ -533,6 +534,11 @@ class Application(QObject):
         self._scheduler.cycle_complete.connect(self._on_cycle_complete)
         self._scheduler.capture_wanted.connect(self._on_capture_wanted)
 
+        # ── Anotado de varios pipelines por cámara ───────────────────────────
+        # Una cámara que miran dos pipelines muestra un solo frame con los dos overlays:
+        # mostrar cada anotado tal como llega hace parpadear el de cada uno.
+        self._composer = FrameComposer(self._read_composer_intervals())
+
         # ── Captura ──────────────────────────────────────────────────────────
         # El cupo de la licencia corta por orden de declaración, y el corte es
         # determinista: que la cámara que se apaga cambie entre arranques sería peor que
@@ -558,6 +564,7 @@ class Application(QObject):
             thread.status_updated.connect(self._on_camera_status)
             self._forward_status_to_content(thread)
             self._capture_threads[camera_slot] = thread
+        self._warn_if_crop_hides_overlays(declared_cameras)
 
         # ── Salud de la óptica ───────────────────────────────────────────────
         # Una ventana y una referencia por cámara: el veredicto es un máximo, así que
@@ -900,15 +907,16 @@ class Application(QObject):
         """
         annotated_bgr = self._annotate_cycle(result)
         if annotated_bgr is not None:
+            # El dataset se queda con el anotado propio de este pipeline, no con el
+            # combinado: su JSON trae sólo estas detecciones y la imagen tiene que decir lo
+            # mismo. El composer ve sólo los resultados con anotado: el gate es por cámara,
+            # así que o se dibujan todos los pipelines de una cámara o ninguno.
             result.annotated_bgr = annotated_bgr
-            self._last_annotated[result.camera_slot] = annotated_bgr
-            content = self._ui.monitor_content
-            if content is not None and getattr(content, "mode", None) == MODE_ANNOTATED:
-                content.update_frame(annotated_bgr, result.camera_slot)
-            # Los servidores retienen el último frame que se les dio, así que el anotado
-            # del ciclo queda publicado hasta que lo reemplace el de la medición siguiente.
-            self._http_video.push_annotated(result.camera_slot, annotated_bgr)
-            self._rtsp_video.push_annotated(result.camera_slot, annotated_bgr)
+            shown_bgr = self._composer.compose(
+                result, annotated_bgr, time.monotonic(),
+                {engine.pipeline_slot: engine for engine in self._engines})
+            if shown_bgr is not None:
+                self._show_annotated(shown_bgr, result.camera_slot)
 
         # Dataset: `push_frame` encola y vuelve; escribe el hilo del recolector. El
         # contexto se arma una vez y vale para los dos modos: es del par (cámara, momento)
@@ -935,6 +943,55 @@ class Application(QObject):
         ).append(dataclasses.replace(result, source_bgr=None, annotated_bgr=None,
                                      detections=[]))
         self._store_metrics(result)
+
+    def _show_annotated(self, frame_bgr: np.ndarray, camera_slot: str):
+        """Publica el anotado de una cámara en la UI y en los dos streams."""
+        self._last_annotated[camera_slot] = frame_bgr
+        content = self._ui.monitor_content
+        if content is not None and getattr(content, "mode", None) == MODE_ANNOTATED:
+            content.update_frame(frame_bgr, camera_slot)
+        # Los servidores retienen el último frame que se les dio, así que el anotado del
+        # ciclo queda publicado hasta que lo reemplace el de la medición siguiente.
+        self._http_video.push_annotated(camera_slot, frame_bgr)
+        self._rtsp_video.push_annotated(camera_slot, frame_bgr)
+
+    def _read_composer_intervals(self) -> dict[str, float]:
+        """
+        Período esperado entre resultados de cada pipeline: de ahí sale cuánto sigue vigente
+        su overlay en el anotado de otro.
+
+        Uno con ciclo publica una vez por medición, no por frame: su período es la espera
+        entre rondas más lo que una ronda puede tardar en juntar sus frames.
+        """
+        intervals = {}
+        for engine in self._engines:
+            prefix = f"inference.pipelines.{engine.pipeline_slot}"
+            interval_s = float(self._config.get(f"{prefix}.interval_s", 0.0) or 0.0)
+            if self._scheduler.is_cycled(engine.pipeline_slot):
+                cycle_s = (float(self._config.get(f"{prefix}.cycle_interval_s", 0.0) or 0.0)
+                           + float(self._config.get(f"{prefix}.capture_timeout_s", 30.0) or 0.0))
+                interval_s = max(interval_s, cycle_s)
+            intervals[engine.pipeline_slot] = interval_s
+        return intervals
+
+    def _warn_if_crop_hides_overlays(self, camera_slots: tuple[str, ...]):
+        """
+        Avisa una vez si `crop_to_roi` deja sin combinar el anotado de alguna cámara.
+
+        Con el recorte prendido el lienzo es el recorte del pipeline que pone el frame, y el
+        ROI de los demás no tiene por qué caer adentro: la imagen la sigue poniendo el más
+        nuevo, pero sin los overlays de los otros.
+        """
+        if not self._config.get("inference.overlay.crop_to_roi", False):
+            return
+        shared = [camera_slot for camera_slot in camera_slots
+                  if sum(1 for engine in self._engines if engine.has_camera(camera_slot)) > 1]
+        if shared:
+            logger.info(
+                f"[Main] Con inference.overlay.crop_to_roi el anotado de "
+                f"{', '.join(shared)} muestra un pipeline por vez: varios pipelines miran "
+                f"esa cámara y sus ROI no tienen por qué caer en el mismo recorte."
+            )
 
     def _send_to_dataset(self, result: InferenceResult):
         """Le pasa la medición al recolector, por el camino de su modo."""
@@ -1318,6 +1375,10 @@ class Application(QObject):
         # por cada prueba los volvería inusables. Es la excepción que se puede hacer sin
         # riesgo: no tocan la medición, sólo cómo se ve.
         self._display_adjust = self._read_display_adjust()
+        # El motor relee `interval_s` en el frame siguiente, así que la vigencia de cada
+        # overlay en el anotado combinado tiene que seguirlo: si no, un período alargado
+        # haría parpadear ese overlay hasta reiniciar.
+        self._composer.set_intervals(self._read_composer_intervals())
         # La referencia de cada óptica también: es el número que la pantalla deja editar a
         # mano para copiar el de un equipo gemelo, y esperar un reinicio para que tome
         # efecto haría parecer que no se guardó. El umbral y la ventana sí esperan, como

@@ -71,6 +71,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         null_pipeline.py      lo que devuelve la fábrica ante un `type` no registrado
         result.py             nivel 1 — Detection e InferenceResult, el dato que cruza
         overlay.py            nivel 1 — dibujado del resultado; también lo lee la UI
+        composer.py           nivel 1 — un anotado por cámara con los overlays de sus pipelines
         annotations.py        nivel 1 — dibujos propios de la planta; se reescribe en cada fork
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
@@ -340,6 +341,17 @@ Lo que no se deduce leyendo un archivo suelto:
   inferencia lo dibuja `overlay`, que es genérico; las referencias de la planta —un
   límite de carga, una zona— son annotators de `annotations.py` que el motor corre
   después, y su geometría va al config porque cambia con cada montaje.
+- **Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas.**
+  Mostrar cada anotado tal como llega hace parpadear el overlay de cada uno —personas cada
+  100 ms y grano cada 500 ms dan cinco frames de uno por cada uno del otro—. Lo decide
+  `system/inference/composer.py`: el frame lo pone el resultado más nuevo de la cámara, y
+  encima van los demás pipelines con su último resultado, dibujados por su propio motor
+  (`draw_onto()`) y descartados pasado su tiempo de vigencia, para que uno caído no quede
+  congelado en pantalla. Uno más viejo que el último mostrado —un ciclo, con el instante
+  de su representativo— no pone el frame: el video no salta para atrás. El dataset sigue
+  guardando el anotado propio de cada pipeline, porque su JSON trae sólo esas detecciones.
+  Con `crop_to_roi` no se combina: el lienzo es el recorte de uno y el ROI de los otros no
+  tiene por qué caer adentro.
 - **Un veredicto del frame no es una detección ni una métrica.** Lo que dice una
   clasificación de la imagen entera —el estado de la cinta— viaja en `labels`, que es
   texto: no tiene forma ni posición, y si tiene que llegar al PLC lo traduce a bit el
