@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 386 grupos, 1911 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 388 grupos, 1915 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -28,7 +28,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/camera/](#testtoolscamera) | 5 | 119 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
-| [test/tools/jetson/](#testtoolsjetson) | 3 | 53 |
+| [test/tools/jetson/](#testtoolsjetson) | 3 | 57 |
 | [test/ui/](#testui) | 7 | 49 |
 | [test/video/](#testvideo) | 3 | 182 |
 
@@ -3035,7 +3035,7 @@ Tests de la corrección de lente: qué cámara se corrige, qué pasa con una cal
 
 ## test/tools/jetson/
 
-### [test_board.py](../test/tools/jetson/test_board.py) — 18 tests
+### [test_board.py](../test/tools/jetson/test_board.py) — 22 tests
 
 Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, relojes y contadores de sobrecorriente.
 
@@ -3044,6 +3044,8 @@ Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, rel
 | `TestIdentity` | 4 |
 | `TestPowerMode` | 5 |
 | `TestClocks` | 6 |
+| `TestDevfreq` | 1 |
+| `TestEngineDevices` | 3 |
 | `TestOvercurrent` | 3 |
 
 <details><summary>Tests</summary>
@@ -3066,6 +3068,12 @@ Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, rel
   - `test_pinned_means_every_minimum_equals_its_maximum`
   - `test_one_free_clock_means_not_pinned`
   - `test_without_clocks_pinned_is_unknown`
+- `TestDevfreq`
+  - `test_every_node_comes_out_in_mhz`
+- `TestEngineDevices`
+  - `test_only_engine_devices_are_found_at_any_depth`
+  - `test_states_are_read_from_the_found_paths`
+  - `test_a_node_that_vanished_is_left_out`
 - `TestOvercurrent`
   - `test_each_counter_is_named_after_its_hwmon`
   - `test_a_hwmon_without_a_name_uses_its_directory`
