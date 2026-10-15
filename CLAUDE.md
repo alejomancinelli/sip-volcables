@@ -120,6 +120,10 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
+      jetson/                 la Jetson leída sin root; fuera de una, todo vacío y sin excepciones
+        board.py              módulo, L4T, modo de potencia, relojes fijados y sobrecorriente
+        capabilities.py       qué motor anda de verdad: un pipeline corto por motor
+        tegrastats.py         carga del VIC, NVENC, NVDEC, NVJPG, DLA y la memoria
       image/                  operaciones sobre un frame; no saben de dónde salió
         enhance.py            gamma para mirar; factor de brillo lineal por cámara para medir
         undistort.py          corrección de lente; va en el preprocessor del motor
@@ -146,6 +150,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+      jetson_accelerators/    qué motores tiene la Jetson y cuánto CPU libera cada etapa en ellos
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
@@ -692,6 +697,12 @@ La tabla completa, archivo por archivo, está en `README.md`.
 - El modelo del proyecto. El template trae el mock —detecciones sintéticas, sin
   framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
+- **Los motores de la Jetson (VIC, NVENC, NVDEC, NVJPG) todavía no los usa la app**, salvo
+  NVENC en los codecs `_hw` del RTSP. Está la fase 0: `tools/jetson/` lee qué tiene el
+  equipo y cuánto trabaja cada motor, y `manual_test/jetson_accelerators/` lo prueba y mide
+  cada etapa por CPU contra su motor. Falta correrla en la Jetson, publicar la carga de los
+  motores en la telemetría y, con esos números, las fases siguientes. El plan está en
+  `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
