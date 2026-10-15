@@ -152,6 +152,12 @@ class TestEngineDevices:
         devices = board.find_engine_devices()
         assert set(devices) == {"15340000.vic", "15480000.nvdec"}
 
+    def test_a_node_whose_name_merely_contains_an_engine_is_not_one(self, jetson):
+        """En el Orin NX, `13800000.display/iommu/device` se colaba: «device» contiene «vic»."""
+        jetson.write("platform/13800000.display/device/power/runtime_status", "unsupported\n")
+        jetson.write("platform/bus@0/15880000.nvdla0/power/runtime_status", "suspended\n")
+        assert set(board.find_engine_devices()) == {"15880000.nvdla0"}
+
     def test_states_are_read_from_the_found_paths(self, jetson):
         jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "suspended\n")
         devices = board.find_engine_devices()

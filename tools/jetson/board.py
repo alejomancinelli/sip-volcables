@@ -39,7 +39,9 @@ _DEVFREQ_GLOB = "/sys/class/devfreq/*"
 # (`bus@0/15340000.vic` en JetPack 6): se buscan hasta tres niveles abajo.
 _RUNTIME_STATUS_GLOBS = tuple(
     f"/sys/devices/platform/{'*/' * depth}power/runtime_status" for depth in (1, 2, 3))
-_ENGINE_KEYWORDS = ("vic", "nvenc", "nvdec", "nvjpg", "ofa", "nvdla", "pva")
+# El nodo de un motor es `<dirección>.<motor>` (`15340000.vic`, `15880000.nvdla0`). Buscar
+# la palabra suelta confunde nodos como `device`, que contiene «vic».
+_ENGINE_DEVICE_RE = re.compile(r"[0-9a-f]+\.(vic|nvenc|nvdec|nvjpg|ofa|nvdla\d*|pva\d*)")
 
 _KHZ_PER_MHZ = 1_000
 _HZ_PER_MHZ = 1_000_000
@@ -175,7 +177,7 @@ def find_engine_devices() -> dict[str, str]:
     for pattern in _RUNTIME_STATUS_GLOBS:
         for path in sorted(glob.glob(pattern)):
             device = os.path.basename(os.path.dirname(os.path.dirname(path)))
-            if any(keyword in device.lower() for keyword in _ENGINE_KEYWORDS):
+            if _ENGINE_DEVICE_RE.fullmatch(device):
                 devices.setdefault(device, path)
     return devices
 
