@@ -694,6 +694,9 @@ La tabla completa, archivo por archivo, está en `README.md`.
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
+- **Que el PLC escriba está diseñado y sin código**: comandos de pausa, overlay y dataset,
+  parámetros del config y el disparo de una medición con handshake por contador. Cambia la
+  decisión de servir el mapa de sólo lectura; el diseño está en `.claude/plans/plc-commands.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
   esperado, versionadas en el repo del fork, y un comando que dice cuáles pasan. Ya existen
   las dos piezas en las que se apoya —el driver de video y la corrida de imágenes sueltas—;
