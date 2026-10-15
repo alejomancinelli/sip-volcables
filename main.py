@@ -54,7 +54,8 @@ Los seis puntos de extensión del motor, y de dónde sale cada uno:
 
     preprocessor    `system/inference/preprocessing.py`, si alguna cámara declara
                     calibración o ajuste de imagen
-    pipeline        `system/inference/pipeline.py`, que el fork reescribe
+    pipeline        `system/inference/pipeline_factory.py`, con la clase que declara el
+                    `type` de cada slot; el fork las escribe y las registra ahí
     classifier      `system/inference/hooks.py`, que el fork reescribe con `process:`
     analyzer        `system/inference/hooks.py`, con la cuenta de `metrics.py`
     annotator       `system/inference/hooks.py`, con las factories de `annotations.py`
@@ -101,7 +102,7 @@ from system.image_collector.collector import ImageCollector
 from system.inference import analysis
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
-from system.inference.pipeline import Pipeline
+from system.inference.pipeline_factory import create_pipeline
 from system.inference.preprocessing import build_preprocessor
 from system.inference.result import InferenceResult
 from system.license.manager import (
@@ -516,38 +517,7 @@ class Application(QObject):
         self._collector = ImageCollector(config)
 
         # ── Inferencia ───────────────────────────────────────────────────────
-        # Un hilo por pipeline habilitado: las cámaras que comparten pipeline comparten
-        # el hilo, así los pesos se cargan una vez y el acceso a la GPU queda
-        # serializado por construcción.
-        preprocessor = build_preprocessor(config)
-        hooks = build_hooks(config)
-        self._engines: list[InferenceThread] = []
-        for pipeline_slot in (config.get("inference.pipelines", {}) or {}):
-            if not config.get(f"inference.pipelines.{pipeline_slot}.enabled", True):
-                logger.info(f"[Main] {pipeline_slot} deshabilitado: sin hilo de inferencia.")
-                continue
-            # Un feature no licenciado y un `enabled: false` se ven igual desde afuera
-            # —el pipeline no corre— y son cosas distintas: uno se arregla comprando y el
-            # otro editando el config. Por eso son dos mensajes y no uno.
-            feature = read_feature(config.get(f"inference.pipelines.{pipeline_slot}.feature"))
-            if not self._license.has_feature(feature):
-                logger.warning(
-                    f"[Main] {pipeline_slot} no arranca: la licencia no habilita "
-                    f"'{feature}'. Sin hilo de inferencia para ese pipeline."
-                )
-                continue
-            engine = InferenceThread(
-                config, Pipeline(config, pipeline_slot),
-                preprocessor=preprocessor,
-                classifier=hooks.classifier,
-                analyzer=hooks.analyzer,
-                annotator=hooks.annotator,
-                annotate_gate=self._is_annotated_watched,
-                # El anotado se ve como el stream crudo: los dos los mira una persona.
-                canvas_adjust=self._for_display,
-            )
-            engine.result_ready.connect(self._on_result_ready)
-            self._engines.append(engine)
+        self._engines = self._build_engines()
 
         # ── Ciclo de medición ────────────────────────────────────────────────
         # El motor emite un resultado por frame; el scheduler junta los N que forman una
@@ -646,6 +616,45 @@ class Application(QObject):
         # salidas no llegan a ningún borne.
         if self._gpio.get_status()["status"] != "disabled":
             self._ui.set_gpio(self._gpio, self._gpio_thread)
+
+    def _build_engines(self) -> list[InferenceThread]:
+        """
+        Un hilo por pipeline habilitado y licenciado, con la clase que declara su `type`.
+
+        Las cámaras que comparten pipeline comparten el hilo, así los pesos se cargan una
+        vez y el acceso a la GPU queda serializado por construcción.
+        """
+        config = self._config
+        preprocessor = build_preprocessor(config)
+        hooks = build_hooks(config)
+        engines: list[InferenceThread] = []
+        for pipeline_slot in (config.get("inference.pipelines", {}) or {}):
+            if not config.get(f"inference.pipelines.{pipeline_slot}.enabled", True):
+                logger.info(f"[Main] {pipeline_slot} deshabilitado: sin hilo de inferencia.")
+                continue
+            # Un feature no licenciado y un `enabled: false` se ven igual desde afuera
+            # —el pipeline no corre— y son cosas distintas: uno se arregla comprando y el
+            # otro editando el config. Por eso son dos mensajes y no uno.
+            feature = read_feature(config.get(f"inference.pipelines.{pipeline_slot}.feature"))
+            if not self._license.has_feature(feature):
+                logger.warning(
+                    f"[Main] {pipeline_slot} no arranca: la licencia no habilita "
+                    f"'{feature}'. Sin hilo de inferencia para ese pipeline."
+                )
+                continue
+            engine = InferenceThread(
+                config, create_pipeline(config, pipeline_slot),
+                preprocessor=preprocessor,
+                classifier=hooks.classifier,
+                analyzer=hooks.analyzer,
+                annotator=hooks.annotator,
+                annotate_gate=self._is_annotated_watched,
+                # El anotado se ve como el stream crudo: los dos los mira una persona.
+                canvas_adjust=self._for_display,
+            )
+            engine.result_ready.connect(self._on_result_ready)
+            engines.append(engine)
+        return engines
 
     # ── Lo que cambia en cada fork ───────────────────────────────────────────
     #

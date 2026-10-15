@@ -66,7 +66,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
           mock_model.py       detecciones sintéticas, sin framework
           null_model.py       lo que devuelve la fábrica ante una config inválida
         abstract_pipeline.py  maquinaria de las etapas: las crea, las carga y las cronometra
-        pipeline.py           el pipeline concreto; es lo que cambia en cada instalación
+        pipeline.py           los pipelines concretos; es lo que cambia en cada instalación
+        pipeline_factory.py   único archivo que conoce esas clases; `type` elige una por slot
+        null_pipeline.py      lo que devuelve la fábrica ante un `type` no registrado
         result.py             nivel 1 — Detection e InferenceResult, el dato que cruza
         overlay.py            nivel 1 — dibujado del resultado; también lo lee la UI
         annotations.py        nivel 1 — dibujos propios de la planta; se reescribe en cada fork
@@ -184,8 +186,10 @@ Son punteros: el contrato vive en el archivo, no acá.
 - **Pipeline de inferencia** — `system/inference/abstract_pipeline.py`: qué es una
   etapa, qué recibe de la anterior, y qué queda en `stage_times_ms` y en `labels`. `_run()`
   recibe `(frame_bgr, camera_slot)`: el pipeline **sí** sabe de qué cámara viene el frame y
-  el modelo no, así que lo calibrado por montaje entra ahí. El pipeline concreto es
-  `system/inference/pipeline.py`.
+  el modelo no, así que lo calibrado por montaje entra ahí. Los pipelines concretos están en
+  `system/inference/pipeline.py`, y qué clase corre cada slot lo dice
+  `inference.pipelines.<slot>.type`, que resuelve `pipeline_factory.py`: sin `type`, el
+  `default`.
 - **Resultado de inferencia** — `system/inference/result.py`: los campos de
   `Detection` e `InferenceResult`, el reparto entre `detections`, `labels` y `metrics`,
   el vocabulario de `invalid_reason` y qué significa `is_valid`. Es el objeto que
@@ -304,8 +308,9 @@ Lo que no se deduce leyendo un archivo suelto:
   distintos son dos hilos y sí corren en paralelo.
 - **El orden de las etapas de un pipeline es código, no configuración.** Vive en
   `system/inference/pipeline.py` porque encadenar dos modelos es lógica del proceso:
-  qué recorta el segundo, qué hace con lo que encontró el primero. Del config salen de
-  dónde se carga cada modelo y qué cámaras entran a cada pipeline.
+  qué recorta el segundo, qué hace con lo que encontró el primero. Del config salen qué
+  clase corre cada slot, de dónde se carga cada modelo y qué cámaras entran a cada
+  pipeline.
 - La confianza se juzga en dos niveles y son de dueños distintos: el modelo descarta
   la detección por debajo de su `min_confidence_pct` —bajo a propósito cuando hay que
   contar cientos de objetos—, y el pipeline marca el resultado completo como no
@@ -599,7 +604,8 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   `system/modbus/register_map.yaml`, `system/inference/pipeline.py`,
   `system/inference/metrics.py`, `system/inference/hooks.py`, este archivo y el `README.md`.
 - **Se agregan sin editar lo que ya está**: el modelo del proyecto en
-  `system/inference/` (+1 línea en la fábrica), `annotations.py`, un driver nuevo
+  `system/inference/` (+1 línea en la fábrica), otra clase de pipeline en `pipeline.py`
+  (+1 línea en `pipeline_factory.py`), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
   `manual_test/` y `docs/`.

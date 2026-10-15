@@ -7,11 +7,30 @@ mapa de registros. La maquinaria que lo corre —el contrato de las etapas, el h
 overlay y las agregaciones— no se toca.
 
 El template trae una sola etapa: el modelo `model_1` sobre el frame que le llega, que es
-el caso de la enorme mayoría de las instalaciones. `main.py` lo instancia y se lo pasa al
-motor:
+el caso de la enorme mayoría de las instalaciones. Es el pipeline `default` de
+`pipeline_factory.py`, el que corre un slot que no declara `type`, y la fábrica lo
+instancia para la app y para la corrida de imágenes sueltas:
 
-    pipeline = Pipeline(config, "pipeline_1")
+    pipeline = create_pipeline(config, "pipeline_1")
     engine = InferenceThread(config, pipeline, analyzer=compute_metrics)
+
+**Un proyecto con dos procesos distintos escribe dos clases** —medir el grano y detectar
+personas sobre la misma cámara no son dos etapas de un pipeline, son dos pipelines—. Van
+las dos en este archivo, cada una con sus `model_slots` y su `_run()`, y cada una se
+registra con una línea en `_PIPELINE_CLASSES` de la fábrica. El config elige cuál corre
+cada slot:
+
+    # pipeline_factory.py
+    _PIPELINE_CLASSES = {"default": GrainPipeline, "person": PersonPipeline}
+
+    # config.yaml
+    pipelines:
+      pipeline_1: {type: default, cameras: [camera_1]}
+      pipeline_2: {type: person, cameras: [camera_1, camera_2]}
+      pipeline_3: {type: person, cameras: [camera_3, camera_4]}
+
+Dos slots del mismo `type` son dos instancias con sus propios pesos, en dos hilos: así se
+reparten cámaras entre hilos sin escribir nada más.
 
 Encadenar etapas es escribir `_run()`. Dos formas, y las dos salen del mismo contrato
 —cada etapa recibe las detecciones de la anterior y decide qué hacer con ellas—:

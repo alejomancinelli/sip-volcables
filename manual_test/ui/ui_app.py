@@ -140,7 +140,7 @@ from system.config_manager import ConfigManager                          # noqa:
 from system.formats import camera_health, com_status, system_status       # noqa: E402
 from system.inference.engine import InferenceThread                      # noqa: E402
 from system.inference.hooks import build_hooks                           # noqa: E402
-from system.inference.pipeline import Pipeline                           # noqa: E402
+from system.inference.pipeline_factory import create_pipeline           # noqa: E402
 from system.inference.result import InferenceResult                      # noqa: E402
 from system.license import manager as license_manager_module              # noqa: E402
 from system.license.manager import LicenseManager                        # noqa: E402
@@ -365,7 +365,7 @@ class _DemoApp(QObject):
                 logger.info(f"[Demo] {pipeline_slot} deshabilitado: no se le levanta hilo.")
                 continue
             engine = InferenceThread(
-                config, Pipeline(config, pipeline_slot),
+                config, create_pipeline(config, pipeline_slot),
                 classifier=hooks.classifier,
                 analyzer=hooks.analyzer,
                 annotator=hooks.annotator,

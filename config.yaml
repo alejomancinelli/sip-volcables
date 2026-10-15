@@ -144,6 +144,11 @@ inference:
     # es la identidad con la que el pipeline aparece en el resto del sistema.
     pipeline_1:
       enabled: true
+      # Qué clase corre este slot: ver REGISTERED_PIPELINES en pipeline_factory.py.
+      # Ausente = `default`. Dos slots del mismo tipo son dos hilos con sus propios pesos:
+      # así se reparten cámaras entre hilos. Un tipo no registrado deja el pipeline sin
+      # cargar, con resultados no confiables.
+      type: default
       # Qué addon comercial es este pipeline: UN nombre. Lo lee el subsistema de licencia
       # (`system/license/`) y un pipeline cuyo feature no está habilitado no se instancia.
       # Ausente = `core`, que es el pipeline normal y el que tiene toda instalación.

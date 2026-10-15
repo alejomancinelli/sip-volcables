@@ -15,6 +15,9 @@ from system.camera.lens_health import (
 )
 from system import gpio_control
 from system.formats import gpio_status
+from system.inference import pipeline_factory
+from system.inference.abstract_pipeline import AbstractPipeline
+from system.inference.hooks import EngineHooks
 from system.inference.result import InferenceResult
 from system.modbus import registers
 from system.modbus.server import STATUS_DISABLED, STATUS_ERROR
@@ -370,6 +373,78 @@ class TestFramePath:
         app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
         app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_2")
         assert app.notified == ["camera_1", "camera_2"]
+
+
+class _GrainPipeline(AbstractPipeline):
+    model_slots = ("grain",)
+
+    def _run(self, frame_bgr, camera_slot):
+        return []
+
+
+class _PersonPipeline(AbstractPipeline):
+    model_slots = ("person",)
+
+    def _run(self, frame_bgr, camera_slot):
+        return []
+
+
+class _LicenseStub:
+    """La licencia: habilita todo menos los features que se le nombren."""
+
+    def __init__(self, *denied: str):
+        self._denied = denied
+
+    def has_feature(self, feature: str) -> bool:
+        return feature not in self._denied
+
+
+def _build_engine_application(monkeypatch, pipelines: dict, *denied_features: str):
+    """`Application` sin `__init__` —sí con su QObject—, con lo que lee `_build_engines()`."""
+    from PySide6.QtCore import QObject
+    monkeypatch.setitem(pipeline_factory._PIPELINE_CLASSES, "grain", _GrainPipeline)
+    monkeypatch.setitem(pipeline_factory._PIPELINE_CLASSES, "person", _PersonPipeline)
+    monkeypatch.setattr(main, "build_preprocessor", lambda config: None)
+    monkeypatch.setattr(main, "build_hooks", lambda config: EngineHooks())
+    values = {"inference.pipelines": pipelines}
+    for pipeline_slot, section in pipelines.items():
+        values.update({f"inference.pipelines.{pipeline_slot}.{key}": value
+                       for key, value in section.items()})
+    app = main.Application.__new__(main.Application)
+    QObject.__init__(app)
+    app._config = _MockConfig(**values)
+    app._license = _LicenseStub(*denied_features)
+    app._display_adjust = None
+    return app
+
+
+class TestEngines:
+    """Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`."""
+
+    def test_each_slot_gets_the_class_its_type_declares(self, monkeypatch):
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "grain"}, "pipeline_2": {"type": "person"}})
+        engines = app._build_engines()
+        assert [type(engine._pipeline) for engine in engines] == [_GrainPipeline,
+                                                                  _PersonPipeline]
+
+    def test_two_slots_of_the_same_type_get_their_own_engine(self, monkeypatch):
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "person"}, "pipeline_2": {"type": "person"}})
+        engines = app._build_engines()
+        assert [engine.pipeline_slot for engine in engines] == ["pipeline_1", "pipeline_2"]
+        assert engines[0]._pipeline is not engines[1]._pipeline
+
+    def test_a_disabled_pipeline_gets_no_engine(self, monkeypatch):
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "grain"}, "pipeline_2": {"enabled": False}})
+        assert [engine.pipeline_slot for engine in app._build_engines()] == ["pipeline_1"]
+
+    def test_an_unlicensed_feature_gets_no_engine(self, monkeypatch):
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "grain"},
+            "pipeline_2": {"type": "person", "feature": "safety"}}, "safety")
+        assert [engine.pipeline_slot for engine in app._build_engines()] == ["pipeline_1"]
 
 
 class TestDatasetGating:
