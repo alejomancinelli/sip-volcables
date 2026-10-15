@@ -53,6 +53,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         camera_health.py      estado de una cámara: adquisición excluyente + lente sucio
         com_status.py         un bit por canal de salida que está andando
         gpio_status.py        las dos palabras de GPIO: entradas leídas y salidas comandadas
+        pipeline_status.py    una palabra por pipeline: ¿sus números son una medición?
         system_status.py      ¿se puede confiar en las mediciones de proceso?
       image_collector/
         collector.py          dataset en disco, por intervalo o a pedido
@@ -350,8 +351,28 @@ Lo que no se deduce leyendo un archivo suelto:
   congelado en pantalla. Uno más viejo que el último mostrado —un ciclo, con el instante
   de su representativo— no pone el frame: el video no salta para atrás. El dataset sigue
   guardando el anotado propio de cada pipeline, porque su JSON trae sólo esas detecciones.
+  Una cámara sin ningún resultado vigente —todos sus pipelines cortados o caídos— se ve en
+  vivo en vez de congelada en el último anotado; la vigencia mira también el tiempo real
+  entre resultados, así que un modelo lento no la hace parpadear entre anotado y vivo.
   Con `crop_to_roi` no se combina: el lienzo es el recorte de uno y el ROI de los otros no
   tiene por qué caer adentro.
+- **Una señal de la planta corta los frames de una cámara a un pipeline, no el pipeline.**
+  Es la compuerta de frames: la declara el fork en `_build_frame_gates()` de `main.py`
+  —`gate(camera_slot, signals) -> bool`— y el template no declara ninguna. Es por cámara
+  porque un pipeline cubre varias y cada una puede tener su propia señal —tres
+  plataformas, tres señales de volteo—, y no es `enabled` porque ese es config: se guarda
+  en el archivo y apaga todas las cámaras. Cortar los frames y no el hilo deja el modelo
+  cargado, así que al abrirse el frame siguiente ya se infiere. Se consulta en los dos
+  caminos del frame: en el hilo de captura para los pipelines sin ciclo y en el de la GUI,
+  antes de pedir el permiso del scheduler, para los que tienen. Por eso recibe
+  `FrameSignals`, una foto inmutable que `main.py` **reemplaza entera y nunca modifica**:
+  un hilo de captura la lee sin lock y ve la vieja o la nueva, nunca mitad de cada una.
+  Va en `main.py` y no en `hooks.py` porque lee el estado vivo de la planta, que la corrida
+  de imágenes sueltas no tiene. Mientras está cerrada, los registros del pipeline quedan
+  con su último valor, su overlay se va del anotado en el frame siguiente —el composer lo
+  olvida, no espera a que venza— y el bit 6 de su palabra lo dice: la señal no siempre es
+  del PLC, y sin el bit una pausa se lee como un pipeline sano. Así un veredicto como el
+  del grano aparece sólo mientras el proceso corre.
 - **Un veredicto del frame no es una detección ni una métrica.** Lo que dice una
   clasificación de la imagen entera —el estado de la cinta— viaja en `labels`, que es
   texto: no tiene forma ni posición, y si tiene que llegar al PLC lo traduce a bit el
@@ -623,8 +644,9 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
   `manual_test/` y `docs/`.
-- **De `main.py` se completan dos métodos**, los del bloque marcado: el widget del
-  monitor y el contexto que se guarda con el dataset. Lo que entra al motor —classifier,
+- **De `main.py` se completan tres métodos**, los del bloque marcado: el widget del
+  monitor, el contexto que se guarda con el dataset y las compuertas de frames —que el
+  template deja vacías—. Lo que entra al motor —classifier,
   analyzer y annotators— es de `hooks.py`, porque también lo usa la corrida de imágenes
   sueltas. El resto del archivo es cableado y se cross-portea.
 - **De `ui/` sólo se agrega**: el widget del monitor, los textos que ese widget necesite
@@ -641,10 +663,19 @@ La tabla completa, archivo por archivo, está en `README.md`.
 ## Qué todavía no existe
 
 - Del template ya no falta el cableado: `main.py` instancia todo y conecta las señales,
-  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los dos
-  métodos marcados de `main.py`: el widget del monitor y el contexto del dataset. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
+  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los tres
+  métodos marcados de `main.py`: el widget del monitor, el contexto del dataset y las
+  compuertas de frames. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
+- **Las compuertas de frames leen sólo el GPIO.** `FrameSignals` tiene hoy un campo,
+  `gpio_inputs`; leer una señal que escriba el PLC por Modbus es otro campo, y antes que
+  eso que el servidor acepte escrituras en las filas `producer: config`, que hoy rechaza.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
   pero qué publica es lo más específico de cada fork y se declara al escribirlo.
+- **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
+  y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
+  `inference.pipelines`, incluidos los que no arrancaron, y se filtra contra el mapa como
+  las de cámara. Ningún mapa declara todavía esas filas, así que no llegan al PLC: falta
+  decidir dónde viven —el hueco de 92-97 o un bloque nuevo después del 100—.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección
   `lens_health:` del config, la pestaña con la calibración por cámara y el bit al PLC
   están. Lo que queda es de cada instalación —calibrar cada cámara con el vidrio limpio,

@@ -153,3 +153,53 @@ class TestCompose:
         composer.compose(_result(_GRAIN, 10.0), _frame(), 0.0, {})
         shown = composer.compose(_result(_PERSON, 10.1), _frame(), 0.1, {})
         assert np.array_equal(shown, _frame())
+
+
+class TestFreshness:
+    """Qué sigue vigente en una cámara, y qué se olvida en el acto."""
+
+    def test_a_camera_with_a_recent_result_has_something_fresh(self):
+        composer = FrameComposer({_GRAIN: 0.5})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        assert composer.has_fresh(_CAMERA, 1.0) is True
+
+    def test_a_camera_whose_results_expired_has_nothing_fresh(self):
+        composer = FrameComposer({_GRAIN: 0.5})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        assert composer.has_fresh(_CAMERA, 2.0) is False
+
+    def test_another_camera_does_not_count(self):
+        composer = FrameComposer()
+        composer.add(_result(_GRAIN, 10.0, camera_slot=_OTHER_CAMERA), now_s=0.0)
+        assert composer.has_fresh(_CAMERA, 0.0) is False
+
+    def test_a_forgotten_pair_stops_being_drawn_at_once(self):
+        """Es lo que hace el cableado cuando la compuerta corta: no espera a que venza."""
+        composer = FrameComposer({_GRAIN: 10.0})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        composer.forget(_CAMERA, _GRAIN)
+        assert composer.others(_CAMERA, _PERSON, 0.1) == []
+        assert composer.has_fresh(_CAMERA, 0.1) is False
+
+    def test_forgetting_keeps_the_other_pipelines(self):
+        composer = FrameComposer()
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        composer.add(_result(_PERSON, 10.1), now_s=0.1)
+        composer.forget(_CAMERA, _GRAIN)
+        assert composer.has_fresh(_CAMERA, 0.2) is True
+
+    def test_a_slow_pipeline_stays_fresh_between_its_results(self):
+        """`interval_s` en 0 y dos segundos por inferencia: no puede darse por muerto entre dos."""
+        composer = FrameComposer({_GRAIN: 0.0})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        composer.add(_result(_GRAIN, 12.0), now_s=2.0)
+        assert composer.has_fresh(_CAMERA, 4.5) is True
+        assert composer.has_fresh(_CAMERA, 8.5) is False
+
+    def test_a_pause_after_forgetting_is_not_taken_as_the_period(self):
+        """Sin olvidar el período, una hora cortada dejaría al par vigente tres horas."""
+        composer = FrameComposer({_GRAIN: 0.0})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        composer.forget(_CAMERA, _GRAIN)
+        composer.add(_result(_GRAIN, 3610.0), now_s=3600.0)
+        assert composer.has_fresh(_CAMERA, 3601.5) is False

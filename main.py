@@ -61,8 +61,9 @@ Los seis puntos de extensión del motor, y de dónde sale cada uno:
     annotator       `system/inference/hooks.py`, con las factories de `annotations.py`
     annotate_gate   acá: se dibuja si lo mira la UI o un cliente del stream anotado
 
-**Qué toca el fork.** Los dos métodos del bloque «Lo que cambia en cada fork»: qué mira el
-operador y con qué parámetros quedó medido lo que se guarda. Lo que entra al motor es de
+**Qué toca el fork.** Los tres métodos del bloque «Lo que cambia en cada fork»: qué mira el
+operador, con qué parámetros quedó medido lo que se guarda y qué señales de la planta cortan
+los frames a un pipeline. Lo que entra al motor es de
 `hooks.py`, que también usa la corrida de imágenes sueltas: armarlo acá lo dejaría en un
 solo lado de los dos. El resto es cableado genérico y se cross-portea sin editar.
 
@@ -82,8 +83,9 @@ import statistics
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from types import MappingProxyType
 
 import numpy as np
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, QTimer, Signal, Slot
@@ -96,7 +98,9 @@ from system.camera import lens_health
 from system.camera.lens_health import LensHealthMonitor
 from system.config_manager import ConfigManager
 from system.env import load_env_file
-from system.formats import camera_health, com_status, gpio_status, system_status
+from system.formats import (
+    camera_health, com_status, gpio_status, pipeline_status, system_status,
+)
 from system.gpio_control import GpioController, GpioPollingThread
 from system.image_collector.collector import ImageCollector
 from system.inference import analysis
@@ -202,6 +206,29 @@ _HEALTH_REGISTER_NAMES = frozenset({
 _REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS)
 
 _COLLECTOR_MODE_INTERVAL = "interval"
+
+_GATE_WARN_PERIOD_S = 10.0        # techo del aviso de una compuerta que falla, por pipeline
+
+
+@dataclasses.dataclass(frozen=True)
+class FrameSignals:
+    """
+    Lo que dice la planta en este instante, para las compuertas de frames.
+
+    Inmutable y entero a propósito: se arma uno nuevo cada vez que cambia una fuente y se
+    reemplaza de una vez, así que un hilo de captura que lo lee ve el viejo o el nuevo,
+    nunca la mitad de cada uno, sin lock. Una fuente nueva —un registro que escriba el PLC—
+    es un campo más, y las compuertas que no lo usan no cambian.
+
+        gpio_inputs : canal (desde 1, como en el borne) -> 1, 0 o `READ_ERROR`
+    """
+
+    gpio_inputs: Mapping[int, int] = dataclasses.field(
+        default_factory=lambda: MappingProxyType({}))
+
+
+# `gate(camera_slot, signals) -> bool`: False corta los frames de esa cámara a ese pipeline.
+FrameGate = Callable[[str, FrameSignals], bool]
 
 
 # ── Log a archivo ────────────────────────────────────────────────────────────────
@@ -482,6 +509,8 @@ class Application(QObject):
         # Últimas métricas válidas de cada par (cámara, pipeline), para los registros. Por
         # par y no por cámara: dos pipelines sobre una cámara se pisarían el dict entero.
         self._metrics_by_pair: dict[tuple[str, str], dict] = {}
+        # Si el último resultado de cada par fue confiable, para la palabra de su pipeline.
+        self._last_valid_by_pair: dict[tuple[str, str], bool] = {}
         # Resultados de cada par (cámara, pipeline) desde la última muestra. La clave es el
         # par y no la cámara: una cámara puede entrar a dos pipelines —dos modelos mirando
         # lo mismo con distinto propósito— y con la cámara sola los dos se mezclarían en un
@@ -538,6 +567,17 @@ class Application(QObject):
         # Una cámara que miran dos pipelines muestra un solo frame con los dos overlays:
         # mostrar cada anotado tal como llega hace parpadear el de cada uno.
         self._composer = FrameComposer(self._read_composer_intervals())
+
+        # ── Compuertas de frames ─────────────────────────────────────────────
+        # Una señal de la planta que corta los frames de una cámara a un pipeline mientras
+        # ese proceso no ocurre. Las declara el fork; sin ninguna, el camino del frame no
+        # cambia. La última decisión de cada par va a la palabra de su pipeline. Se escribe
+        # desde los hilos de captura y se lee en el tick, así que va con lock.
+        self._frame_gates = self._build_frame_gates()
+        self._gate_open_by_pair: dict[tuple[str, str], bool] = {}
+        self._gate_warned_s: dict[str, float] = {}
+        self._gates_lock = threading.Lock()
+        self._check_frame_gates()
 
         # ── Captura ──────────────────────────────────────────────────────────
         # El cupo de la licencia corta por orden de declaración, y el corte es
@@ -600,6 +640,9 @@ class Application(QObject):
         # Última lectura de las entradas, para el tick de registros. Se toca sólo desde el
         # hilo de la GUI: el slot llega en cola.
         self._gpio_inputs: dict[int, int] = {}
+        # Lo mismo para las compuertas, que lo leen en los hilos de captura. Se REEMPLAZA
+        # entero al llegar una lectura y nunca se modifica: es lo que deja leerlo sin lock.
+        self._frame_signals = FrameSignals()
 
         # ── Hardware y timers ────────────────────────────────────────────────
         self._monitor = SystemMonitor(config)
@@ -633,11 +676,15 @@ class Application(QObject):
 
         Las cámaras que comparten pipeline comparten el hilo, así los pesos se cargan una
         vez y el acceso a la GPU queda serializado por construcción.
+
+        Deja en `_unlicensed_pipelines` los que la licencia dejó afuera, para la palabra de
+        cada pipeline: es una decisión del arranque y no se vuelve a preguntar.
         """
         config = self._config
         preprocessor = build_preprocessor(config)
         hooks = build_hooks(config)
         engines: list[InferenceThread] = []
+        self._unlicensed_pipelines: set[str] = set()
         for pipeline_slot in (config.get("inference.pipelines", {}) or {}):
             if not config.get(f"inference.pipelines.{pipeline_slot}.enabled", True):
                 logger.info(f"[Main] {pipeline_slot} deshabilitado: sin hilo de inferencia.")
@@ -651,6 +698,7 @@ class Application(QObject):
                     f"[Main] {pipeline_slot} no arranca: la licencia no habilita "
                     f"'{feature}'. Sin hilo de inferencia para ese pipeline."
                 )
+                self._unlicensed_pipelines.add(pipeline_slot)
                 continue
             engine = InferenceThread(
                 config, create_pipeline(config, pipeline_slot),
@@ -668,10 +716,11 @@ class Application(QObject):
 
     # ── Lo que cambia en cada fork ───────────────────────────────────────────
     #
-    # Dos decisiones del proyecto, juntas y marcadas para que un diff las muestre de una:
-    # qué mira el operador y con qué parámetros quedó medido lo que se guarda. Lo que entra
-    # al motor —qué detecciones cuentan, qué significan y qué se dibuja— es de
-    # `system/inference/hooks.py`. Todo lo demás de este archivo es cableado genérico.
+    # Tres decisiones del proyecto, juntas y marcadas para que un diff las muestre de una:
+    # qué mira el operador, con qué parámetros quedó medido lo que se guarda y qué señales
+    # de la planta cortan los frames a un pipeline. Lo que entra al motor —qué detecciones
+    # cuentan, qué significan y qué se dibuja— es de `system/inference/hooks.py`. Todo lo
+    # demás de este archivo es cableado genérico.
 
     def _build_monitor_content(self) -> QWidget:
         """
@@ -706,6 +755,36 @@ class Application(QObject):
         hace incomparables las dos.
         """
         return None
+
+    def _build_frame_gates(self) -> dict[str, FrameGate]:
+        """
+        Compuertas de frames por slot de pipeline: `gate(camera_slot, signals) -> bool`.
+
+        Una compuerta cerrada corta los frames de esa cámara a ese pipeline mientras la
+        planta dice que el proceso no ocurre —la plataforma está nivelada, la cinta parada—.
+        Ese pipeline no gasta GPU ni da resultados, sus registros quedan con su último
+        valor, su overlay se va del anotado en el frame siguiente y su palabra de estado lo
+        dice. Los demás pipelines de la misma cámara siguen, y una cámara sin ninguno
+        corriendo se ve en vivo, sin overlay. El modelo queda cargado: al abrirse la
+        compuerta, el frame siguiente ya se infiere.
+
+        **El template no declara ninguna.** Un fork que la necesita arma acá la suya:
+
+            def _build_frame_gates(self):
+                tilt_input = {"camera_1": 1, "camera_2": 2}   # leído de `process:`
+                def is_tilted(camera_slot, signals):
+                    return signals.gpio_inputs.get(tilt_input.get(camera_slot)) == 1
+                return {"pipeline_1": is_tilted}
+
+        Va acá y no en `hooks.py` porque lee el estado vivo de la planta, que sólo la app
+        tiene: la corrida de imágenes sueltas comparte los hooks y no tiene señales.
+
+        Se llama por frame y en el hilo de captura, así que tiene que ser barata y leer sólo
+        lo que recibe: `signals` es una foto inmutable, y es lo único seguro de tocar desde
+        ese hilo. Una que levanta deja pasar el frame y avisa. Es para pipelines de un
+        resultado por frame: con ciclo, una cámara cortada traba la ronda.
+        """
+        return {}
 
     # ── Ciclo de vida ────────────────────────────────────────────────────────
 
@@ -808,6 +887,10 @@ class Application(QObject):
 
         Un pipeline que mide de a varios frames sigue pidiendo el suyo desde la GUI: su
         permiso lo maneja el scheduler, que no es thread-safe.
+
+        La compuerta de frames de cada pipeline, si el fork declaró una, se consulta acá,
+        en este hilo: por eso recibe una foto inmutable de las señales y no lee nada más
+        de la app.
         """
         if frame_bgr is None or frame_bgr.size == 0:
             return
@@ -815,12 +898,15 @@ class Application(QObject):
         # guarda el crudo: la nitidez se mide sobre lo que entrega el sensor, no sobre la
         # imagen con gamma, que le cambiaría el contraste y con él la varianza.
         self._last_raw_frame[camera_slot] = frame_bgr
+        # Una sola lectura por frame: todas las compuertas deciden sobre la misma foto.
+        signals = self._frame_signals
         for engine in self._engines:
             # Sin ciclo el permiso es siempre que sí, y el ritmo lo sigue poniendo el
             # `interval_s` del motor. Se le pregunta antes si la cámara es suya: con varios
             # pipelines repartiéndose cámaras, un frame ajeno lo descarta avisando.
             if (not self._scheduler.is_cycled(engine.pipeline_slot)
-                    and engine.has_camera(camera_slot)):
+                    and engine.has_camera(camera_slot)
+                    and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)):
                 engine.push_frame(frame_bgr, camera_slot)
         # Lo que mira una persona puede llevar gamma y contraste local; lo que se mide,
         # nunca. Sin clientes en el crudo no se ajusta nada: `_for_display` crea un frame.
@@ -851,6 +937,8 @@ class Application(QObject):
 
         En modo crudo la UI lo muestra tal cual; en anotado espera el que devuelve el
         motor, que es el mismo array con el resultado dibujado.
+
+        Un pipeline con ciclo consulta su compuerta acá, antes de pedir el permiso.
         """
         with self._gui_frames_lock:
             frame_bgr = self._gui_frames.pop(camera_slot, None)
@@ -865,10 +953,15 @@ class Application(QObject):
                 setter(frame_bgr, camera_slot)
             if getattr(content, "mode", None) != MODE_ANNOTATED:
                 content.update_frame(self._for_display(frame_bgr), camera_slot)
+        self._show_live_when_idle(frame_bgr, camera_slot)
+        signals = self._frame_signals
         for engine in self._engines:
             # El permiso se pide último porque se consume: pedirlo por un frame que el
-            # motor va a descartar deja al ciclo esperando un resultado que no llega.
+            # motor va a descartar —o que la compuerta corta— deja al ciclo esperando un
+            # resultado que no llega.
             if (self._scheduler.is_cycled(engine.pipeline_slot)
+                    and engine.has_camera(camera_slot)
+                    and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)
                     and self._scheduler.take_frame(camera_slot, engine.pipeline_slot)):
                 engine.push_frame(frame_bgr, camera_slot, ignore_interval=True)
 
@@ -882,13 +975,15 @@ class Application(QObject):
     @Slot(object)
     def _on_result_ready(self, result: InferenceResult):
         """
-        Un resultado del motor, uno por frame: sólo la iluminación de la cámara.
+        Un resultado del motor, uno por frame: la iluminación de la cámara y si el par
+        (cámara, pipeline) dio un resultado confiable.
 
         El frame anotado NO sale de acá. Lo publica `_on_cycle_complete`, con el
         representativo del ciclo: es el único que se corresponde con los números que
         salieron al PLC, y es el que tiene que quedar hasta la medición siguiente.
         """
         self._camera_illumination[result.camera_slot] = result.illumination_pct
+        self._last_valid_by_pair[(result.camera_slot, result.pipeline_slot)] = result.is_valid
         content = self._ui.monitor_content
         if content is not None:
             setter = getattr(content, "set_illumination_pct", None)
@@ -912,11 +1007,15 @@ class Application(QObject):
             # mismo. El composer ve sólo los resultados con anotado: el gate es por cámara,
             # así que o se dibujan todos los pipelines de una cámara o ninguno.
             result.annotated_bgr = annotated_bgr
-            shown_bgr = self._composer.compose(
-                result, annotated_bgr, time.monotonic(),
-                {engine.pipeline_slot: engine for engine in self._engines})
-            if shown_bgr is not None:
-                self._show_annotated(shown_bgr, result.camera_slot)
+            # Uno que llega con la compuerta ya cerrada salió de un frame anterior al corte:
+            # mostrarlo volvería a poner el overlay de un proceso que la planta dio por
+            # terminado. Al dataset y a la telemetría va igual.
+            if result.pipeline_slot not in self._gated_pipelines(result.camera_slot):
+                shown_bgr = self._composer.compose(
+                    result, annotated_bgr, time.monotonic(),
+                    {engine.pipeline_slot: engine for engine in self._engines})
+                if shown_bgr is not None:
+                    self._show_annotated(shown_bgr, result.camera_slot)
 
         # Dataset: `push_frame` encola y vuelve; escribe el hilo del recolector. El
         # contexto se arma una vez y vale para los dos modos: es del par (cámara, momento)
@@ -954,6 +1053,34 @@ class Application(QObject):
         # ciclo queda publicado hasta que lo reemplace el de la medición siguiente.
         self._http_video.push_annotated(camera_slot, frame_bgr)
         self._rtsp_video.push_annotated(camera_slot, frame_bgr)
+
+    def _show_live_when_idle(self, frame_bgr: np.ndarray, camera_slot: str):
+        """
+        Con ningún resultado vigente en esa cámara, el anotado muestra el frame en vivo.
+
+        El anotado sólo se actualiza con un resultado, y eso es lo que sostiene la última
+        medición de un ciclo largo en pantalla hasta la siguiente. Pero una cámara cuyos
+        pipelines están todos cortados por su compuerta —o caídos— no da resultados, y el
+        último anotado quedaba congelado, overlay incluido, como si el proceso siguiera. Un
+        ciclo largo no cae acá: su resultado sigue vigente hasta el siguiente.
+
+        Antes olvida los pares que la compuerta corta, para que su overlay se vaya en este
+        frame y no al vencer. Corre en el hilo de la GUI, una vez por frame y cámara, y sólo
+        dibuja si alguien mira el anotado.
+        """
+        for pipeline_slot in self._gated_pipelines(camera_slot):
+            self._composer.forget(camera_slot, pipeline_slot)
+        if (self._composer.has_fresh(camera_slot, time.monotonic())
+                or not self._is_annotated_watched(camera_slot)):
+            return
+        self._show_annotated(self._for_display(frame_bgr), camera_slot)
+
+    def _gated_pipelines(self, camera_slot: str) -> set[str]:
+        """Pipelines cuya compuerta corta ahora los frames de esa cámara."""
+        with self._gates_lock:
+            return {pipeline for (camera, pipeline), is_open
+                    in self._gate_open_by_pair.items()
+                    if camera == camera_slot and not is_open}
 
     def _read_composer_intervals(self) -> dict[str, float]:
         """
@@ -1050,6 +1177,63 @@ class Application(QObject):
         return (self._http_video.has_annotated_clients(camera_slot)
                 or self._rtsp_video.has_annotated_clients(camera_slot))
 
+    def _is_gate_open(self, pipeline_slot: str, camera_slot: str,
+                      signals: FrameSignals) -> bool:
+        """
+        True si el frame de esa cámara puede llegar a ese pipeline. Sin compuerta, siempre.
+
+        Corre por frame —en el hilo de captura o en el de la GUI, según el camino—, así que
+        la compuerta tiene que ser barata: una consulta a `signals`, no I/O. Una que levanta
+        deja pasar el frame y avisa, como el preprocessor y el analyzer: un error de
+        configuración no para la línea.
+        """
+        gate = self._frame_gates.get(pipeline_slot)
+        if gate is None:
+            return True
+        try:
+            is_open = bool(gate(camera_slot, signals))
+        except Exception as e:
+            is_open = True
+            self._warn_gate_failed(pipeline_slot, camera_slot, e)
+        with self._gates_lock:
+            self._gate_open_by_pair[(camera_slot, pipeline_slot)] = is_open
+        return is_open
+
+    def _warn_gate_failed(self, pipeline_slot: str, camera_slot: str, error: Exception):
+        """Avisa como máximo una vez cada `_GATE_WARN_PERIOD_S` por pipeline."""
+        now_s = time.monotonic()
+        with self._gates_lock:
+            last_s = self._gate_warned_s.get(pipeline_slot)
+            if last_s is not None and now_s - last_s < _GATE_WARN_PERIOD_S:
+                return
+            self._gate_warned_s[pipeline_slot] = now_s
+        logger.warning(
+            f"[Main] La compuerta de {pipeline_slot} falló para {camera_slot}: {error}. "
+            f"Los frames pasan igual."
+        )
+
+    def _check_frame_gates(self):
+        """
+        Avisa al arrancar por las compuertas que no van a hacer lo que se espera.
+
+        Una con un slot que no es de ningún motor no corta nada, y en silencio parecería
+        andar. Una sobre un pipeline con ciclo traba a las demás cámaras: el scheduler las
+        atiende por turno y espera hasta `capture_timeout_s` a la que no manda frames, así
+        que las compuertas son para los pipelines de un resultado por frame.
+        """
+        engine_slots = {engine.pipeline_slot for engine in self._engines}
+        for pipeline_slot in self._frame_gates:
+            if pipeline_slot not in engine_slots:
+                logger.warning(
+                    f"[Main] Hay una compuerta para {pipeline_slot}, que no tiene hilo de "
+                    f"inferencia: no corta nada."
+                )
+            elif self._scheduler.is_cycled(pipeline_slot):
+                logger.warning(
+                    f"[Main] {pipeline_slot} mide de a varios frames y tiene compuerta: con "
+                    f"una cámara cortada, el ciclo espera hasta su timeout por cada ronda."
+                )
+
     # ── Timers ───────────────────────────────────────────────────────────────
 
     @Slot(object)
@@ -1062,6 +1246,7 @@ class Application(QObject):
     def _on_gpio_inputs_updated(self, states: dict):
         """Slot de `GpioPollingThread`: la última lectura de las entradas."""
         self._gpio_inputs = dict(states)
+        self._frame_signals = FrameSignals(gpio_inputs=MappingProxyType(dict(states)))
 
     def _on_registers_tick(self):
         """
@@ -1115,6 +1300,7 @@ class Application(QObject):
                 "power_w": metrics["power_w"],
             })
         values.update(self._build_camera_registers())
+        values.update(self._build_pipeline_registers())
         values.update(self._build_gpio_registers())
         # Con la política `degrade` las mediciones no se publican, pero el canal sigue
         # sirviendo: el latido, la salud del equipo y las palabras de estado salen igual.
@@ -1560,6 +1746,42 @@ class Application(QObject):
                 candidates[f"{camera_slot}_fps"] = status.get("fps_estimated", 0.0)
             values.update({name: value for name, value in candidates.items()
                            if name in _REGISTER_NAMES})
+        return values
+
+    def _build_pipeline_registers(self) -> dict:
+        """
+        Palabra de estado de cada pipeline del config, para los que tengan fila en el mapa.
+
+        Recorre `inference.pipelines` y no sólo los motores: el que no arrancó —sin licencia
+        o deshabilitado— es justo el que tiene que decir por qué. Va con la salud y no con
+        las mediciones, así que sale también con la licencia caída. El nombre lleva el slot
+        —`pipeline_1_state_bitfield`— y se filtra contra el mapa como los de cámara.
+        """
+        engine_by_slot = {engine.pipeline_slot: engine for engine in self._engines}
+        with self._gates_lock:
+            gate_open_by_pair = dict(self._gate_open_by_pair)
+        values = {}
+        for pipeline_slot in (self._config.get("inference.pipelines", {}) or {}):
+            name = f"{pipeline_slot}_state_bitfield"
+            if name not in _REGISTER_NAMES:
+                continue
+            engine = engine_by_slot.get(pipeline_slot)
+            status = engine.get_status() if engine is not None else {}
+            last_results = [is_valid for (_, pipeline), is_valid
+                            in self._last_valid_by_pair.items() if pipeline == pipeline_slot]
+            values[name] = pipeline_status.pack(
+                licensed=pipeline_slot not in self._unlicensed_pipelines,
+                # Se lee en caliente porque el motor también: con `enabled: false` deja de
+                # aceptar frames en el siguiente, sin reiniciar.
+                enabled=bool(self._config.get(
+                    f"inference.pipelines.{pipeline_slot}.enabled", True)),
+                loaded=bool(status.get("loaded", False)),
+                running=bool(status.get("running", False)),
+                synthetic=bool(status.get("synthetic", False)),
+                last_result_valid=all(last_results),
+                gated=any(not is_open for (_, pipeline), is_open
+                          in gate_open_by_pair.items() if pipeline == pipeline_slot),
+            )
         return values
 
     def _build_metric_registers(self) -> dict:

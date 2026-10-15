@@ -6,15 +6,17 @@ depender de subsistemas. Acá no se arma la aplicación ni se levanta un event l
 import asyncio
 import signal
 import threading
+import time
 
 import numpy as np
+import pytest
 
 import main
 from system.camera.lens_health import (
     CONDITION_KEYS, LensHealthMonitor, Measurement, Region,
 )
 from system import gpio_control
-from system.formats import gpio_status
+from system.formats import gpio_status, pipeline_status
 from system.inference import pipeline_factory
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.hooks import EngineHooks
@@ -257,11 +259,19 @@ class _FrameSink:
     """Motor o servidor de video: registra lo que le empujan."""
 
     def __init__(self, pipeline_slot: str = "", *, raw_clients: bool = False,
-                 cameras: tuple = ()):
+                 cameras: tuple = (), annotated_clients: bool = False):
         self.pipeline_slot = pipeline_slot
         self.raw_clients = raw_clients
+        self.annotated_clients = annotated_clients
         self._cameras = cameras
         self.pushed: list = []
+        self.annotated: list = []
+
+    def has_annotated_clients(self, camera_slot: str) -> bool:
+        return self.annotated_clients
+
+    def push_annotated(self, camera_slot, frame_bgr):
+        self.annotated.append((camera_slot, frame_bgr))
 
     def has_camera(self, camera_slot: str) -> bool:
         return not self._cameras or camera_slot in self._cameras
@@ -299,15 +309,23 @@ class _ContentSpy:
         self.shown.append(frame_bgr)
 
 
-def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, content=None):
+def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, content=None,
+                             gates=None, scheduler=None, annotated_clients=False):
     """`Application` sin `__init__` —sí con su QObject— y sólo lo que toca el camino del frame."""
     import types
     from PySide6.QtCore import QObject
     app = main.Application.__new__(main.Application)
     QObject.__init__(app)
     app._engines = list(engines)
-    app._scheduler = _CycleStub(*cycled)
-    app._http_video = _FrameSink(raw_clients=raw_clients)
+    app._scheduler = scheduler or _CycleStub(*cycled)
+    app._frame_gates = dict(gates or {})
+    app._frame_signals = main.FrameSignals()
+    app._gate_open_by_pair = {}
+    app._gate_warned_s = {}
+    app._gates_lock = threading.Lock()
+    app._composer = main.FrameComposer()
+    app._last_annotated = {}
+    app._http_video = _FrameSink(raw_clients=raw_clients, annotated_clients=annotated_clients)
     app._rtsp_video = _FrameSink()
     app._display_adjust = None
     app._last_raw_frame = {}
@@ -460,6 +478,25 @@ class TestEngines:
             "pipeline_2": {"type": "person", "feature": "safety"}}, "safety")
         assert [engine.pipeline_slot for engine in app._build_engines()] == ["pipeline_1"]
 
+    def test_an_unlicensed_pipeline_is_remembered_for_its_status_word(self, monkeypatch):
+        """Es la decisión del arranque: la palabra no le vuelve a preguntar a la licencia."""
+        app = _build_engine_application(monkeypatch, {
+            "pipeline_1": {"type": "grain"},
+            "pipeline_2": {"type": "person", "feature": "safety"},
+            "pipeline_3": {"enabled": False}}, "safety")
+        app._build_engines()
+        assert app._unlicensed_pipelines == {"pipeline_2"}
+
+    def test_each_result_records_whether_its_pair_was_valid(self):
+        import types
+        app = main.Application.__new__(main.Application)
+        app._camera_illumination = {}
+        app._last_valid_by_pair = {}
+        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._on_result_ready(InferenceResult(camera_slot="camera_1",
+                                             pipeline_slot="pipeline_2", is_valid=False))
+        assert app._last_valid_by_pair == {("camera_1", "pipeline_2"): False}
+
 
 def _build_metrics_application(monkeypatch):
     """`Application` sin `__init__`, con lo que guarda y publica las métricas."""
@@ -506,6 +543,128 @@ class TestMetricRegisters:
         assert "grain_pct" not in caplog.text
 
 
+class _StatusEngine:
+    """Motor visto desde la palabra de su pipeline: sólo su `get_status()`."""
+
+    def __init__(self, pipeline_slot: str, *, loaded: bool = True, running: bool = True,
+                 synthetic: bool = False):
+        self.pipeline_slot = pipeline_slot
+        self._status = {"loaded": loaded, "running": running, "synthetic": synthetic}
+
+    def get_status(self) -> dict:
+        return dict(self._status)
+
+
+_PIPELINE_WORDS = frozenset(f"pipeline_{i}_state_bitfield" for i in (1, 2, 3))
+
+
+def _build_pipeline_application(monkeypatch, pipelines: dict, *engines,
+                                unlicensed: tuple = ()):
+    """`Application` sin `__init__`, con lo que arma la palabra de cada pipeline."""
+    monkeypatch.setattr(main, "_REGISTER_NAMES", _PIPELINE_WORDS)
+    values = {"inference.pipelines": pipelines}
+    for pipeline_slot, section in pipelines.items():
+        values.update({f"inference.pipelines.{pipeline_slot}.{key}": value
+                       for key, value in section.items()})
+    app = main.Application.__new__(main.Application)
+    app._config = _MockConfig(**values)
+    app._engines = list(engines)
+    app._unlicensed_pipelines = set(unlicensed)
+    app._last_valid_by_pair = {}
+    app._gate_open_by_pair = {}
+    app._gates_lock = threading.Lock()
+    return app
+
+
+def _pipeline_word(app, pipeline_slot: str = "pipeline_1") -> int:
+    return app._build_pipeline_registers()[f"{pipeline_slot}_state_bitfield"]
+
+
+class TestPipelineWords:
+    """Una palabra por pipeline del config: el que no corre dice por qué."""
+
+    def test_a_healthy_pipeline_is_zero(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        assert _pipeline_word(app) == 0
+
+    def test_an_unlicensed_pipeline_says_so(self, monkeypatch):
+        """No tiene motor, así que además no carga ni corre: el bit 0 dice por qué."""
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          unlicensed=("pipeline_1",))
+        word = _pipeline_word(app)
+        assert word & (1 << pipeline_status.BIT_NOT_LICENSED)
+        assert word & (1 << pipeline_status.BIT_NOT_RUNNING)
+        assert not word & (1 << pipeline_status.BIT_DISABLED)
+
+    def test_a_disabled_pipeline_says_so(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {"enabled": False}})
+        word = _pipeline_word(app)
+        assert word & (1 << pipeline_status.BIT_DISABLED)
+        assert not word & (1 << pipeline_status.BIT_NOT_LICENSED)
+
+    def test_a_mock_pipeline_is_marked_synthetic(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1", synthetic=True))
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_SYNTHETIC
+
+    def test_an_invalid_last_result_on_any_camera_is_reported(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._last_valid_by_pair = {("camera_1", "pipeline_1"): True,
+                                   ("camera_2", "pipeline_1"): False,
+                                   ("camera_2", "pipeline_2"): True}
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_INVALID_RESULT
+
+    def test_another_pipeline_invalid_result_is_not_counted(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._last_valid_by_pair = {("camera_1", "pipeline_2"): False}
+        assert _pipeline_word(app) == 0
+
+    def test_every_declared_pipeline_gets_its_word(self, monkeypatch):
+        app = _build_pipeline_application(
+            monkeypatch, {"pipeline_1": {}, "pipeline_2": {"enabled": False}},
+            _StatusEngine("pipeline_1"))
+        assert set(app._build_pipeline_registers()) == {"pipeline_1_state_bitfield",
+                                                       "pipeline_2_state_bitfield"}
+
+    def test_without_a_row_in_the_map_nothing_is_published(self, monkeypatch):
+        """La instalación publica los pipelines para los que declara fila."""
+        app = _build_pipeline_application(monkeypatch, {"pipeline_9": {}},
+                                          _StatusEngine("pipeline_9"))
+        assert app._build_pipeline_registers() == {}
+
+    def test_the_words_go_out_while_the_license_is_not_valid(self, monkeypatch):
+        """Es salud, no medición: con la licencia caída tiene que seguir moviéndose."""
+        import types
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._config.is_using_fallback = False
+        app._heartbeat = 0
+        app._last_metrics = {}
+        app._capture_threads = {}
+        app._license = types.SimpleNamespace(should_report_invalid=lambda: True,
+                                             is_publishing_allowed=lambda: False)
+        app._get_service_statuses = lambda: {
+            service: "disabled" for service in (
+                main.service_status.SERVICE_VIDEO_RTSP,
+                main.service_status.SERVICE_VIDEO_HTTP,
+                main.service_status.SERVICE_INFLUXDB, main.service_status.SERVICE_MQTT,
+                main.service_status.SERVICE_MODBUS_TCP,
+                main.service_status.SERVICE_MODBUS_RTU)}
+        app._license_days_remaining = lambda: 0
+        app._build_clock_registers = lambda: {}
+        app._build_camera_registers = lambda: {}
+        app._build_gpio_registers = lambda: {}
+        published: dict = {}
+        app._mapped_only = lambda values: published.update(values) or {}
+        app._modbus = types.SimpleNamespace(update_block=lambda registers: None)
+        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
+        app._on_registers_tick()
+        assert published["pipeline_1_state_bitfield"] == 0
+
+
 class _PainterEngine:
     """Motor de un pipeline visto desde el combinado: dibuja su marca en una esquina."""
 
@@ -536,6 +695,8 @@ def _build_display_application(*engines, collector_active: bool = False):
     app = main.Application.__new__(main.Application)
     app._engines = list(engines)
     app._composer = main.FrameComposer()
+    app._gate_open_by_pair = {}
+    app._gates_lock = threading.Lock()
     app._annotate_cycle = lambda result: result.annotated_bgr
     content = _ContentSpy()
     content.mode = main.MODE_ANNOTATED
@@ -599,6 +760,187 @@ class TestMergedAnnotated:
         app._on_cycle_complete(person)
         assert app.sent[0] is grain.annotated_bgr and app.sent[1] is person.annotated_bgr
         assert tuple(person.annotated_bgr[0, 0]) == (0, 0, 0)
+
+
+class _CountingCycle(_CycleStub):
+    """Scheduler que registra cada permiso pedido: pedirlo lo consume."""
+
+    def __init__(self, *cycled: str):
+        super().__init__(*cycled)
+        self.taken: list = []
+
+    def take_frame(self, camera_slot: str, pipeline_slot: str) -> bool:
+        self.taken.append((camera_slot, pipeline_slot))
+        return True
+
+
+def _closed_on(*camera_slots: str):
+    """Compuerta que corta las cámaras nombradas y deja pasar el resto."""
+    def gate(camera_slot, signals):
+        return camera_slot not in camera_slots
+    return gate
+
+
+class TestFrameGates:
+    """Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése."""
+
+    def test_the_template_declares_no_gates(self):
+        app = main.Application.__new__(main.Application)
+        assert app._build_frame_gates() == {}
+
+    def test_a_closed_gate_stops_that_camera_for_that_pipeline_only(self):
+        grain = _FrameSink("pipeline_1")
+        person = _FrameSink("pipeline_2")
+        app = _build_frame_application(engines=[grain, person],
+                                       gates={"pipeline_1": _closed_on("camera_1")})
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_2")
+        assert [camera_slot for _, camera_slot, _ in grain.pushed] == ["camera_2"]
+        assert [camera_slot for _, camera_slot, _ in person.pushed] == ["camera_1", "camera_2"]
+
+    def test_the_gate_receives_the_camera_and_the_current_inputs(self):
+        seen = []
+        app = _build_frame_application(
+            engines=[_FrameSink("pipeline_1")],
+            gates={"pipeline_1": lambda camera_slot, signals: seen.append(
+                (camera_slot, dict(signals.gpio_inputs))) or True})
+        app._on_gpio_inputs_updated({1: 1, 2: 0})
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert seen == [("camera_1", {1: 1, 2: 0})]
+
+    def test_new_inputs_replace_the_snapshot_instead_of_changing_it(self):
+        """Lo leen los hilos de captura sin lock: modificarlo en el lugar los dejaría a medias."""
+        app = _build_frame_application()
+        app._gpio_inputs = {}
+        app._on_gpio_inputs_updated({1: 1})
+        before = app._frame_signals
+        app._on_gpio_inputs_updated({1: 0})
+        assert dict(before.gpio_inputs) == {1: 1}
+        assert dict(app._frame_signals.gpio_inputs) == {1: 0}
+
+    def test_the_snapshot_cannot_be_modified(self):
+        signals = main.FrameSignals(gpio_inputs=main.MappingProxyType({1: 1}))
+        with pytest.raises(TypeError):
+            signals.gpio_inputs[1] = 0
+
+    def test_a_gated_cycled_pipeline_takes_no_permit(self):
+        """Pedir el permiso lo consume: por un frame cortado, el ciclo esperaría en vano."""
+        engine = _FrameSink("pipeline_1")
+        scheduler = _CountingCycle("pipeline_1")
+        app = _build_frame_application(engines=[engine], scheduler=scheduler,
+                                       gates={"pipeline_1": _closed_on("camera_1")})
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert scheduler.taken == [] and engine.pushed == []
+
+    def test_an_open_gate_on_a_cycled_pipeline_takes_the_permit(self):
+        engine = _FrameSink("pipeline_1")
+        scheduler = _CountingCycle("pipeline_1")
+        app = _build_frame_application(engines=[engine], scheduler=scheduler,
+                                       gates={"pipeline_1": _closed_on("camera_9")})
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert scheduler.taken == [("camera_1", "pipeline_1")]
+
+    def test_a_failing_gate_lets_frames_through_and_warns_once(self, caplog):
+        """Un error de configuración no para la línea."""
+        def broken(camera_slot, signals):
+            raise KeyError("tilt_input")
+
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], gates={"pipeline_1": broken})
+        with caplog.at_level("WARNING"):
+            for _ in range(3):
+                app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert len(engine.pushed) == 3
+        assert len([r for r in caplog.records if "compuerta" in r.getMessage()]) == 1
+
+    def test_the_last_decision_feeds_the_pipeline_word(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._frame_gates = {"pipeline_1": _closed_on("camera_1")}
+        app._gate_warned_s = {}
+        app._is_gate_open("pipeline_1", "camera_1", main.FrameSignals())
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_GATED
+        app._is_gate_open("pipeline_1", "camera_2", main.FrameSignals())
+        assert _pipeline_word(app) == 1 << pipeline_status.BIT_GATED, "una cámara alcanza"
+
+    def test_a_reopened_gate_clears_the_bit(self, monkeypatch):
+        app = _build_pipeline_application(monkeypatch, {"pipeline_1": {}},
+                                          _StatusEngine("pipeline_1"))
+        app._gate_warned_s = {}
+        app._frame_gates = {"pipeline_1": _closed_on("camera_1")}
+        app._is_gate_open("pipeline_1", "camera_1", main.FrameSignals())
+        app._frame_gates = {"pipeline_1": _closed_on()}
+        app._is_gate_open("pipeline_1", "camera_1", main.FrameSignals())
+        assert _pipeline_word(app) == 0
+
+    def test_a_gate_on_a_cycled_pipeline_is_warned_at_startup(self, caplog):
+        app = _build_frame_application(engines=[_FrameSink("pipeline_1")],
+                                       cycled=["pipeline_1"],
+                                       gates={"pipeline_1": _closed_on()})
+        with caplog.at_level("WARNING"):
+            app._check_frame_gates()
+        assert "pipeline_1" in caplog.text and "ciclo" in caplog.text
+
+    def test_a_gate_for_a_pipeline_without_thread_is_warned_at_startup(self, caplog):
+        """Un slot mal escrito no cortaría nada, y parecería andar."""
+        app = _build_frame_application(engines=[_FrameSink("pipeline_1")],
+                                       gates={"pipeline_7": _closed_on()})
+        with caplog.at_level("WARNING"):
+            app._check_frame_gates()
+        assert "pipeline_7" in caplog.text
+
+
+class TestGatedOverlay:
+    """El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo."""
+
+    def _with_grain_result(self, **kwargs):
+        """Aplicación con un resultado de grano vigente en `camera_1`."""
+        app = _build_frame_application(engines=[_FrameSink("pipeline_1")], **kwargs)
+        app._composer.add(InferenceResult(camera_slot="camera_1", pipeline_slot="pipeline_1"),
+                          time.monotonic())
+        return app
+
+    def test_closing_the_gate_drops_the_overlay_on_the_next_frame(self):
+        app = self._with_grain_result(gates={"pipeline_1": _closed_on("camera_1")})
+        frame = np.zeros((4, 4, 3), np.uint8)
+        app._on_frame_captured(frame, "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert app._composer.has_fresh("camera_1", time.monotonic()) is False
+
+    def test_a_camera_with_nothing_fresh_shows_the_live_frame(self):
+        """Si no, el último anotado —overlay incluido— quedaba congelado."""
+        app = self._with_grain_result(gates={"pipeline_1": _closed_on("camera_1")},
+                                      annotated_clients=True)
+        frame = np.full((4, 4, 3), 7, np.uint8)
+        app._on_frame_captured(frame, "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert app._http_video.annotated == [("camera_1", frame)]
+        assert app._last_annotated["camera_1"] is frame
+
+    def test_nobody_watching_means_nothing_is_pushed(self):
+        app = _build_frame_application()
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert app._http_video.annotated == []
+
+    def test_a_fresh_result_keeps_the_annotated_frame(self):
+        """Un ciclo largo sigue vigente hasta el siguiente: su medición queda en pantalla."""
+        app = self._with_grain_result(annotated_clients=True)
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert app._http_video.annotated == []
+
+    def test_a_result_that_arrives_after_the_gate_closed_is_not_shown(self):
+        """Salió de un frame anterior al corte: el proceso ya terminó."""
+        app = _build_display_application(_PainterEngine("pipeline_1", 50),
+                                         collector_active=True)
+        app._gate_open_by_pair[("camera_1", "pipeline_1")] = False
+        result = _annotated_result("pipeline_1", 10.0)
+        app._on_cycle_complete(result)
+        assert app._http_video.pushed == []
+        assert app.sent == [result.annotated_bgr], "al dataset va igual"
 
 
 class TestDatasetGating:
