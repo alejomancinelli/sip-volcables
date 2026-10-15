@@ -78,8 +78,11 @@ Los valores son de ejemplo; los nombres y los tipos son los reales.
   "cpu_usage_pct": 34.2, "gpu_usage_pct": 61.0,
   "cpu_temp_c": 52.0, "gpu_temp_c": 58.0,
   "ram_used_mb": 3820.0, "ram_total_mb": 16384.0,
-  "disk_free_gb": 214.7, "power_w": 18.4,
+  "disk_free_gb": 214.7, "power_w": 18.4, "overcurrent_count": 0,
   "net_eth0_rx_mbps": 12.6, "net_eth0_tx_mbps": 0.9,
+  "engine_vic_active": 1, "engine_vic_mhz": 448,
+  "engine_nvdec_active": 1, "engine_nvdec_mhz": 716,
+  "engine_nvenc_active": 0, "engine_nvenc_mhz": 0,
   "time": 1757340012.412
 }
 ```

@@ -177,12 +177,13 @@ _MEASUREMENT_CAMERA = "camera"
 _MEASUREMENT_SERVICES = "services"
 _MEASUREMENT_INFERENCE = "inference"
 
-# Métricas de hardware que van directo a fields. `net_mbps` y `temps_c` no están porque
-# son dicts anidados y un field de Influx es escalar: la red se aplana y las zonas
-# térmicas no se publican. Filtrar por tipo, en cambio, perdería la red sin avisar.
+# Métricas de hardware que van directo a fields. `net_mbps`, `engines` y `temps_c` no
+# están porque son dicts anidados y un field de Influx es escalar: la red y los motores se
+# aplanan y las zonas térmicas no se publican. Filtrar por tipo, en cambio, perdería la red
+# sin avisar.
 _SYSTEM_METRIC_KEYS = (
     "cpu_usage_pct", "gpu_usage_pct", "cpu_temp_c", "gpu_temp_c",
-    "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w",
+    "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w", "overcurrent_count",
 )
 
 _LOG_FILENAME = "app.log"
@@ -2021,6 +2022,10 @@ def _build_system_fields(metrics: dict) -> dict:
     los valores no escalares —que es lo obvio— dejaría el tráfico de red afuera sin que
     nadie se enterara.
 
+    `engines` llega como `{motor: {is_active, mhz}}` y se abre igual: `engine_vic_active`
+    como 0/1 y no como booleano, porque su media en una ventana es la fracción del tiempo
+    que el motor estuvo en uso, y `engine_vic_mhz`.
+
     `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
     `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard
     que tenga que andar en los dos.
@@ -2030,6 +2035,9 @@ def _build_system_fields(metrics: dict) -> dict:
         safe_iface = str(iface).replace(" ", "_")
         fields[f"net_{safe_iface}_rx_mbps"] = float(throughput.get("rx_mbps", 0.0))
         fields[f"net_{safe_iface}_tx_mbps"] = float(throughput.get("tx_mbps", 0.0))
+    for engine, state in (metrics.get("engines") or {}).items():
+        fields[f"engine_{engine}_active"] = int(bool(state.get("is_active", False)))
+        fields[f"engine_{engine}_mhz"] = int(state.get("mhz", 0))
     return fields
 
 

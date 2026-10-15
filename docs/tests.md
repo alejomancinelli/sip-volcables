@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 388 grupos, 1916 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 390 grupos, 1930 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 293 |
+| [test/](#test) | 6 | 303 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -28,7 +28,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/camera/](#testtoolscamera) | 5 | 119 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
-| [test/tools/jetson/](#testtoolsjetson) | 3 | 58 |
+| [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
 | [test/video/](#testvideo) | 3 | 182 |
 
@@ -189,7 +189,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 90 tests
+### [test_main.py](../test/test_main.py) — 95 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -200,6 +200,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
+| `TestSystemFields` |  | 5 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
@@ -238,6 +239,12 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_map_the_server_refuses_to_serve`
   - `test_with_the_map_loaded_nothing_blocks_it`
   - `test_it_passes_the_error_that_registers_reports`
+- `TestSystemFields`
+  - `test_each_engine_opens_into_two_scalar_fields`
+  - `test_active_is_an_integer_so_its_mean_is_a_fraction_of_time`
+  - `test_the_overcurrent_count_is_published`
+  - `test_no_field_is_a_dict`
+  - `test_outside_a_jetson_there_are_no_engine_fields`
 - `TestInferenceFields`
   - `test_the_cycle_dispersion_travels_untouched`
   - `test_nothing_gets_a_second_round_of_suffixes`
@@ -363,7 +370,7 @@ Tests de las dos raíces.
 
 </details>
 
-### [test_system_monitor.py](../test/test_system_monitor.py) — 106 tests
+### [test_system_monitor.py](../test/test_system_monitor.py) — 111 tests
 
 Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows, cálculo del throughput de red y estabilidad del contrato de `get_metrics`.
 
@@ -384,6 +391,7 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 | `TestDisk` |  | 5 |
 | `TestNetThroughput` |  | 11 |
 | `TestGetMetrics` |  | 13 |
+| `TestJetsonEngines` |  | 5 |
 
 <details><summary>Tests</summary>
 
@@ -508,6 +516,12 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
   - `test_a_source_that_keeps_failing_warns_once`
   - `test_the_disk_path_is_read_at_each_call`
   - `test_concurrent_calls_do_not_corrupt_the_state`
+- `TestJetsonEngines`
+  - `test_each_engine_reports_whether_it_is_active_and_its_clock`
+  - `test_the_state_is_read_again_on_every_call`
+  - `test_overcurrent_counters_are_summed`
+  - `test_windows_has_no_engines_and_no_overcurrent`
+  - `test_a_failing_engine_source_does_not_drag_the_rest`
 
 </details>
 
@@ -3035,7 +3049,7 @@ Tests de la corrección de lente: qué cámara se corrige, qué pasa con una cal
 
 ## test/tools/jetson/
 
-### [test_board.py](../test/tools/jetson/test_board.py) — 23 tests
+### [test_board.py](../test/tools/jetson/test_board.py) — 27 tests
 
 Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, relojes y contadores de sobrecorriente.
 
@@ -3045,7 +3059,7 @@ Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, rel
 | `TestPowerMode` | 5 |
 | `TestClocks` | 6 |
 | `TestDevfreq` | 1 |
-| `TestEngineDevices` | 4 |
+| `TestEngineDevices` | 8 |
 | `TestOvercurrent` | 3 |
 
 <details><summary>Tests</summary>
@@ -3074,6 +3088,10 @@ Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, rel
   - `test_only_engine_devices_are_found_at_any_depth`
   - `test_a_node_whose_name_merely_contains_an_engine_is_not_one`
   - `test_states_are_read_from_the_found_paths`
+  - `test_engines_are_named_without_their_address`
+  - `test_a_second_instance_gets_a_number_as_in_tegrastats`
+  - `test_a_suspended_engine_reports_no_frequency`
+  - `test_an_active_engine_without_devfreq_is_active_at_zero`
   - `test_a_node_that_vanished_is_left_out`
 - `TestOvercurrent`
   - `test_each_counter_is_named_after_its_hwmon`

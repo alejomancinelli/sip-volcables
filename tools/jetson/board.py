@@ -195,6 +195,36 @@ def read_runtime_states(devices: dict[str, str]) -> dict[str, str]:
     return states
 
 
+def read_engines(devices: dict[str, str]) -> dict:
+    """
+    Estado de cada motor, sin root: `{motor: {"is_active": bool, "mhz": int}}`.
+
+    `devices` sale de `find_engine_devices()`. El nombre es el del motor sin su dirección
+    ('vic', 'nvenc'), así que no cambia entre módulos Orin; dos instancias del mismo llevan
+    número desde la segunda, en el orden de sus direcciones, como en `tegrastats`
+    ('nvjpg', 'nvjpg1').
+
+    - `is_active` dice que se usó hace poco, no que trabaja ahora: el kernel demora unos
+      segundos en suspenderlo después del último trabajo.
+    - `mhz` es la frecuencia de devfreq mientras está activo, y 0 si no: NVJPG y OFA
+      informan su máximo aun suspendidos.
+    """
+    states = read_runtime_states(devices)
+    clocks = read_devfreq()
+    engines = {}
+    for device in sorted(devices):
+        if device not in states:
+            continue
+        base_name = device.split(".", 1)[1]
+        name, index = base_name, 1
+        while name in engines:
+            name, index = f"{base_name}{index}", index + 1
+        is_active = states[device] == "active"
+        mhz = clocks.get(device, {}).get("cur_mhz", 0) if is_active else 0
+        engines[name] = {"is_active": is_active, "mhz": mhz}
+    return engines
+
+
 def read_overcurrent_counts() -> dict:
     """
     Contadores de eventos de sobrecorriente desde el arranque, `{"<hwmon>/ocN": int}`.

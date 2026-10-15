@@ -166,6 +166,33 @@ class TestEngineDevices:
         jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "active\n")
         assert board.read_runtime_states(devices) == {"15340000.vic": "active"}
 
+    def test_engines_are_named_without_their_address(self, jetson):
+        jetson.write("platform/bus@0/15340000.vic/power/runtime_status", "active\n")
+        jetson.write("devfreq/15340000.vic/cur_freq", "512000000\n")
+        jetson.write("devfreq/15340000.vic/min_freq", "115200000\n")
+        jetson.write("devfreq/15340000.vic/max_freq", "729600000\n")
+        engines = board.read_engines(board.find_engine_devices())
+        assert engines == {"vic": {"is_active": True, "mhz": 512}}
+
+    def test_a_second_instance_gets_a_number_as_in_tegrastats(self, jetson):
+        jetson.write("platform/bus@0/15540000.nvjpg/power/runtime_status", "suspended\n")
+        jetson.write("platform/bus@0/15380000.nvjpg/power/runtime_status", "suspended\n")
+        assert set(board.read_engines(board.find_engine_devices())) == {"nvjpg", "nvjpg1"}
+
+    def test_a_suspended_engine_reports_no_frequency(self, jetson):
+        """NVJPG informa su máximo en devfreq aun suspendido: eso no es estar trabajando."""
+        jetson.write("platform/bus@0/15380000.nvjpg/power/runtime_status", "suspended\n")
+        jetson.write("devfreq/15380000.nvjpg/cur_freq", "729600000\n")
+        jetson.write("devfreq/15380000.nvjpg/min_freq", "115200000\n")
+        jetson.write("devfreq/15380000.nvjpg/max_freq", "729600000\n")
+        engines = board.read_engines(board.find_engine_devices())
+        assert engines == {"nvjpg": {"is_active": False, "mhz": 0}}
+
+    def test_an_active_engine_without_devfreq_is_active_at_zero(self, jetson):
+        jetson.write("platform/bus@0/15880000.nvdla0/power/runtime_status", "active\n")
+        engines = board.read_engines(board.find_engine_devices())
+        assert engines == {"nvdla0": {"is_active": True, "mhz": 0}}
+
     def test_a_node_that_vanished_is_left_out(self, jetson):
         assert board.read_runtime_states({"15340000.vic": str(jetson.root / "gone")}) == {}
 
