@@ -1,7 +1,7 @@
 # Plan: using the Jetson's fixed-function accelerators (template)
 
-**Status: Phase 0 implemented and run once on the Jetson (results in §4). A second run
-decides where the app reads engine load without root.** The work is on
+**Status: Phase 0 run twice on the Jetson (results in §4). Engine telemetry will read sysfs,
+without root. What's left of Phase 0 is wiring it into `get_metrics()`.** The work is on
 `machinery/jetson-accelerators` in `sip-volcables`, branched from `fork/mock-pipelines` so
 the Jetson clone can also run the mock pipelines on recorded video. It's machinery: these
 commits go back to `cv_projects_template` as their own PR.
@@ -216,6 +216,43 @@ probe: an engine that `tegrastats` doesn't report was being read as off. The pro
 says "no publicado" (not reported). The NVENC/NVDEC lines in its stderr show the engines
 did run.
 
+#### Second run (2026-10-15, same board, clocks pinned with `jetson_clocks`)
+
+The bench now charges the engine variants for the BGR→BGRx conversion.
+
+| Stage | CPU path | Engine path | Reading |
+|---|---|---|---|
+| RTSP H.264 | `h264_sw` 37.3 · current `h264_hw` 22.7 | Phase 1 12.3 | **Phase 1 confirmed**: about half of today's `h264_hw` |
+| Decode + resize to 640×360 | 20.2 | NVDEC + VIC 5.6 | **Phase 3 confirmed** |
+| Decode at full size | 11.7 | NVDEC 9.9 | Small gain |
+| MJPEG 960×540 | 10.8 | NVJPG 11.4 | **No gain** once the conversion is charged |
+| Resize / letterbox from numpy | 5.8 / 9.8 | VIC 12.1 / 17.0 | VIC loses, as in the first run |
+| Undistort remap | 106.4 | — | |
+
+**The rule both runs show: an engine pays when the frame is already in its memory.**
+- A frame out of NVDEC is in NVMM, so the VIC resize there is nearly free. That's what
+  Volcables measured with RTSP cameras, and what `nvdec + vic resize` shows here.
+- A frame that's a numpy array (a GigE camera's, or anything the app has already touched)
+  has to be copied up and back. Those copies cost more than the VIC or NVJPG save.
+- That's why NVJPG for MJPEG and the dataset is dropped (Phase 2), along with the VIC for
+  display resize and letterbox. NVJPG would come back only fed from NVDEC directly, which
+  the MJPEG server doesn't do: it encodes the annotated frame, which is a numpy array.
+
+**Engine telemetry has a source without root: sysfs.** Run as a normal user, each engine's
+pipeline turned its runtime-PM node `active` and raised its devfreq clock. Root
+`tegrastats` confirmed every one of them really ran (e.g. `nvenc 81%`, `nvdec 79%`,
+`vic 38%`). So step 2 reads sysfs, with no sudoers rule. What it can and can't say:
+- **`active` means "used in the last few seconds"**, not "busy now". The kernel delays
+  autosuspend, so VIC still showed `active` in the variant after the one that used it.
+  At one reading per telemetry tick, that's the right granularity.
+- **Frequency only means something while `active`.** NVJPG and OFA report their maximum
+  clock while suspended. Publish the MHz only when the engine is active, and 0 otherwise.
+- **No load %.** That stays root-only. A future option, if it's ever needed: a sudoers
+  rule pinned to the exact `tegrastats` command.
+- The node names (`15340000.vic`, `154c0000.nvenc`, ...) are the Orin's register
+  addresses. Telemetry should publish them under the engine name (`vic`, `nvenc`,
+  `nvjpg`, `nvjpg1`...), so a dashboard doesn't change with the module.
+
 ### Phase 1: fix the RTSP path that already uses NVENC (small, low risk)
 
 The `_hw` pipelines in `rtsp_server.py` still do two CPU steps before the hardware:
@@ -240,7 +277,11 @@ conversion). `nvvidconv` can't take packed 3-channel BGR, but it does take `BGRx
   `Gst.Buffer.new_wrapped_full` over the numpy buffer, while keeping the array alive for
   the buffer's lifetime.
 
-### Phase 2: NVJPG for MJPEG and the dataset
+### Phase 2: NVJPG for MJPEG and the dataset (dropped)
+
+**Dropped after the second run.** From a numpy frame, NVJPG costs as much CPU as
+`cv2.imencode`, once the BGR→BGRx conversion and the copies are counted. The design below
+stays for reference, in case a path ever feeds it a frame that's already in NVMM.
 
 - **`tools/image/jpeg.py`**: `encode_jpeg(frame, quality) -> bytes | None`, with a CPU
   backend (`cv2.imencode`) and a Jetson backend. The Jetson backend is a long-lived
@@ -415,8 +456,9 @@ are already in JetPack and cover the four engines.
 
 For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand:
 
-1. **Finish Phase 0.** Do the second run: root and non-root, clocks pinned, a real
-   recording. Then do step 2 with the source it settles (sysfs or a pinned sudoers rule).
+1. **Finish Phase 0: step 2.** Engine `active` + MHz from sysfs into `get_metrics()` and
+   the `system` series. It needs approval to extend the key list that
+   `test_system_monitor.py` pins.
 2. **Phase 1.** Hours of work on code that already exists, and the largest measured win.
 3. **Phase 3 (NVDEC + VIC resize at decode)** for RTSP cameras and `video_file`. This was
    proven twice, and Volcables' cameras are RTSP.
@@ -426,8 +468,7 @@ For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand
    - Without the resize, it isn't worth doing.
 4. **Rectangular engines** (§6) in the YOLO wrapper and its export notes. This is a
    fork/export decision, not engine code, but it was the largest model-side gain.
-5. **Phase 2 (NVJPG)**, if the re-measure with the BGR→BGRx conversion included still
-   shows a gain.
+5. ~~Phase 2 (NVJPG)~~. Dropped: no gain from a numpy frame (second run).
 6. **Undistort on VPI/CUDA**, only for a fork that enables undistort. The rest of
    Phase 4's VIC paths are dropped.
 
