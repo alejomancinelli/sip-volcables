@@ -694,7 +694,7 @@ La tabla completa, archivo por archivo, está en `README.md`.
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
-- **Que el PLC escriba está diseñado y sin código**: en 40101-40200, sólo para disparar una
+- **Que el PLC escriba está diseñado y sin código**: en 40101-40150, sólo para disparar una
   medición, cambiar un umbral del proceso —que queda en el config y en la pantalla— y mandar
   variables que leen las compuertas de frames. No prende ni apaga nada. Cambia la decisión de
   servir el mapa de sólo lectura; el diseño está en `.claude/plans/plc-commands.md`.
