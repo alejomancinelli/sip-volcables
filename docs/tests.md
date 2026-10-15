@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**66 archivos, 360 grupos, 1775 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**66 archivos, 361 grupos, 1778 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 258 |
+| [test/](#test) | 6 | 261 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -188,7 +188,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 55 tests
+### [test_main.py](../test/test_main.py) — 58 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -202,6 +202,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 4 |
+| `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
@@ -251,6 +252,10 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_two_slots_of_the_same_type_get_their_own_engine`
   - `test_a_disabled_pipeline_gets_no_engine`
   - `test_an_unlicensed_feature_gets_no_engine`
+- `TestMetricRegisters`
+  - `test_two_pipelines_on_one_camera_keep_their_own_metrics`
+  - `test_two_pairs_publishing_the_same_metric_are_warned_once`
+  - `test_one_pair_per_metric_is_not_warned`
 - `TestDatasetGating`
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`

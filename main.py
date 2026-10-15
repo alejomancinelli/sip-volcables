@@ -478,20 +478,23 @@ class Application(QObject):
         self._last_metrics: dict = {}
         self._camera_status: dict[str, dict] = {}
         self._camera_illumination: dict[str, int] = {}
-        self._metrics_by_camera: dict[str, dict] = {}
+        # Últimas métricas válidas de cada par (cámara, pipeline), para los registros. Por
+        # par y no por cámara: dos pipelines sobre una cámara se pisarían el dict entero.
+        self._metrics_by_pair: dict[tuple[str, str], dict] = {}
         # Resultados de cada par (cámara, pipeline) desde la última muestra. La clave es el
         # par y no la cámara: una cámara puede entrar a dos pipelines —dos modelos mirando
         # lo mismo con distinto propósito— y con la cámara sola los dos se mezclarían en un
         # promedio que no significa nada. Se toca sólo desde el hilo de la GUI —el slot del
         # resultado llega en cola y el tick es un QTimer—, así que no necesita lock.
+        self._pending_results: dict[tuple[str, str], list] = {}
         # Último frame anotado de cada cámara. Se guarda para poder volver a mostrarlo
         # cuando el operador pasa a crudo y vuelve: el siguiente sale recién con la
         # medición siguiente, que puede estar a varios minutos.
         self._last_annotated: dict[str, np.ndarray] = {}
         # Ajuste de visualización: se arma una vez y se rehace al guardar el config.
         self._display_adjust = self._read_display_adjust()
-        self._pending_results: dict[tuple[str, str], list] = {}
         self._unmapped_metrics: set = set()
+        self._colliding_metrics: set = set()
         self._last_service_statuses: dict[str, str] = {}
 
         # ── Interfaz ─────────────────────────────────────────────────────────
@@ -1512,18 +1515,29 @@ class Application(QObject):
         dataset, nunca tuvieron fila, y con diez métricas son treinta líneas de log que
         tapan justamente el aviso del nombre mal escrito.
 
-        **Ojo con varias cámaras publicando la misma métrica**: hay un registro por
-        nombre, así que la última cámara del recorrido gana y el PLC ve un valor que
-        cambia de origen sin avisar. Un proyecto que mide lo mismo en dos cintas prefija
-        el nombre con el slot —`camera_1_coverage_pct`— y declara una fila por cámara,
-        igual que hacen los registros de estado.
+        **Ojo con varios pares (cámara, pipeline) publicando la misma métrica**: hay un
+        registro por nombre, así que el último par del recorrido gana y el PLC ve un valor
+        que cambia de origen sin avisar. Se avisa una vez por nombre, con los dos pares. Un
+        proyecto que mide lo mismo en dos cintas prefija el nombre con el slot
+        —`camera_1_coverage_pct`— y declara una fila por cámara, igual que hacen los
+        registros de estado.
         """
         values = {}
-        for camera_slot, metrics in self._metrics_by_camera.items():
+        source_by_name: dict[str, tuple[str, str]] = {}
+        for pair, metrics in self._metrics_by_pair.items():
+            camera_slot, pipeline_slot = pair
             for name, value in metrics.items():
                 if name in _HEALTH_REGISTER_NAMES:
                     continue
                 if name in _REGISTER_NAMES:
+                    previous = source_by_name.setdefault(name, pair)
+                    if previous != pair and name not in self._colliding_metrics:
+                        self._colliding_metrics.add(name)
+                        logger.warning(
+                            f"[Main] La métrica '{name}' la publican {previous[0]}/"
+                            f"{previous[1]} y {camera_slot}/{pipeline_slot}: comparten "
+                            f"registro y el PLC ve el último. Prefijar el nombre con el slot."
+                        )
                     values[name] = value
                 elif analysis.is_summary_key(name):
                     # La dispersión de un ciclo es para la telemetría y el dataset, no
@@ -1533,8 +1547,8 @@ class Application(QObject):
                 elif name not in self._unmapped_metrics:
                     self._unmapped_metrics.add(name)
                     logger.info(
-                        f"[Main] La métrica '{name}' de {camera_slot} no tiene fila en "
-                        f"register_map.yaml: no se publica al PLC."
+                        f"[Main] La métrica '{name}' de {camera_slot}/{pipeline_slot} no "
+                        f"tiene fila en register_map.yaml: no se publica al PLC."
                     )
         return values
 
@@ -1611,9 +1625,10 @@ class Application(QObject):
             content.update_status(status, camera_slot)
 
     def _store_metrics(self, result: InferenceResult):
-        """Guarda las métricas del último resultado de cada cámara, para los registros."""
+        """Guarda las métricas del último resultado válido de cada par, para los registros."""
         if result.is_valid and result.metrics:
-            self._metrics_by_camera[result.camera_slot] = dict(result.metrics)
+            self._metrics_by_pair[(result.camera_slot, result.pipeline_slot)] = \
+                dict(result.metrics)
 
     def _start_timer(self, interval_ms: int, slot) -> QTimer:
         timer = QTimer(self)

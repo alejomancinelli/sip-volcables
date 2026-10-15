@@ -550,7 +550,9 @@ Lo que no se deduce leyendo un archivo suelto:
   cableado publica los registros de salud y, del dict del analyzer, las claves que existen
   como registro; una que no existe no se publica y se avisa una vez. Así el nombre de la
   métrica es el contrato con el integrador y no hay una tabla de traducción que mantener.
-  Dos cámaras que publican la misma métrica se pisan: ahí el nombre lleva el slot adelante.
+  Las métricas se guardan por par (cámara, pipeline), y dos pares que publican la misma se
+  pisan en el registro —se avisa una vez, con los dos pares—: ahí el nombre lleva el slot
+  adelante.
 - **El latido no espera al hardware.** La primera lectura del monitor de sistema bloquea
   unos segundos, así que el ciclo de registros publica el heartbeat y las palabras de
   estado desde el primer tick y agrega las métricas de hardware cuando llegan: un PLC que

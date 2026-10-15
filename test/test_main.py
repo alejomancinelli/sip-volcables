@@ -461,6 +461,51 @@ class TestEngines:
         assert [engine.pipeline_slot for engine in app._build_engines()] == ["pipeline_1"]
 
 
+def _build_metrics_application(monkeypatch):
+    """`Application` sin `__init__`, con lo que guarda y publica las métricas."""
+    monkeypatch.setattr(main, "_REGISTER_NAMES", frozenset({"grain_pct", "person_count"}))
+    app = main.Application.__new__(main.Application)
+    app._metrics_by_pair = {}
+    app._unmapped_metrics = set()
+    app._colliding_metrics = set()
+    return app
+
+
+class TestMetricRegisters:
+    """Las métricas se guardan por par (cámara, pipeline), no por cámara."""
+
+    def test_two_pipelines_on_one_camera_keep_their_own_metrics(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        app._store_metrics(InferenceResult(camera_slot="camera_1", pipeline_slot="pipeline_1",
+                                           metrics={"grain_pct": 40.0}))
+        app._store_metrics(InferenceResult(camera_slot="camera_1", pipeline_slot="pipeline_2",
+                                           metrics={"person_count": 1}))
+        assert app._build_metric_registers() == {"grain_pct": 40.0, "person_count": 1}
+
+    def test_two_pairs_publishing_the_same_metric_are_warned_once(self, monkeypatch, caplog):
+        """Comparten registro y el PLC ve el último: el log nombra los dos pares."""
+        app = _build_metrics_application(monkeypatch)
+        for pipeline_slot in ("pipeline_1", "pipeline_2"):
+            app._store_metrics(InferenceResult(camera_slot="camera_1",
+                                               pipeline_slot=pipeline_slot,
+                                               metrics={"grain_pct": 40.0}))
+        with caplog.at_level("WARNING"):
+            app._build_metric_registers()
+            app._build_metric_registers()
+        warnings = [record.getMessage() for record in caplog.records
+                    if "grain_pct" in record.getMessage()]
+        assert len(warnings) == 1
+        assert "camera_1/pipeline_1" in warnings[0] and "camera_1/pipeline_2" in warnings[0]
+
+    def test_one_pair_per_metric_is_not_warned(self, monkeypatch, caplog):
+        app = _build_metrics_application(monkeypatch)
+        app._store_metrics(InferenceResult(camera_slot="camera_1", pipeline_slot="pipeline_1",
+                                           metrics={"grain_pct": 40.0}))
+        with caplog.at_level("WARNING"):
+            app._build_metric_registers()
+        assert "grain_pct" not in caplog.text
+
+
 class TestDatasetGating:
     """
     Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por
