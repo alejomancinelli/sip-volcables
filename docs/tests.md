@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 390 grupos, 1930 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 391 grupos, 1939 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -30,7 +30,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
-| [test/video/](#testvideo) | 3 | 182 |
+| [test/video/](#testvideo) | 3 | 191 |
 
 ## test/
 
@@ -3513,14 +3513,15 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 79 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 88 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestMountPath` |  | 1 |
-| `TestLaunchString` |  | 7 |
+| `TestLaunchString` |  | 13 |
+| `TestPrepareFrame` |  | 3 |
 | `TestProbeCodec` |  | 5 |
 | `TestScaledSize` |  | 7 |
 | `TestResolveAddresses` |  | 7 |
@@ -3544,6 +3545,16 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_every_codec_ends_in_pay0`
   - `test_an_unknown_codec_falls_back_and_warns`
   - `test_the_scaling_comes_before_the_encoder`
+  - `test_the_hardware_path_does_no_conversion_on_the_cpu`
+  - `test_the_hardware_scale_filter_is_the_vic_into_nvmm`
+  - `test_there_is_one_keyframe_per_second`
+  - `test_the_bitrate_goes_in_each_encoder_unit`
+  - `test_a_zero_bitrate_leaves_the_encoder_default`
+  - `test_mjpeg_takes_no_bitrate`
+- `TestPrepareFrame`
+  - `test_the_cpu_path_takes_the_bgr_frame_as_it_is`
+  - `test_the_jetson_path_gets_bgrx`
+  - `test_a_gray_frame_goes_as_gray8_on_both_paths`
 - `TestProbeCodec`
   - `test_without_gstreamer_the_reason_is_the_import_error`
   - `test_an_unknown_codec_is_a_reason_and_not_the_default`

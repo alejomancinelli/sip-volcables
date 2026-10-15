@@ -7,9 +7,12 @@ video:
   rtsp:
     enabled: true
     port: 8654
-    codec: h264_sw              # mjpeg si faltan los plugins de x264
+    codec: h264_sw              # h264_hw en la Jetson; mjpeg si faltan los plugins de x264
     fps: 15                     # el mismo ritmo al que genera frames el script
     frame_width_px: 0           # 1280 para ver el escalado; 0 = nativo (1920×1200)
+    bitrate_kbps: 4000          # 0 = el del encoder; bajarlo a 500 se nota en la imagen
+    # Para comparar codecs o bitrates: editar, guardar y volver a lanzar la prueba. El
+    # archivo se lee una vez al arrancar.
     net_interfaces: []          # [] = todas; con nombres, solo esas responden
     log_connections: true       # en false, abrir y cerrar el reproductor no dice nada
 

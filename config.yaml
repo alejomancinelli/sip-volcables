@@ -61,11 +61,16 @@ video:
     codec: h264_sw              # h264_sw | h264_hw | h265_sw | h265_hw | mjpeg
     fps: 15                     # ritmo del stream; el de la cámara o más bajo
     frame_width_px: 0           # ancho al que se escala antes de codificar; 0 = nativo
+    bitrate_kbps: 4000          # kbit/s del H.264/H.265; 0 = el del encoder
     net_interfaces: []          # interfaces por las que se publica; [] = todas
     log_connections: true       # una línea de log cuando un stream se abre y se cierra
-    # Los codecs `_hw` usan el encoder de la Jetson (nvv4l2*) y no existen en un
+    # Los codecs `_hw` usan el VIC y el encoder de la Jetson (nvv4l2*) y no existen en un
     # x86. Los `_sw` codifican por CPU: son los que andan en cualquier equipo, y los
-    # que hacen que convenga bajar `fps` o `frame_width_px` con varias cámaras.
+    # que hacen que convenga bajar `fps` o `frame_width_px` con varias cámaras. En un
+    # Orin NX, `h264_hw` cuesta la tercera parte de CPU que `h264_sw`.
+    # `codec`, `fps`, `bitrate_kbps` y `frame_width_px` se toman cuando un stream se abre:
+    # cambiados desde la vista de configuración, para comparar dos valores alcanza con
+    # cerrar el reproductor y volver a abrirlo. Editando este archivo a mano, se reinicia.
   display:
     # Ajuste de imagen para que la vea una persona (tools/image/enhance.py). Va sólo en el
     # camino de visualización —los dos streams y la UI—: el modelo y el dataset siguen

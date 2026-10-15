@@ -16,9 +16,15 @@ Lo consume cualquier cliente RTSP: VLC, ffplay, un NVR, `cv2.VideoCapture`.
 
 Es el camino de video de resolución completa —lo que se graba o se mira en un
 NVR—; el stream liviano para una pestaña del navegador es el MJPEG de
-`http_server`. Lo que cuesta acá es la codificación, y se regula con dos claves:
-`codec` elige el encoder (y si es por CPU o por hardware) y `frame_width_px`
-reduce la salida antes de codificar.
+`http_server`. Lo que cuesta acá es la codificación, y se regula con tres claves:
+`codec` elige el encoder (y si es por CPU o por hardware), `frame_width_px` reduce la
+salida antes de codificar y `bitrate_kbps` fija cuántos bits por segundo lleva.
+
+Los codecs `_hw` no tocan la CPU más que para pasar el frame de BGR a BGRx: el VIC
+escala y convierte a NV12 y NVENC codifica. Medido en un Orin NX con 1920x1080, cuesta
+la mitad de CPU que convertir a I420 por software antes del VIC y la tercera parte que
+`h264_sw`. Todos los codecs H.264/H.265 emiten un keyframe por segundo, para que un
+cliente que se conecta a mitad de stream vea imagen enseguida.
 
 Sin clientes conectados a un stream no se codifica nada, y eso lo hace GStreamer
 solo: arma el pipeline cuando alguien se conecta al endpoint y lo desarma cuando se
@@ -47,6 +53,7 @@ import threading
 import time
 from typing import NamedTuple
 
+import cv2
 import numpy as np
 import psutil
 
@@ -81,6 +88,13 @@ _DEFAULT_PORT = 8554            # puerto RTSP por convención
 _DEFAULT_FPS = 15
 _DEFAULT_CODEC = "h264_sw"
 _DEFAULT_FRAME_WIDTH_PX = 0     # 0 = resolución nativa
+_DEFAULT_BITRATE_KBPS = 0       # 0 = el que trae el encoder
+
+# Lo que sale del VIC hacia NVENC: memoria de la Jetson, en el formato que piden los dos.
+_NVMM_CAPS = "video/x-raw(memory:NVMM),format=NV12"
+_SYSTEM_CAPS = "video/x-raw"
+# Bilineal al reducir: el default de nvvidconv es vecino más cercano, que serrucha bordes.
+_NVVIDCONV_BILINEAR = 1
 
 _NS_PER_S = 1_000_000_000       # GStreamer estampa los buffers en nanosegundos
 
@@ -94,42 +108,43 @@ _STOP_TIMEOUT_S = 5.0           # espera al hilo de GLib al detenerlo
 _APPSRC_NAME = "source"
 _SCALE_CAPS_NAME = "scale_caps"
 
-# Cola de cada pipeline, de appsrc hacia el payloader RTP. El payloader se llama
-# pay0 en todos: es el nombre con el que gst-rtsp-server encuentra la salida.
+class _Codec(NamedTuple):
+    """Cómo entra el frame y cómo se codifica, para un valor de `video.rtsp.codec`."""
+
+    is_nvmm: bool                   # BGRx → nvvidconv (VIC) → NVMM; si no, BGR → videoscale
+    encode: str                     # conversión de color y encoder, con sus propiedades fijas
+    keyframe_props: tuple[str, ...]  # reciben el intervalo entre keyframes, en frames
+    bitrate_prop: str               # '' si el encoder no tiene
+    bitrate_per_kbps: int           # unidad de `bitrate_prop` por kbps: 1 = kbit/s, 1000 = bit/s
+    payloader: str
+
+
+# Cada pipeline va de appsrc hacia el payloader RTP. El payloader se llama pay0 en todos:
+# es el nombre con el que gst-rtsp-server encuentra la salida.
 #
-# Los pipelines `_hw` son de Jetson (nvv4l2*) y no existen en un x86; los `_sw`
-# codifican por CPU y andan en cualquier equipo con los plugins instalados. El encoder
-# de la Jetson sólo acepta buffers en memoria NVMM, y el frame llega en memoria de
-# sistema: `nvvidconv` lo pasa, por el VIC. Sin él, el pipeline no negocia con el primer
-# cliente. El Orin Nano no tiene encoder de hardware: ahí sólo andan los `_sw`.
-_CODEC_PIPELINES: dict[str, str] = {
-    "h264_sw": (
-        "! videoconvert ! video/x-raw,format=I420 "
-        "! x264enc speed-preset=ultrafast tune=zerolatency "
-        "! rtph264pay config-interval=1 name=pay0 pt=96"
-    ),
-    "h264_hw": (
-        "! videoconvert ! video/x-raw,format=I420 "
-        "! nvvidconv ! video/x-raw(memory:NVMM),format=I420 "
-        "! nvv4l2h264enc "
-        "! rtph264pay config-interval=1 name=pay0 pt=96"
-    ),
-    "h265_sw": (
-        "! videoconvert ! video/x-raw,format=I420 "
-        "! x265enc speed-preset=ultrafast tune=zerolatency "
-        "! rtph265pay config-interval=1 name=pay0 pt=96"
-    ),
-    "h265_hw": (
-        "! videoconvert ! video/x-raw,format=NV12 "
-        "! nvvidconv ! video/x-raw(memory:NVMM),format=NV12 "
-        "! nvv4l2h265enc "
-        "! rtph265pay config-interval=1 name=pay0 pt=96"
-    ),
-    "mjpeg": (
-        "! videoconvert ! video/x-raw,format=I420 "
-        "! jpegenc "
-        "! rtpjpegpay name=pay0 pt=26"
-    ),
+# Los `_hw` son de Jetson (nvv4l2*) y no existen en un x86; los `_sw` codifican por CPU y
+# andan en cualquier equipo con los plugins instalados. El encoder de la Jetson sólo acepta
+# memoria NVMM y nvvidconv no acepta BGR empaquetado, así que el frame entra en BGRx —lo
+# convierte el que empuja— y nvvidconv lo escala y lo pasa a NV12 en NVMM, por el VIC. El
+# Orin Nano no tiene encoder de hardware: ahí sólo andan los `_sw`.
+_CODEC_PIPELINES: dict[str, _Codec] = {
+    "h264_sw": _Codec(
+        False, "videoconvert ! video/x-raw,format=I420 "
+               "! x264enc speed-preset=ultrafast tune=zerolatency",
+        ("key-int-max",), "bitrate", 1, "rtph264pay config-interval=1 name=pay0 pt=96"),
+    "h264_hw": _Codec(
+        True, "nvv4l2h264enc", ("iframeinterval", "idrinterval"), "bitrate", 1000,
+        "rtph264pay config-interval=1 name=pay0 pt=96"),
+    "h265_sw": _Codec(
+        False, "videoconvert ! video/x-raw,format=I420 "
+               "! x265enc speed-preset=ultrafast tune=zerolatency",
+        ("key-int-max",), "bitrate", 1, "rtph265pay config-interval=1 name=pay0 pt=96"),
+    "h265_hw": _Codec(
+        True, "nvv4l2h265enc", ("iframeinterval", "idrinterval"), "bitrate", 1000,
+        "rtph265pay config-interval=1 name=pay0 pt=96"),
+    "mjpeg": _Codec(
+        False, "videoconvert ! video/x-raw,format=I420 ! jpegenc", (), "", 0,
+        "rtpjpegpay name=pay0 pt=26"),
 }
 
 
@@ -140,27 +155,63 @@ def _mount_path(key: StreamKey) -> str:
     return f"/{key[0]}/{key[1]}"
 
 
-def _build_launch_string(codec: str) -> str:
+def _resolve_codec(codec: str) -> str:
+    """
+    `codec` si es uno de `_CODEC_PIPELINES`; si no, el default, con un aviso. Un stream
+    en otro formato al menos se ve, uno que no arranca no.
+    """
+    if codec in _CODEC_PIPELINES:
+        return codec
+    logger.warning(
+        f"[RtspVideo] Codec '{codec}' desconocido; se usa {_DEFAULT_CODEC}. "
+        f"Opciones: {', '.join(_CODEC_PIPELINES)}."
+    )
+    return _DEFAULT_CODEC
+
+
+def _build_launch_string(codec: str, *, fps: int = _DEFAULT_FPS,
+                         bitrate_kbps: int = _DEFAULT_BITRATE_KBPS) -> str:
     """
     Pipeline del stream: appsrc → escalado → codec → payloader RTP.
 
-    El capsfilter del escalado nace en ANY, o sea sin escalar: el tamaño de salida
-    lo fija quien empuja los frames, cuando conoce el del primero. Un codec que no
-    está en `_CODEC_PIPELINES` cae en el default y se avisa; un stream en otro
-    formato al menos se ve, uno que no arranca no.
+    El escalado es `videoscale` por CPU, o `nvvidconv` por el VIC en los `_hw`. Su
+    capsfilter nace sin tamaño, o sea sin escalar: el tamaño de salida lo fija quien
+    empuja los frames, cuando conoce el del primero.
+
+    El intervalo entre keyframes es `fps`: uno por segundo. `bitrate_kbps` en 0 deja el
+    del encoder; si no, se pasa en la unidad que espera cada uno.
     """
-    codec_segment = _CODEC_PIPELINES.get(codec)
-    if codec_segment is None:
-        logger.warning(
-            f"[RtspVideo] Codec '{codec}' desconocido; se usa {_DEFAULT_CODEC}. "
-            f"Opciones: {', '.join(_CODEC_PIPELINES)}."
-        )
-        codec_segment = _CODEC_PIPELINES[_DEFAULT_CODEC]
+    spec = _CODEC_PIPELINES[_resolve_codec(codec)]
+    if spec.is_nvmm:
+        scale = (f"nvvidconv interpolation-method={_NVVIDCONV_BILINEAR} "
+                 f"! capsfilter name={_SCALE_CAPS_NAME} caps=\"{_NVMM_CAPS}\"")
+    else:
+        scale = f"videoscale ! capsfilter name={_SCALE_CAPS_NAME}"
+
+    props = [f"{prop}={max(1, int(fps))}" for prop in spec.keyframe_props]
+    if spec.bitrate_prop and bitrate_kbps > 0:
+        props.append(f"{spec.bitrate_prop}={int(bitrate_kbps) * spec.bitrate_per_kbps}")
+    encode = " ".join([spec.encode, *props])
+
     return (
         f"appsrc name={_APPSRC_NAME} is-live=true block=true format=GST_FORMAT_TIME "
-        f"! videoscale ! capsfilter name={_SCALE_CAPS_NAME} "
-        f"{codec_segment}"
+        f"! {scale} ! {encode} ! {spec.payloader}"
     )
+
+
+def _prepare_frame(frame: np.ndarray, is_nvmm: bool) -> tuple[np.ndarray, str]:
+    """
+    El frame tal como entra al appsrc, y su formato para el caps.
+
+    Un frame gris va como GRAY8 por cualquiera de los dos caminos. Uno color va en BGR al
+    camino por CPU y en BGRx al de la Jetson, porque nvvidconv no acepta BGR empaquetado:
+    esa conversión es lo único que los `_hw` le cuestan a la CPU antes del VIC.
+    """
+    if frame.ndim == 2:
+        return frame, "GRAY8"
+    if is_nvmm:
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA), "BGRx"
+    return frame, "BGR"
 
 
 def probe_codec(codec: str) -> str:
@@ -436,17 +487,21 @@ if _GSTREAMER_AVAILABLE:
 
         Se engancha a `need-data` al construirse, y la conexión de la señal es la
         que la mantiene viva mientras exista el appsrc.
+
+        Con `is_nvmm` el pipeline es el de la Jetson: el frame entra en BGRx y el tamaño
+        de salida se pide en memoria NVMM, que es donde lo deja nvvidconv.
         """
 
         def __init__(self, appsrc, scale_caps, pacer: _FramePacer,
-                     key: StreamKey, fps: int, frame_width_px: int):
+                     key: StreamKey, fps: int, frame_width_px: int, *, is_nvmm: bool):
             self._appsrc = appsrc
             self._scale_caps = scale_caps
             self._pacer = pacer
             self._key = key
             self._fps = fps
             self._frame_width_px = frame_width_px
-            self._declared_shape: tuple | None = None
+            self._is_nvmm = is_nvmm
+            self._declared: tuple | None = None
             appsrc.connect("need-data", self._on_need_data)
 
         def _on_need_data(self, appsrc, _length):
@@ -455,13 +510,14 @@ if _GSTREAMER_AVAILABLE:
                 appsrc.emit("end-of-stream")
                 return
 
-            # El formato se vuelve a declarar si cambió el tamaño del frame: un buffer
-            # que no mide lo que dice el caps le baja el pipeline al encoder.
-            if timed.frame_bgr.shape != self._declared_shape:
-                self._declare_format(timed.frame_bgr)
-                self._declared_shape = timed.frame_bgr.shape
+            frame, caps_format = _prepare_frame(timed.frame_bgr, self._is_nvmm)
+            # El formato se vuelve a declarar si cambió el tamaño o el tipo del frame: un
+            # buffer que no mide lo que dice el caps le baja el pipeline al encoder.
+            if (frame.shape, caps_format) != self._declared:
+                self._declare_format(frame, caps_format)
+                self._declared = (frame.shape, caps_format)
 
-            buffer = Gst.Buffer.new_wrapped(timed.frame_bgr.tobytes())
+            buffer = Gst.Buffer.new_wrapped(frame.tobytes())
             buffer.pts = buffer.dts = timed.pts_ns
             buffer.duration = timed.duration_ns
             result = appsrc.emit("push-buffer", buffer)
@@ -474,11 +530,11 @@ if _GSTREAMER_AVAILABLE:
                 else:
                     logger.warning(message)
 
-        def _declare_format(self, frame_bgr: np.ndarray):
+        def _declare_format(self, frame: np.ndarray, caps_format: str):
             """Declara el formato de entrada y, si hace falta, el tamaño de salida."""
-            height_px, width_px = frame_bgr.shape[:2]
+            height_px, width_px = frame.shape[:2]
             self._appsrc.set_property("caps", Gst.Caps.from_string(
-                f"video/x-raw,format=BGR,width={width_px},height={height_px},"
+                f"{_SYSTEM_CAPS},format={caps_format},width={width_px},height={height_px},"
                 f"framerate={self._fps}/1"
             ))
 
@@ -487,8 +543,9 @@ if _GSTREAMER_AVAILABLE:
                 logger.info(f"[RtspVideo] {_mount_path(self._key)}: {width_px}x{height_px} "
                             f"nativo a {self._fps} fps.")
                 return
+            output_caps = _NVMM_CAPS if self._is_nvmm else _SYSTEM_CAPS
             self._scale_caps.set_property("caps", Gst.Caps.from_string(
-                f"video/x-raw,width={scaled[0]},height={scaled[1]}"
+                f"{output_caps},width={scaled[0]},height={scaled[1]}"
             ))
             logger.info(f"[RtspVideo] {_mount_path(self._key)}: {width_px}x{height_px} → "
                         f"{scaled[0]}x{scaled[1]} a {self._fps} fps.")
@@ -503,8 +560,10 @@ if _GSTREAMER_AVAILABLE:
         primer cliente y la desarma cuando se va el último, que es lo que hace que
         un stream que nadie mira no cueste nada.
 
-        El codec, el `fps` y el ancho de salida se leen al construir la media, no al
-        arrancar la app: reconectar el cliente alcanza para tomar el cambio.
+        El codec, el `fps`, el bitrate y el ancho de salida se leen del ConfigManager al
+        construir la media, no al arrancar la app: cambiados desde la vista de
+        configuración, cerrar todos los clientes de un stream y volver a abrirlo alcanza
+        para tomar el cambio, que es como se comparan dos codecs en un equipo instalado.
 
         Es también donde se lleva la cuenta de quién mira: acá se sabe que entró el
         primer cliente y que se fue el último, y nadie más lo sabe.
@@ -517,12 +576,23 @@ if _GSTREAMER_AVAILABLE:
             self._store = store
             self._watchers = watchers
             self._config = config_manager
+            self._media_fps = _DEFAULT_FPS
+            self._media_is_nvmm = False
             self.set_shared(True)
 
         def do_create_element(self, url):
-            codec = self._config.get("video.rtsp.codec", _DEFAULT_CODEC)
+            codec = _resolve_codec(self._config.get("video.rtsp.codec", _DEFAULT_CODEC))
+            fps = self._config.get("video.rtsp.fps", _DEFAULT_FPS) or _DEFAULT_FPS
+            bitrate_kbps = int(self._config.get("video.rtsp.bitrate_kbps",
+                                                _DEFAULT_BITRATE_KBPS) or 0)
+            # `do_configure` arma el pusher de esta misma media, y el pusher tiene que
+            # saber qué pipeline se armó: si el config cambia entre las dos llamadas,
+            # manda lo que se leyó acá.
+            self._media_fps = fps
+            self._media_is_nvmm = _CODEC_PIPELINES[codec].is_nvmm
             try:
-                return Gst.parse_launch(_build_launch_string(codec))
+                return Gst.parse_launch(
+                    _build_launch_string(codec, fps=fps, bitrate_kbps=bitrate_kbps))
             except GLib.Error as e:
                 # Un plugin que falta (x264enc en un equipo pelado, nvv4l2h264enc
                 # fuera de la Jetson) se ve acá, cuando llega el primer cliente.
@@ -534,7 +604,7 @@ if _GSTREAMER_AVAILABLE:
 
         def do_configure(self, rtsp_media):
             element = rtsp_media.get_element()
-            fps = self._config.get("video.rtsp.fps", _DEFAULT_FPS) or _DEFAULT_FPS
+            fps = self._media_fps
             # El pusher no se guarda: queda vivo por la conexión de señal del appsrc,
             # y muere con la media.
             _AppsrcPusher(
@@ -544,6 +614,7 @@ if _GSTREAMER_AVAILABLE:
                 self._key,
                 fps,
                 self._config.get("video.rtsp.frame_width_px", _DEFAULT_FRAME_WIDTH_PX),
+                is_nvmm=self._media_is_nvmm,
             )
             # El alta va antes de que el pipeline pida datos: si no, el productor
             # todavía estaría descartando los frames de este stream.
