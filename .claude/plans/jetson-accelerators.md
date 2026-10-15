@@ -1,8 +1,7 @@
 # Plan: using the Jetson's fixed-function accelerators (template)
 
-**Status: Phase 0 done. Phase 1 implemented and validated with the bench on the Jetson;
-the end-to-end stream with a real client is still pending.**
-Engine telemetry reads sysfs without root. Next is Phase 3 (NVDEC + VIC resize at decode). The work is on
+**Status: Phases 0 and 1 done and validated on the Jetson. Phase 3 implemented, waiting
+for validation on the Jetson.** Engine telemetry reads sysfs without root. The work is on
 `machinery/jetson-accelerators` in `sip-volcables`, branched from `fork/mock-pipelines` so
 the Jetson clone can also run the mock pipelines on recorded video. It's machinery: these
 commits go back to `cv_projects_template` as their own PR.
@@ -256,11 +255,17 @@ pipeline turned its runtime-PM node `active` and raised its devfreq clock. Root
 
 ### Phase 1: fix the RTSP path that already uses NVENC (small, low risk)
 
-**Implemented. Bench validated on the Orin NX, end-to-end stream still pending.**
-`stage_bench.py h264` with clocks pinned, 1080p, process CPU ms per frame: `h264_sw` 37.6,
-previous `h264_hw` 22.4, new `h264_hw` **12.0**. The new pipeline is also about 3× faster
-in wall time (6.5 ms vs 19.1). The stream through `manual_test/rtsp_video/` with a real
-client hasn't been seen yet. What went in:
+**Done and validated on the Orin NX.**
+- **Bench:** `stage_bench.py h264` with clocks pinned, 1080p, process CPU ms per frame:
+  `h264_sw` 37.6, previous `h264_hw` 22.4, new `h264_hw` **12.0**. It's also about 3×
+  faster in wall time (6.5 ms vs 19.1).
+- **End to end:** `manual_test/rtsp_video/` with VLC. Correct colours, scaling on the VIC,
+  bitrate, and a picture within a second when joining mid-stream.
+- **Bug found on the way, older than this branch:** the server was attached to GLib's
+  global context instead of its own thread's. Without a Qt loop dispatching that context,
+  clients hung at OPTIONS. Fixed.
+
+What went in:
 - The `_hw` codecs take BGRx: the pusher converts with OpenCV, and `nvvidconv` scales
   (bilinear) and converts to NV12 in NVMM.
 - Mono frames go as `GRAY8` on both paths.
@@ -319,6 +324,33 @@ stays for reference, in case a path ever feeds it a frame that's already in NVMM
   as PNG, it stays on the CPU: there is no PNG engine.
 
 ### Phase 3: NVDEC for RTSP cameras and recorded video
+
+**Implemented; pending validation on the Jetson.** How it landed:
+- **`tools/camera/decoder.py`** is the one place that knows there are two ways to decode.
+  - `open_stream()` / `open_file()` return a `Capture` with the same API on both
+    backends: `grab`, `retrieve`, `read`, `seek`, `get_fps`, `release`.
+  - `rtsp_driver` and `video_file_driver` only call that. The RTSP driver keeps its
+    frame credit: `grab()` pulls the sample, and the BGRx→BGR copy is only paid for
+    frames that get delivered.
+- **Config per camera:** `decode.backend` (`cpu` default | `nvdec` | `auto`) plus
+  `decode.width_px` / `height_px`.
+  - **The size is applied by both backends**: the VIC on `nvdec`, `cv2.resize` on `cpu`,
+    both bilinear. Switching backend never changes the frame the app sees.
+  - `nvdec` where it doesn't exist is an error at config read, and the camera doesn't
+    open. No silent fallback to the CPU.
+- **NVDEC pipelines:**
+  - RTSP: `rtspsrc protocols=tcp ! parsebin ! nvv4l2decoder disable-dpb=true !
+    nvvidconv ! BGRx[,size] ! appsink drop=true max-buffers=1`. The credentials go as
+    `user-id`/`user-pw` properties, never inside the launch string.
+  - Files: no frame dropping and no `disable-dpb`, because recordings may have B-frames.
+- **The bench's `decode` stage now runs `decoder.open_file()`**: it measures the line's
+  code, not a copy of it.
+- **`manual_test/cameras/config.yaml`** has `rtsp_local_nvdec` / `rtsp_local_cpu`, which
+  read the `rtsp_video` test server as a fake IP camera, and `video_nvdec`.
+- **Not done:** decode settings in the cameras tab of the Config view. The keys are saved
+  one by one, so a save from the UI keeps the `decode` section.
+
+The design that came before the implementation:
 
 - **OpenCV can't do this here.** The venv installs `opencv-python-headless` from PyPI,
   which has no GStreamer backend, so `cv2.VideoCapture("... ! nvv4l2decoder ...",
@@ -481,8 +513,8 @@ For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand
    `get_metrics()`, `engine_<engine>_active` / `_mhz` in the `system` series.
 2. ~~Phase 1.~~ Implemented; validate on the Jetson with `manual_test/rtsp_video/` and
    `stage_bench.py h264`.
-3. **Phase 3 (NVDEC + VIC resize at decode)** for RTSP cameras and `video_file`. This was
-   proven twice, and Volcables' cameras are RTSP.
+3. ~~Phase 3 (NVDEC + VIC resize at decode)~~. Implemented; validate on the Jetson. This
+   was proven twice, and Volcables' cameras are RTSP.
    - The decoder's output size makes it a 640×360 camera as far as the app knows: the
      ROI, the dataset and the streams all live at that size. So it's a per-camera config
      key, like a camera's resolution, not a preprocessing step.

@@ -115,8 +115,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         camera_factory.py     único archivo que conoce las clases concretas
         basler_driver.py      pypylon
         st_driver.py          stapipy (Sentech / Omron)
-        rtsp_driver.py        cámara IP por RTSP, con FFmpeg de OpenCV
+        rtsp_driver.py        cámara IP por RTSP
         video_file_driver.py  video grabado en loop, al ritmo del reloj, como cámara en vivo
+        decoder.py            quién decodifica a esos dos: OpenCV por CPU o NVDEC + VIC
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
@@ -304,6 +305,16 @@ Lo que no se deduce leyendo un archivo suelto:
   `InferenceThread.process()`, sin arrancar el hilo. Un segundo camino de inferencia
   podría dar distinto que el primero, y una imagen que pasa la prueba no diría nada de la
   línea. Por eso lo del fork que entra al motor vive en `hooks.py` y no en `main.py`.
+- **El tamaño al que sale el video decodificado es de la cámara, no del decodificador.**
+  `cameras.<slot>.decode` elige quién decodifica una cámara RTSP o un video —`cpu` o
+  `nvdec`, que es NVDEC más el VIC de la Jetson— y a qué tamaño sale el frame. En `nvdec`
+  reduce el VIC y en `cpu` un `cv2.resize`, los dos bilineales, así que cambiar de backend
+  cambia quién trabaja y no lo que ve la app. Para la app la cámara pasa a ser de ese tamaño:
+  el ROI, el dataset y los streams quedan en él. Reducir es lo que ahorra: NVDEC a tamaño
+  completo apenas gana, porque copiar el frame grande a numpy cuesta casi lo que
+  decodificarlo. `nvdec` en un equipo que no lo tiene no cae a la CPU: la cámara no abre y
+  el log dice por qué, porque una planta que cuenta con el VIC no puede pasar a gastar CPU
+  sin que se note. El default es `cpu`.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -698,12 +709,12 @@ La tabla completa, archivo por archivo, está en `README.md`.
   framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
   fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
 - **De los motores de la Jetson, la app usa hoy el VIC y NVENC en los codecs `_hw` del
-  RTSP**, sin conversión de color por CPU más que BGR a BGRx. La telemetría publica qué
-  motor está en uso, leído de sysfs sin root. Falta decodificar las cámaras RTSP y los
-  videos con NVDEC y reducir en el VIC al salir del decodificador, que es lo que más CPU
-  ahorra medido en el Orin NX. Para un frame que ya está en numpy —el de una cámara GigE—
-  el VIC y NVJPG no convienen: copiarlo al motor y de vuelta cuesta más de lo que
-  ahorran. Las mediciones y el plan están en `.claude/plans/jetson-accelerators.md`.
+  RTSP, y NVDEC + VIC para decodificar las cámaras RTSP y los videos** con
+  `decode.backend: nvdec`. La telemetría publica qué motor está en uso, leído de sysfs sin
+  root. La decodificación por NVDEC falta verla andar en la Jetson con una cámara de
+  verdad. Para un frame que ya está en numpy —el de una cámara GigE— el VIC y NVJPG no
+  convienen: copiarlo al motor y de vuelta cuesta más de lo que ahorran. Las mediciones y
+  el plan están en `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
