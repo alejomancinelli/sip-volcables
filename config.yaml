@@ -229,9 +229,11 @@ inference:
     # Una entrada por modelo, numeradas model_1 … model_N. El slot es el nombre con el que
     # el pipeline pide el modelo en `model_slots`.
     #
-    # Los tres van en `mock` hasta que exista el wrapper de YOLO (`yolo_cls`, `yolo_det`,
-    # `yolo_seg`): las detecciones son sintéticas y el `path` queda vacío. Los pesos
-    # reales esperan en models/cls.pt, models/det.pt y models/seg.pt.
+    # Los tres van en `mock` hasta exportar sus engines en la Jetson con
+    # manual_test/model_export/: las detecciones son sintéticas y el `path` queda vacío.
+    # Después cada uno pasa a `yolo_cls`, `yolo_det` o `yolo_seg` con `path` al .engine;
+    # el tamaño de entrada —cuadrado o rectangular— lo dice el engine, no este archivo, y
+    # `max_side_px` no aplica. Los .pt de entrenamiento esperan en models/.
     grain_cls:
       type: mock                # ver REGISTERED_MODELS en model_factory.py
       path: ''                  # pesos del modelo; relativo a la raíz del repo
