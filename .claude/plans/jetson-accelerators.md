@@ -371,6 +371,52 @@ The design that came before the implementation:
 - Credentials (`credentials_env`) and the error messages ("host unreachable, wrong path or
   rejected credentials") go into the new backend unchanged.
 
+#### What the decode size changes, and the ROI crop on the VIC (not built)
+
+With `decode.width_px/height_px` set, the camera *is* that size for the whole app:
+inference, the ROI, the dataset, the annotated frame, both `raw` and `annotated` streams,
+and the UI. The camera still sends full resolution, and NVDEC decodes it at full size; the
+VIC discards the rest. Four consequences to keep in mind when choosing a size:
+
+1. **The ROI is cropped after the resize, so a small ROI loses detail.** Example: a ROI a
+   third of the frame wide is 640 px at 1080p, but 213 px at 640×360, and the model then
+   gets it stretched about 3×. Cropping before the resize keeps every pixel of the ROI.
+   **Rule: the ROI's width at the decoded size should be at least the model's input
+   width.** If it isn't, decode larger (1280×720) or at native size. ROI coordinates are
+   in pixels of the decoded frame and aren't rescaled: changing the decode size means
+   redrawing the ROI and recalibrating lens health.
+2. **The model's input size sets the floor, not the size of its training photos.** A
+   model trained at `imgsz=640` on 1080p images already saw them shrunk to 640 wide, so
+   640×360 frames give it practically the same pixels. One trained at `imgsz=1280` needs
+   at least 1280×720.
+3. **The dataset is collected at the decoded size**, and it's the one thing that can't be
+   regenerated. If a larger model might be trained later, collect at native size and
+   switch to the small size for production.
+4. **Width and height are both fixed, so the aspect ratio isn't preserved.** A
+   replacement camera with a different aspect (4:3 instead of 16:9) comes out squashed
+   until `decode` is updated. The settings belong to the slot, not to the device. A later
+   improvement could derive the height from the source's caps.
+
+**Full-resolution viewing or recording** doesn't need the Jetson. The camera is an RTSP
+server with several clients, so an NVR can read it directly. That only fails if the NVR
+can't reach the camera network (cameras behind a second NIC on the Jetson); then the
+camera has to be decoded at native size, paying the full-size copy.
+
+**The ROI crop on the VIC (idea, not built).** `nvvidconv` can crop as well as scale
+(`left`/`right`/`top`/`bottom`). NVDEC → crop the ROI → resize would give the model the ROI
+with full detail at almost no CPU cost. What it would take:
+- **The app would only ever see the crop**: the streams, the UI and the dataset. Then
+  there's no full frame left to draw the crop on, so the drawing needs its own mode
+  that decodes the full frame once.
+- **The crop is in source pixels** and belongs in `decode` (e.g. `decode.crop`), separate
+  from the engine's ROI, which would then be relative to the crop or turned off.
+- **A camera that several pipelines read** (the case in sip-volcables) shares one decode,
+  so one crop has to cover every pipeline's region. A second output per pipeline (a
+  `tee` with two VIC branches) costs a second copy into numpy.
+- Volcables' benchmark recommended exactly this for the grain classifier (a fixed region
+  instead of the centre crop). It's the next step for Phase 3 if a small ROI ever has to
+  be read with detail.
+
 ### Phase 4: VIC / CUDA for image preprocessing
 
 The candidates are the ones the Phase 0 profile flags. The likely ones:
@@ -531,6 +577,8 @@ For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand
   `jetson` explicitly so a missing engine stops the startup instead of loading the CPU.
 - **Whether a dGPU backend is ever needed** (x86 industrial PC with an NVIDIA card). The
   registry leaves room for it; nothing is built until one exists.
-- **Platform setup as code.** The power mode, a systemd unit for `jetson_clocks`, and a
-  headless boot target (`multi-user.target`). They could live in `setup/jetson/`, or stay
-  per-plant commissioning steps.
+- ~~Platform setup as code.~~ Done in `setup-jetson.sh`, step 7/8. Each part has its
+  own flag: `--power-mode=NAME`, `--clocks-at-boot` (a systemd oneshot that runs
+  `jetson_clocks` after `nvpmodel.service`) and `--headless-boot`. Without the flags the
+  step only reports the board's settings, because the power mode is a decision about
+  the plant's enclosure.
