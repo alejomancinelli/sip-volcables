@@ -157,7 +157,9 @@ trae:
 1. **Crear el repo** como arriba y copiar el wheel de stapipy a `packages/`. En la PC, el
    venv lo arma `setup/venv-setup/venv-setup.ps1 -Dev`, que instala además lo de
    desarrollo y activa los hooks de git —no viajan con el clon—. En la Jetson, en este
-   orden: `setup/jetson/setup-jetson.sh` (lo de sistema), el SDK de la cámara con
+   orden: `setup/jetson/setup-jetson.sh` (lo de sistema; en la planta, con
+   `--power-mode=20W --clocks-at-boot --headless-boot` o lo que se haya medido para ese
+   módulo), el SDK de la cámara con
    `setup/cameras/linux/`, y `setup/venv-setup/venv-setup.sh`, que instala además el
    framework de `setup/jetson/` y termina corriendo `verify_env.py`. Cambiar la identidad
    del proyecto:
