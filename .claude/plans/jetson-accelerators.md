@@ -565,8 +565,24 @@ For the Orin NX 8 GB, with the Volcables results and Phase 0's first run in hand
      ROI, the dataset and the streams all live at that size. So it's a per-camera config
      key, like a camera's resolution, not a preprocessing step.
    - Without the resize, it isn't worth doing.
-4. **Rectangular engines** (§6) in the YOLO wrapper and its export notes. This is a
-   fork/export decision, not engine code, but it was the largest model-side gain.
+4. ~~Rectangular engines~~ (§6). Implemented; validate on the Jetson with a real engine.
+   - **Runner:** `system/inference/models/yolo_model.py` (`yolo_det`, `yolo_seg`,
+     `yolo_cls`) on `tensorrt_runtime.py`, which is our own TensorRT runner and not
+     ultralytics.
+     - It loads the `.engine` from bytes, so encrypted weights work, and reads
+       ultralytics' metadata header for the task check and class names.
+     - It takes the input size from the engine itself, so the square-vs-rectangular
+       switch is just which file `path` points to.
+     - Pre and post in numpy/OpenCV: ultralytics' exact letterbox, class-aware NMS,
+       masks from the prototypes, and the classifier's centre crop. The GPU is only
+       used for the TensorRT pass. Buffers are torch CUDA tensors, so ultralytics isn't
+       needed at runtime.
+   - **Export:** `manual_test/model_export/export_engine.py` with `rectangular:
+     true/false` per model. It computes the input from the source's aspect ratio (frame
+     or ROI), rounded up to a multiple of 32, and names the file with its size
+     (`det_384x640_fp16.engine`). Classifiers are always exported square.
+   - **Not done:** letterbox on the GPU. With NVDEC decoding at 640×360 it's almost only
+     padding; measure on the Jetson before moving it.
 5. ~~Phase 2 (NVJPG)~~. Dropped: no gain from a numpy frame (second run).
 6. **Undistort on VPI/CUDA**, only for a fork that enables undistort. The rest of
    Phase 4's VIC paths are dropped.
