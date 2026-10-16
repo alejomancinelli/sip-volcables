@@ -65,6 +65,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
           model_key.py        de dónde sale la clave con la que se abren esos pesos
           model_factory.py    único archivo que conoce las clases concretas
           mock_model.py       detecciones sintéticas, sin framework
+          yolo_model.py       YOLO de ultralytics en TensorRT: yolo_det, yolo_seg, yolo_cls
+          tensorrt_runtime.py un .engine abierto desde bytes; lo único que toca la GPU
           null_model.py       lo que devuelve la fábrica ante una config inválida
         abstract_pipeline.py  maquinaria de las etapas: las crea, las carga y las cronometra
         pipeline.py           los pipelines concretos; es lo que cambia en cada instalación
@@ -151,6 +153,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+      model_export/           exporta un .pt de ultralytics a .engine, cuadrado o rectangular
       jetson_accelerators/    qué motores tiene la Jetson y cuánto CPU libera cada etapa en ellos
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
@@ -706,8 +709,12 @@ La tabla completa, archivo por archivo, está en `README.md`.
   simulado. Lo que queda es de cada instalación: declarar en `gpio:` los offsets de su
   placa y verlos conmutar en el borne.
 - El modelo del proyecto. El template trae el mock —detecciones sintéticas, sin
-  framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
-  fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
+  framework— y los YOLO de ultralytics exportados a TensorRT (`yolo_det`, `yolo_seg`,
+  `yolo_cls`), que corren el engine sin ultralytics y cargan desde bytes. Lo que falta de
+  ellos es verlos andar en la Jetson con un engine de verdad: la suite prueba el pre y post
+  proceso, no la pasada por la GPU. Un modelo de otro framework lo agrega el fork en
+  `system/inference/models/` registrándolo en la fábrica; el pipeline y las métricas son
+  los otros dos archivos que se reescriben.
 - **De los motores de la Jetson, la app usa hoy el VIC y NVENC en los codecs `_hw` del
   RTSP, y NVDEC + VIC para decodificar las cámaras RTSP y los videos** con
   `decode.backend: nvdec`. La telemetría publica qué motor está en uso, leído de sysfs sin
