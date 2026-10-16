@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**72 archivos, 398 grupos, 1969 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**74 archivos, 413 grupos, 2020 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
 | [test/inference/](#testinference) | 12 | 311 |
-| [test/inference/models/](#testinferencemodels) | 4 | 86 |
+| [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
@@ -1991,6 +1991,111 @@ Tests de la derivación de la clave de los pesos.
   - `test_the_label_comes_from_the_generated_module`
 - `TestMalformedGeneratedModule`
   - `test_there_is_no_key`
+
+</details>
+
+### [test_tensorrt_runtime.py](../test/inference/models/test_tensorrt_runtime.py) — 16 tests
+
+Tests del runtime de TensorRT: el formato del `.engine` de ultralytics, qué engines se aceptan y qué pasa sin el runtime.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestSplitUltralyticsEngine` | 5 |
+| `TestValidateIo` | 6 |
+| `TestDtypeName` | 2 |
+| `TestRunnerWithoutRuntime` | 2 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_every_accepted_type_has_a_torch_type`
+- `TestSplitUltralyticsEngine`
+  - `test_the_metadata_and_the_engine_come_apart`
+  - `test_an_engine_without_header_is_used_as_it_is`
+  - `test_a_header_that_is_not_json_means_no_header`
+  - `test_a_length_past_the_end_means_no_header`
+  - `test_too_short_to_have_a_header`
+- `TestValidateIo`
+  - `test_one_fixed_input_and_an_output_is_fine`
+  - `test_two_inputs_are_not_handled`
+  - `test_an_engine_without_outputs_is_rejected`
+  - `test_a_dynamic_shape_asks_for_a_fixed_export`
+  - `test_an_unknown_type_is_rejected`
+  - `test_the_input_must_be_an_image_batch`
+- `TestDtypeName`
+  - `test_an_enum_member_gives_its_name`
+  - `test_a_printed_enum_gives_the_last_part`
+- `TestRunnerWithoutRuntime`
+  - `test_load_says_the_runtime_is_missing`
+  - `test_close_before_load_does_nothing`
+
+</details>
+
+### [test_yolo_model.py](../test/inference/models/test_yolo_model.py) — 35 tests
+
+Tests de los modelos YOLO sobre TensorRT: el letterbox y el recorte del clasificador, la decodificación de las dos formas de salida, las máscaras, y el ciclo de vida de los tres modelos.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLetterbox` | 4 |
+| `TestCenterCrop` | 2 |
+| `TestDecodeCandidates` | 7 |
+| `TestFrameBox` | 2 |
+| `TestBuildMask` | 2 |
+| `TestProbabilities` | 2 |
+| `TestLoad` | 8 |
+| `TestDetectionModel` | 3 |
+| `TestSegmentationModel` | 2 |
+| `TestClassificationModel` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestLetterbox`
+  - `test_a_640x360_frame_fills_a_rectangular_engine_with_12px_bars`
+  - `test_a_1080p_frame_into_a_square_engine`
+  - `test_the_input_is_rgb_nchw_from_0_to_1_with_grey_bars`
+  - `test_a_grey_frame_is_accepted`
+- `TestCenterCrop`
+  - `test_the_classifier_sees_the_centre_of_the_frame`
+  - `test_a_small_frame_is_scaled_up_to_cover`
+- `TestDecodeCandidates`
+  - `test_boxes_come_out_as_corners`
+  - `test_below_the_threshold_is_dropped`
+  - `test_an_overlapping_box_of_the_same_class_is_suppressed`
+  - `test_an_overlapping_box_of_another_class_survives`
+  - `test_the_best_go_first_and_the_cap_applies`
+  - `test_mask_coefficients_travel_with_their_box`
+  - `test_an_end_to_end_export_is_already_filtered`
+- `TestFrameBox`
+  - `test_a_box_goes_back_through_the_letterbox`
+  - `test_a_box_over_the_bars_is_clipped_to_the_frame`
+- `TestBuildMask`
+  - `test_the_mask_has_the_size_of_the_box`
+  - `test_only_where_the_prototype_is_on`
+- `TestProbabilities`
+  - `test_probabilities_are_left_as_they_are`
+  - `test_logits_go_through_softmax`
+- `TestLoad`
+  - `test_it_loads_and_reads_the_input_from_the_engine`
+  - `test_a_task_mismatch_leaves_it_in_error`
+  - `test_an_engine_that_does_not_open_says_why`
+  - `test_outputs_of_another_task_are_rejected`
+  - `test_the_engine_names_are_used_when_nobody_declares_them`
+  - `test_the_config_names_win_over_the_engine`
+  - `test_unload_releases_the_engine_and_is_idempotent`
+  - `test_before_load_there_are_no_detections`
+- `TestDetectionModel`
+  - `test_detections_come_in_frame_pixels_with_their_names`
+  - `test_the_threshold_comes_from_the_config`
+  - `test_the_nms_extras_are_read_from_params`
+- `TestSegmentationModel`
+  - `test_each_detection_carries_its_mask_area_and_centroid`
+  - `test_an_engine_without_prototypes_is_rejected`
+- `TestClassificationModel`
+  - `test_the_verdict_is_one_detection_over_the_whole_frame`
+  - `test_below_the_threshold_there_is_no_verdict`
+  - `test_the_classifier_gets_the_engine_input_size`
 
 </details>
 

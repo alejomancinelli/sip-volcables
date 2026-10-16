@@ -195,6 +195,12 @@ inference:
   models:
     # Una entrada por modelo, numeradas model_1 … model_N. El slot es el nombre con el que
     # el pipeline pide el modelo en `model_slots`.
+    #
+    # `type: mock` da detecciones sintéticas y deja el `path` vacío. Un modelo YOLO exportado
+    # a TensorRT se declara con `type: yolo_det`, `yolo_seg` o `yolo_cls` y `path` al .engine,
+    # que se exporta en la Jetson con manual_test/model_export/; el tamaño de entrada
+    # —cuadrado o rectangular— lo dice el engine, no este archivo, y `max_side_px` no aplica.
+    # Los .pt de entrenamiento esperan en models/.
     model_1:
       type: mock                # ver REGISTERED_MODELS en model_factory.py
       path: ''                  # pesos del modelo; relativo a la raíz del repo
