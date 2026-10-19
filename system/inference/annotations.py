@@ -78,3 +78,20 @@ def max_load_line_annotator(y_px_by_camera: dict[str, int], *,
 
     draw.__name__ = f"max_load_line({y_px_by_camera})"
     return draw
+
+
+def labels_panel_annotator() -> Annotator:
+    """
+    Dibuja los veredictos de frame del resultado —`labels`— en un panel arriba a la izquierda.
+
+    Un veredicto no tiene caja, así que sin esto no se ve: es la forma de mostrar el
+    `grain_flow` del clasificador. Un resultado sin labels no dibuja nada, así que en una
+    cámara que miran varios pipelines el panel lo pone sólo el que tiene veredicto.
+    """
+    def draw(frame_bgr: np.ndarray, result: InferenceResult):
+        if not result.labels or frame_bgr is None or frame_bgr.size == 0:
+            return
+        overlay.draw_text_panel(frame_bgr, list(result.labels.items()))
+
+    draw.__name__ = "labels_panel"
+    return draw

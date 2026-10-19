@@ -8,7 +8,9 @@ ni frames de cámara.
 import numpy as np
 import pytest
 
-from system.inference.annotations import chain, max_load_line_annotator
+from system.inference.annotations import (
+    chain, labels_panel_annotator, max_load_line_annotator,
+)
 from system.inference.result import InferenceResult
 
 _SLOT = "camera_1"
@@ -126,3 +128,17 @@ class TestChain:
     def test_it_names_the_annotators_it_carries(self):
         name = chain(max_load_line_annotator({_SLOT: 60})).__name__
         assert "chain(" in name and "max_load_line" in name
+
+
+class TestLabelsPanel:
+    def test_a_result_with_labels_gets_a_panel(self):
+        frame = _frame()
+        result = InferenceResult(camera_slot=_SLOT, labels={"grain_flow": "flow"})
+        labels_panel_annotator()(frame, result)
+        assert _painted_rows(frame)
+
+    def test_a_result_without_labels_draws_nothing(self):
+        """En una cámara con varios pipelines el panel lo pone sólo el que tiene veredicto."""
+        frame = _frame()
+        labels_panel_annotator()(frame, _result())
+        assert _painted_rows(frame) == set()

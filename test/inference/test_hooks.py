@@ -43,6 +43,13 @@ class TestTemplateHooks:
         hooks.annotator(frame, InferenceResult(camera_slot="camera_1"))
         assert frame[30].any()
 
+    def test_a_declared_grain_flow_draws_the_verdict_panel(self):
+        hooks = build_hooks(_MockConfig(**{"process.grain_flow": {}}))
+        frame = np.zeros((60, 80, 3), np.uint8)
+        hooks.annotator(frame, InferenceResult(camera_slot="camera_1",
+                                               labels={"grain_flow": "flow"}))
+        assert frame.any()
+
     def test_the_load_limit_is_not_drawn_on_other_cameras(self):
         hooks = build_hooks(_MockConfig(**{"process.max_load_y_px": {"camera_1": 30}}))
         frame = np.zeros((60, 80, 3), np.uint8)
