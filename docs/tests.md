@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**74 archivos, 418 grupos, 2055 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 428 grupos, 2110 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -20,7 +20,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 12 | 344 |
+| [test/inference/](#testinference) | 13 | 384 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -29,7 +29,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 7 | 49 |
+| [test/ui/](#testui) | 9 | 64 |
 | [test/video/](#testvideo) | 3 | 192 |
 
 ## test/
@@ -1325,7 +1325,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 41 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 62 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1336,6 +1336,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 | `TestLabelsPanel` | 2 |
 | `TestUnloadStatus` | 20 |
 | `TestTimestamp` | 4 |
+| `TestStopperStatus` | 21 |
 
 <details><summary>Tests</summary>
 
@@ -1385,6 +1386,28 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_it_grows_with_the_frame`
   - `test_it_is_taller_than_the_status_border`
   - `test_an_empty_frame_is_ignored`
+- `TestStopperStatus`
+  - `test_a_raised_stopper_against_the_wheel_is_green`
+  - `test_a_stopper_below_the_line_is_red`
+  - `test_too_few_pixels_above_the_line_is_red`
+  - `test_a_wheel_farther_than_the_maximum_is_red`
+  - `test_without_a_stopper_it_is_red`
+  - `test_without_a_wheel_it_is_red`
+  - `test_an_uncalibrated_camera_is_red`
+  - `test_an_uncalibrated_verdict_is_gray_in_the_panel`
+  - `test_the_gap_is_drawn_between_the_two_masks`
+  - `test_before_the_stopper_is_raised_the_wheel_changes_nothing`
+  - `test_before_the_stopper_is_raised_the_contact_is_gray`
+  - `test_without_a_calibrated_height_the_contact_is_not_judged`
+  - `test_the_height_is_drawn_across_the_whole_width`
+  - `test_another_pipeline_draws_nothing`
+  - `test_an_invalid_result_draws_nothing`
+  - `test_a_height_that_is_not_a_row_stops_the_build`
+  - `test_a_wheel_on_the_configured_side_counts`
+  - `test_a_wheel_only_on_the_other_side_is_red`
+  - `test_the_side_picks_the_wheel_among_two`
+  - `test_an_unknown_side_stops_the_build`
+  - `test_the_labels_follow_the_language`
 
 </details>
 
@@ -1564,13 +1587,44 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 
 </details>
 
-### [test_hooks.py](../test/inference/test_hooks.py) — 9 tests
+### [test_geometry.py](../test/inference/test_geometry.py) — 11 tests
+
+Tests de la geometría sobre detecciones: una máscara contra una línea y la distancia más corta entre dos máscaras.
+
+| Grupo | Tests |
+|---|---:|
+| `TestMaskPoints` | 2 |
+| `TestAboveY` | 4 |
+| `TestClosestPoints` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestMaskPoints`
+  - `test_the_points_are_placed_in_the_full_frame`
+  - `test_a_detection_without_mask_counts_its_whole_bbox`
+- `TestAboveY`
+  - `test_it_counts_the_pixels_with_a_smaller_y`
+  - `test_a_shape_below_the_height_has_none_above`
+  - `test_a_shape_above_the_height_counts_whole`
+  - `test_only_the_mask_counts_not_its_bbox`
+- `TestClosestPoints`
+  - `test_two_separate_shapes_give_their_gap`
+  - `test_a_diagonal_gap_is_euclidean`
+  - `test_touching_shapes_give_zero_and_a_shared_point`
+  - `test_an_empty_mask_gives_none`
+  - `test_long_contours_are_still_exact`
+
+</details>
+
+### [test_hooks.py](../test/inference/test_hooks.py) — 17 tests
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
 | Grupo | Tests |
 |---|---:|
 | `TestTemplateHooks` | 9 |
+| `TestStopperHooks` | 5 |
+| `TestReadPipelines` | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1584,6 +1638,16 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_without_the_engine_timestamp_the_project_draws_it`
   - `test_with_the_engine_timestamp_the_project_does_not_draw_it`
   - `test_the_load_limit_is_not_drawn_on_other_cameras`
+- `TestStopperHooks`
+  - `test_a_stopper_pipeline_draws_the_stopper_status`
+  - `test_without_a_stopper_pipeline_there_is_no_annotator`
+  - `test_the_process_values_are_the_ones_measured`
+  - `test_the_wheel_side_is_read`
+  - `test_a_null_distance_is_uncalibrated`
+- `TestReadPipelines`
+  - `test_it_keeps_the_enabled_pipelines_of_that_type`
+  - `test_the_cameras_come_in_the_config_order`
+  - `test_no_cameras_means_all_of_them`
 
 </details>
 
@@ -3488,6 +3552,24 @@ Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()`
 
 </details>
 
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 4 tests
+
+Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLevelDialog` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestLevelDialog`
+  - `test_it_starts_at_the_configured_height`
+  - `test_without_a_height_it_starts_at_the_top`
+  - `test_a_marked_height_reaches_the_field`
+  - `test_it_saves_one_row_under_its_key_and_persists`
+
+</details>
+
 ### [test_log_table.py](../test/ui/test_log_table.py) — 6 tests
 
 Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una línea nueva no reconstruya la tabla entera.
@@ -3507,6 +3589,35 @@ Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una lín
   - `test_a_filtered_out_line_is_kept_but_not_shown`
   - `test_dropping_a_hidden_line_does_not_remove_a_shown_one`
   - `test_dropping_a_shown_line_removes_it`
+
+</details>
+
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 11 tests
+
+Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestGroups` | 2 |
+| `TestRoundTrip` | 7 |
+| `TestLevel` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestGroups`
+  - `test_one_group_per_stopper_camera`
+  - `test_without_stopper_pipelines_there_are_no_groups`
+- `TestRoundTrip`
+  - `test_the_values_go_back_as_they_were`
+  - `test_a_missing_minimum_shows_the_default`
+  - `test_an_uncalibrated_distance_is_saved_as_null`
+  - `test_the_wheel_side_goes_back_as_it_was`
+  - `test_a_missing_wheel_side_is_any`
+  - `test_the_height_goes_back_as_it_was`
+  - `test_an_uncalibrated_height_is_saved_as_null`
+- `TestLevel`
+  - `test_reload_level_shows_what_the_dialog_wrote`
+  - `test_the_mark_button_asks_for_its_camera_key`
 
 </details>
 

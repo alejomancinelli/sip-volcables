@@ -105,6 +105,25 @@ process:
     # Una persona cuenta si los pies —el centro del borde inferior de su caja— caen
     # adentro. Una cámara sin zona cuenta a cualquier persona del frame.
     exclusion_zone_px: {}       # {camera_3: [[x, y], [x, y], [x, y], ...]}
+  stopper_check:
+    # Calzas, por cámara: cada cámara de un pipeline `stopper_check` tiene su grupo en la
+    # pestaña Proceso, y la altura se marca ahí sobre el frame en vivo. Todo en píxeles del
+    # frame de referencia: cambiar el tamaño de salida del decodificador obliga a revisarlo.
+    #   - La calza está levantada si al menos `min_raised_px` píxeles de su máscara quedan
+    #     por encima de la fila `raised_y_px`: una línea horizontal de borde a borde.
+    #   - Con la calza levantada —antes no se juzga y el panel dice «--»—, la rueda la toca
+    #     si la distancia más corta entre las dos máscaras no pasa de `max_gap_px`. Entre
+    #     máscaras y no entre bbox: con la calza bajo la curva de la goma, los bbox se
+    #     solapan aunque haya aire entre las dos.
+    #   - Con `wheel_side` sólo cuenta la rueda de ese lado de la calza, en la imagen: elige
+    #     la rueda correcta con dos ejes a la vista, y una rueda sólo del otro lado deja el
+    #     contacto en NOK.
+    # Una cámara sin altura o sin distancia (o en null) tiene ese veredicto sin calibrar: el
+    # panel dice «--» y el borde queda en rojo.
+    raised_y_px: {}             # {camera_1: 410}; fila del frame, 0 = arriba
+    min_raised_px: {}           # {camera_1: 50}; sin valor, 50
+    max_gap_px: {}              # {camera_1: 40}
+    wheel_side: {}              # {camera_1: left}; left | right | any; sin valor, any
   #
   # VARIOS PROCESOS. Una instalación con más de un proceso —cuatro cintas iguales, cada
   # una con su calibración— abre una sub-sección por proceso y declara qué cámaras mide

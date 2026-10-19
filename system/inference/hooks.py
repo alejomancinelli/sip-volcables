@@ -30,8 +30,13 @@ from .result import Detection, InferenceResult
 Classifier = Callable[[list[Detection], str], list[Detection]]
 Analyzer = Callable[[InferenceResult], dict]
 
+PERSON_PIPELINE_TYPE = "person_safety"
+STOPPER_PIPELINE_TYPE = "stopper_check"
+
 _FLOW_CLASS = "flow"   # la clase de `grain_cls` que dice que cae grano
-_PERSON_PIPELINE_TYPE = "person_safety"
+# Las clases de `stopper_seg`.
+_STOPPER_CLASS = "stopper"
+_WHEEL_CLASS = "wheel"
 
 
 @dataclass(frozen=True)
@@ -63,9 +68,11 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     sólo si alguna cámara lo declara, y el estado de la descarga —borde y panel OK / NOK del
     grano y de las personas— sólo si el config declara la sección `process.grain_flow`.
 
-    Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines`: los
-    habilitados de tipo `person_safety`, con `cameras: []` = todas las del config. La zona
-    de exclusión sale de `process.person_safety.exclusion_zone_px`.
+    Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines` (ver
+    `read_pipelines()`). La zona de exclusión sale de `process.person_safety`. El estado de
+    las calzas —borde y panel OK / NOK de la calza levantada y del contacto con la rueda— se
+    dibuja si hay algún pipeline `stopper_check`, con los valores de `process.stopper_check`.
+    Los rótulos de los dos paneles salen en el idioma de `ui.language`.
 
     Con `inference.overlay.draw_timestamp` en false la hora la dibuja el proyecto, del
     tamaño del frame y última, encima del borde: es una sola clave para que nunca salgan
@@ -73,16 +80,31 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     """
     max_load_y_px = config.get("process.max_load_y_px", {}) or {}
     has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
+    language = str(config.get("ui.language", "") or "")
 
     selected = []
     if has_grain_flow:
-        person_pipelines, person_cameras = _read_person_pipelines(config)
+        person_pipelines, person_cameras = read_pipelines(config, PERSON_PIPELINE_TYPE)
         selected.append(annotations.unload_status_annotator(
             flow_class=_FLOW_CLASS,
             person_pipelines=person_pipelines,
-            person_cameras=person_cameras,
+            person_cameras=set(person_cameras),
             exclusion_zone_px_by_camera=config.get(
                 "process.person_safety.exclusion_zone_px", {}) or {},
+            language=language,
+        ))
+    stopper_pipelines, _ = read_pipelines(config, STOPPER_PIPELINE_TYPE)
+    if stopper_pipelines:
+        section = "process.stopper_check"
+        selected.append(annotations.stopper_status_annotator(
+            stopper_pipelines=stopper_pipelines,
+            stopper_class=_STOPPER_CLASS,
+            wheel_class=_WHEEL_CLASS,
+            raised_y_px_by_camera=_read_camera_map(config, f"{section}.raised_y_px"),
+            min_raised_px_by_camera=_read_camera_map(config, f"{section}.min_raised_px"),
+            max_gap_px_by_camera=_read_camera_map(config, f"{section}.max_gap_px"),
+            wheel_side_by_camera=_read_camera_map(config, f"{section}.wheel_side"),
+            language=language,
         ))
     if max_load_y_px:
         selected.append(annotations.max_load_line_annotator(max_load_y_px))
@@ -93,16 +115,29 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     return EngineHooks(analyzer=compute_metrics, annotator=annotator)
 
 
-def _read_person_pipelines(config: ConfigManager) -> tuple[set[str], set[str]]:
-    """Los slots habilitados de tipo `person_safety` y las cámaras que miran entre todos."""
-    all_cameras = set((config.get("cameras", {}) or {}).keys())
+def read_pipelines(config: ConfigManager, pipeline_type: str) -> tuple[set[str], list[str]]:
+    """
+    Los slots habilitados de ese `type` y las cámaras que miran entre todos.
+
+    Las cámaras salen en el orden de `cameras:` del config, sin repetir; un pipeline con
+    `cameras: []` las mira todas. Lo usa también la pestaña de proceso, para armar un grupo
+    por cámara sin repetir esta regla.
+    """
+    all_cameras = list((config.get("cameras", {}) or {}).keys())
     pipelines: set[str] = set()
-    cameras: set[str] = set()
+    watched: set[str] = set()
     for pipeline_slot, section in (config.get("inference.pipelines", {}) or {}).items():
         if not isinstance(section, dict) or not section.get("enabled", True):
             continue
-        if section.get("type") != _PERSON_PIPELINE_TYPE:
+        if section.get("type") != pipeline_type:
             continue
         pipelines.add(pipeline_slot)
-        cameras |= set(section.get("cameras") or []) or all_cameras
-    return pipelines, cameras
+        watched |= set(section.get("cameras") or all_cameras)
+    ordered = [camera_slot for camera_slot in all_cameras if camera_slot in watched]
+    return pipelines, ordered + sorted(watched - set(ordered))
+
+
+def _read_camera_map(config: ConfigManager, key: str) -> dict:
+    """Un mapa por cámara del config, sin las cámaras en null: null es «sin calibrar»."""
+    values = config.get(key, {}) or {}
+    return {camera_slot: value for camera_slot, value in values.items() if value is not None}

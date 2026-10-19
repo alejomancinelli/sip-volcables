@@ -387,6 +387,53 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "vídeo ao vivo sem imagem até a medição seguinte."},
 
     # ── Proceso (configuración) ──────────────────────────────────────────────
+    "process_stopper_box":    {"es": "Calza",          "en": "Stopper",       "pt": "Calço"},
+    "process_stopper_level":  {"es": "Altura de calza levantada (Y px)",
+                               "en": "Raised stopper height (Y px)",
+                               "pt": "Altura de calço levantado (Y px)"},
+    "process_draw_level":     {"es": "Marcar sobre la imagen",
+                               "en": "Mark on the image",
+                               "pt": "Marcar sobre a imagem"},
+    "process_stopper_min_raised": {"es": "Píxeles mínimos sobre la línea",
+                               "en": "Minimum pixels above the line",
+                               "pt": "Pixels mínimos acima da linha"},
+    "process_stopper_max_gap": {"es": "Distancia máx. rueda-calza (px)",
+                               "en": "Max wheel-stopper distance (px)",
+                               "pt": "Distância máx. roda-calço (px)"},
+    "process_uncalibrated":   {"es": "Sin calibrar",   "en": "Not calibrated", "pt": "Não calibrado"},
+    "process_wheel_side":     {"es": "Lado de la rueda respecto de la calza",
+                               "en": "Wheel side relative to the stopper",
+                               "pt": "Lado da roda em relação ao calço"},
+    "wheel_side_any":         {"es": "Cualquiera",     "en": "Either",        "pt": "Qualquer"},
+    "wheel_side_left":        {"es": "Izquierda",      "en": "Left",          "pt": "Esquerda"},
+    "wheel_side_right":       {"es": "Derecha",        "en": "Right",         "pt": "Direita"},
+    "process_stopper_hint":   {"es": "La calza está levantada si al menos esa cantidad de "
+                                     "píxeles de su máscara queda por encima de esa altura, "
+                                     "una línea horizontal de borde a borde. Recién con la calza levantada, "
+                                     "la rueda la toca si la distancia más corta entre las dos "
+                                     "máscaras no pasa del máximo; con un lado elegido, sólo "
+                                     "cuenta la rueda de ese lado de la calza en la imagen. "
+                                     "Todo en píxeles del frame de la cámara. Se guarda con "
+                                     "Guardar —la altura marcada sobre la imagen, también al "
+                                     "cerrar su ventana— y se aplica al reiniciar.",
+                               "en": "The stopper is raised if at least that many pixels of "
+                                     "its mask are above that height, a horizontal line across "
+                                     "the whole width. Only once the stopper is raised, the wheel "
+                                     "touches it if the shortest distance between the two "
+                                     "masks is within the maximum; with a side chosen, only "
+                                     "the wheel on that side of the stopper in the image "
+                                     "counts. All in pixels of the camera frame. Saved with Save "
+                                     "—the height marked on the image also when its window "
+                                     "closes— and applied after a restart.",
+                               "pt": "O calço está levantado se pelo menos essa quantidade de "
+                                     "pixels da sua máscara fica acima dessa altura, uma linha "
+                                     "horizontal de borda a borda. Só com o calço levantado, a roda o toca "
+                                     "se a menor distância entre as duas máscaras não passa do "
+                                     "máximo; com um lado escolhido, só conta a roda desse "
+                                     "lado do calço na imagem. Tudo em pixels do frame da "
+                                     "câmera. Salva-se com Salvar "
+                                     "—a altura marcada sobre a imagem, também ao fechar sua "
+                                     "janela— e aplica-se ao reiniciar."},
     "process_empty_note":     {"es": "Esta instalación todavía no declaró parámetros de "
                                      "proceso editables desde la pantalla.\n\n"
                                      "Los parámetros de lo que se mide —escalas de píxel, "
