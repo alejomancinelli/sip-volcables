@@ -49,6 +49,7 @@ _STATUS_BORDER_FRACTION = 0.03
 _STATUS_BORDER_MIN_PX = 12      # más que el margen del panel, para que siempre lo pise
 _STATUS_TEXT_FRACTION = 0.05    # alto del texto del panel
 _ZONE_THICKNESS_FRACTION = 0.004
+_TIMESTAMP_TEXT_FRACTION = 0.04  # `draw_timestamp` lo dibuja un punto más chico que esto
 # Un veredicto más viejo que esto, contado desde el más nuevo de su cámara, ya no cuenta:
 # el pipeline que lo dio se cayó o dejó de recibir frames.
 _VERDICT_MAX_AGE_S = 2.0
@@ -203,6 +204,26 @@ def unload_status_annotator(*, flow_class: str, person_pipelines: set[str],
 
     draw.__name__ = (f"unload_status({flow_class}, persons={sorted(person_pipelines)}, "
                      f"zones={sorted(zone_by_camera)})")
+    return draw
+
+
+def timestamp_annotator() -> Annotator:
+    """
+    Dibuja la fecha y hora del resultado abajo a la derecha, del tamaño del frame.
+
+    Es la hora del motor con otra escala: la del motor es fija, y en un frame de 2560 px
+    queda escondida dentro del borde de estado. Va con `inference.overlay.draw_timestamp`
+    en false —si no, salen las dos— y última en la cadena, así queda encima del borde.
+    """
+    def draw(frame_bgr: np.ndarray, result: InferenceResult):
+        if frame_bgr is None or frame_bgr.size == 0:
+            return
+        unit_height_px = cv2.getTextSize("0", cv2.FONT_HERSHEY_SIMPLEX, 1.0, 1)[0][1]
+        font_scale = min(frame_bgr.shape[:2]) * _TIMESTAMP_TEXT_FRACTION / unit_height_px
+        overlay.draw_timestamp(frame_bgr, result.timestamp_s,
+                               options=overlay.OverlayOptions(font_scale=font_scale))
+
+    draw.__name__ = "timestamp"
     return draw
 
 

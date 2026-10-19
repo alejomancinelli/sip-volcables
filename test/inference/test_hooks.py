@@ -50,6 +50,16 @@ class TestTemplateHooks:
                                                labels={"grain_flow": "flow"}))
         assert frame.any()
 
+    def test_without_the_engine_timestamp_the_project_draws_it(self):
+        hooks = build_hooks(_MockConfig(**{"inference.overlay.draw_timestamp": False}))
+        frame = np.zeros((60, 80, 3), np.uint8) + 128
+        hooks.annotator(frame, InferenceResult(camera_slot="camera_1"))
+        assert np.all(frame[-1, -1] == 0)
+
+    def test_with_the_engine_timestamp_the_project_does_not_draw_it(self):
+        """Una sola clave decide quién la dibuja: nunca salen las dos."""
+        assert build_hooks(_MockConfig(**{"inference.overlay.draw_timestamp": True})).annotator is None
+
     def test_the_load_limit_is_not_drawn_on_other_cameras(self):
         hooks = build_hooks(_MockConfig(**{"process.max_load_y_px": {"camera_1": 30}}))
         frame = np.zeros((60, 80, 3), np.uint8)

@@ -151,12 +151,15 @@ inference:
     draw_masks: true            # sólo hace algo si el modelo devuelve máscaras
     draw_labels: true           # nombre de clase y confianza sobre cada caja
     draw_roi: true              # recuadro de la zona que se analizó
-    draw_timestamp: true
+    # false = la hora la dibuja el proyecto (system/inference/hooks.py), del tamaño del
+    # frame y encima del borde de estado; la del motor tiene escala fija y en 2560 px queda
+    # escondida dentro del borde.
+    draw_timestamp: false
     # Sólo el recorte del ROI en el anotado. Con varios pipelines sobre una cámara el
     # anotado no se combina: muestra uno por vez.
     crop_to_roi: false
     font_scale: 0.6
-    thickness: 2
+    thickness: 4                # px de la línea de las cajas, en el frame que llega
     class_colors_bgr: []        # [[B,G,R], ...] por índice de clase; [] = paleta del módulo
   pipelines:
     # Una entrada por pipeline, numeradas pipeline_1 … pipeline_N. La clave es el slot:

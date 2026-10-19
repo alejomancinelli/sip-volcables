@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from system.inference.annotations import (
-    chain, labels_panel_annotator, max_load_line_annotator, unload_status_annotator,
+    chain, labels_panel_annotator, max_load_line_annotator, timestamp_annotator,
+    unload_status_annotator,
 )
 from system.inference.result import Detection, InferenceResult
 
@@ -309,3 +310,33 @@ class TestUnloadStatus:
 
     def test_it_names_itself_with_its_settings(self):
         assert "flow" in _status().__name__
+
+
+def _timestamp_height_px(frame_bgr: np.ndarray) -> int:
+    """Filas negras del fondo de la hora, sobre la última columna del frame."""
+    return int(np.count_nonzero(np.all(frame_bgr[:, -1] == 0, axis=1)))
+
+
+class TestTimestamp:
+    def test_it_draws_in_the_bottom_right_corner(self):
+        frame = _frame()
+        timestamp_annotator()(frame, _result())
+        assert np.all(frame[-1, -1] == 0)
+        assert np.all(frame[0, 0] == 128)
+
+    def test_it_grows_with_the_frame(self):
+        small = np.full((360, 640, 3), 128, np.uint8)
+        large = np.full((1440, 2560, 3), 128, np.uint8)
+        timestamp_annotator()(small, _result())
+        timestamp_annotator()(large, _result())
+        assert _timestamp_height_px(large) > 2 * _timestamp_height_px(small)
+
+    def test_it_is_taller_than_the_status_border(self):
+        """Encima del borde y más alto que él: si no, queda escondida adentro."""
+        frame = np.full((1440, 2560, 3), 128, np.uint8)
+        chain(_status(person_cameras=set()), timestamp_annotator())(frame, _grain("flow"))
+        border_px = int(np.count_nonzero(np.any(frame[:, 1280] != 128, axis=1))) // 2
+        assert _timestamp_height_px(frame) > border_px
+
+    def test_an_empty_frame_is_ignored(self):
+        timestamp_annotator()(np.zeros((0, 0, 3), np.uint8), _result())

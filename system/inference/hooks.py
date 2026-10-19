@@ -66,6 +66,10 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines`: los
     habilitados de tipo `person_safety`, con `cameras: []` = todas las del config. La zona
     de exclusión sale de `process.person_safety.exclusion_zone_px`.
+
+    Con `inference.overlay.draw_timestamp` en false la hora la dibuja el proyecto, del
+    tamaño del frame y última, encima del borde: es una sola clave para que nunca salgan
+    las dos ni ninguna sin quererlo.
     """
     max_load_y_px = config.get("process.max_load_y_px", {}) or {}
     has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
@@ -82,6 +86,8 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
         ))
     if max_load_y_px:
         selected.append(annotations.max_load_line_annotator(max_load_y_px))
+    if not config.get("inference.overlay.draw_timestamp", True):
+        selected.append(annotations.timestamp_annotator())
     annotator = annotations.chain(*selected) if selected else None
 
     return EngineHooks(analyzer=compute_metrics, annotator=annotator)

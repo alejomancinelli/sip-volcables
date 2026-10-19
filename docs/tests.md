@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**74 archivos, 417 grupos, 2049 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**74 archivos, 418 grupos, 2055 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -20,7 +20,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 12 | 338 |
+| [test/inference/](#testinference) | 12 | 344 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -1325,7 +1325,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 37 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 41 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1335,6 +1335,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 | `TestChain` | 6 |
 | `TestLabelsPanel` | 2 |
 | `TestUnloadStatus` | 20 |
+| `TestTimestamp` | 4 |
 
 <details><summary>Tests</summary>
 
@@ -1379,6 +1380,11 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_the_text_grows_with_the_frame`
   - `test_an_empty_frame_is_ignored`
   - `test_it_names_itself_with_its_settings`
+- `TestTimestamp`
+  - `test_it_draws_in_the_bottom_right_corner`
+  - `test_it_grows_with_the_frame`
+  - `test_it_is_taller_than_the_status_border`
+  - `test_an_empty_frame_is_ignored`
 
 </details>
 
@@ -1558,13 +1564,13 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 
 </details>
 
-### [test_hooks.py](../test/inference/test_hooks.py) — 7 tests
+### [test_hooks.py](../test/inference/test_hooks.py) — 9 tests
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
 | Grupo | Tests |
 |---|---:|
-| `TestTemplateHooks` | 7 |
+| `TestTemplateHooks` | 9 |
 
 <details><summary>Tests</summary>
 
@@ -1575,6 +1581,8 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_without_a_load_limit_there_is_no_annotator`
   - `test_a_declared_load_limit_is_drawn_on_its_camera`
   - `test_a_declared_grain_flow_draws_the_verdict_panel`
+  - `test_without_the_engine_timestamp_the_project_draws_it`
+  - `test_with_the_engine_timestamp_the_project_does_not_draw_it`
   - `test_the_load_limit_is_not_drawn_on_other_cameras`
 
 </details>
