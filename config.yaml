@@ -173,7 +173,7 @@ inference:
       # solo el cliente que no compró la vigilancia perdería también la medición que sí
       # pagó, porque el pipeline entero no arranca.
       feature: core
-      cameras: [camera_1, camera_2]   # cámaras que entran a este hilo; [] = todas las que le pusheen
+      cameras: [camera_3, camera_4]   # cámaras que entran a este hilo; [] = todas las que le pusheen
       interval_s: 0.5           # período mínimo entre frames de una misma cámara; 0 = todos
       # Umbrales del resultado completo, no de cada detección: por debajo, el resultado se
       # emite igual pero marcado como no confiable, y sus números no se publican como
@@ -204,7 +204,7 @@ inference:
       enabled: true
       type: person_safety
       feature: person_safety
-      cameras: [camera_1, camera_2]
+      cameras: [camera_3, camera_4]
       interval_s: 0.0
       min_detections: 0
       min_result_confidence_pct: 0
@@ -217,7 +217,7 @@ inference:
       enabled: true
       type: stopper_check
       feature: stopper_check
-      cameras: [camera_3, camera_4]
+      cameras: [camera_1, camera_2]
       interval_s: 0.5
       min_detections: 0
       min_result_confidence_pct: 0
@@ -229,14 +229,14 @@ inference:
     # Una entrada por modelo, numeradas model_1 … model_N. El slot es el nombre con el que
     # el pipeline pide el modelo en `model_slots`.
     #
-    # Los tres van en `mock` hasta exportar sus engines en la Jetson con
-    # manual_test/model_export/: las detecciones son sintéticas y el `path` queda vacío.
-    # Después cada uno pasa a `yolo_cls`, `yolo_det` o `yolo_seg` con `path` al .engine;
-    # el tamaño de entrada —cuadrado o rectangular— lo dice el engine, no este archivo, y
-    # `max_side_px` no aplica. Los .pt de entrenamiento esperan en models/.
+    # Los tres corren sus engines TensorRT (`yolo_cls`, `yolo_det` y `yolo_seg`), con
+    # `path` al .engine exportado en la Jetson con manual_test/model_export/; el tamaño de
+    # entrada —cuadrado o rectangular— lo dice el engine, no este archivo, y
+    # `max_side_px` no aplica. Los .pt de entrenamiento esperan en models/. Con `type: mock`
+    # las detecciones son sintéticas y el `path` queda vacío.
     grain_cls:
-      type: mock                # ver REGISTERED_MODELS en model_factory.py
-      path: ''                  # pesos del modelo; relativo a la raíz del repo
+      type: yolo_cls          # ver REGISTERED_MODELS en model_factory.py
+      path: models/cls_fp16.engine  # pesos del modelo; relativo a la raíz del repo
       # El dispositivo no se configura: la implementación usa la GPU si hay CUDA
       # disponible y cae a CPU si no. Elegirlo a mano sólo servía para dejar la
       # inferencia en CPU sin darse cuenta.
@@ -245,28 +245,24 @@ inference:
       # Nombre por índice de clase; [] = 'class_<i>'. Los que traen los pesos le ganan. No
       # se edita desde la UI: un orden cambiado no da un error, invierte los porcentajes.
       class_names: [no_flow, flow]
-      params:                   # extras propios del framework
-        detection_count: 1      # mock: el clasificador da una clase por frame
+      params: {}                # extras propios del framework
       # En un proyecto que cuenta cientos de objetos `min_confidence_pct` va bajo a
       # propósito: el que juzga si el conjunto sirve es el umbral del pipeline, sobre la
       # confianza promediada.
     person_det:
-      type: mock
-      path: ''
+      type: yolo_det
+      path: models/det_rect.engine
       min_confidence_pct: 50
       max_side_px: 0
       class_names: [person]
-      params:
-        detection_count: 1      # mock: una caja por clase declarada, sin máscara
+      params: {}
     stopper_seg:
-      type: mock
-      path: ''
+      type: yolo_seg
+      path: models/seg_rect.engine
       min_confidence_pct: 50
       max_side_px: 0
       class_names: [stopper, wheel]
-      params:
-        detection_count: 2      # mock: calza y rueda, con máscara
-        with_masks: true
+      params: {}
 
 image_collector:
   # Dataset de imágenes en `system.paths.dataset`, una carpeta por fecha y cámara:
@@ -400,18 +396,19 @@ cameras:
   # Una entrada por cámara física, numeradas camera_1 … camera_N. La clave es el
   # slot: es la identidad con la que la cámara aparece en el resto del sistema.
   #
-  # Las cuatro son video grabado (`driver: video_file`, ver docs/offline_testing.md): la
-  # imagen es de la planta pero no es la línea ahora, y el estado que lee el PLC lo dice.
+  # Las cuatro son cámaras IP por RTSP (`driver: rtsp`) de un servidor que reproduce
+  # grabaciones de la planta: la imagen es real pero no es la línea ahora. Para el video
+  # grabado leído del archivo está `driver: video_file` (ver docs/offline_testing.md).
   camera_1:
-    name: Acoplado              # texto que muestra la UI; se puede cambiar sin romper nada
+    name: Calza derecha        # texto que muestra la UI; se puede cambiar sin romper nada
     enabled: true               # false = conectada pero sin capturar (ver get_status)
-    brand: replay               # clave de CAMERA_CATALOG en camera_catalog.py
-    model: file                 # uno de los "models" de ese fabricante
-    driver: video_file          # ver REGISTERED_DRIVERS en camera_factory.py
-    address: recordings/acoplado.mp4   # IP, ID de GenTL o ruta al video, según el driver
+    brand: rtsp                 # clave de CAMERA_CATALOG en camera_catalog.py
+    model: generic              # uno de los "models" de ese fabricante
+    driver: rtsp                # ver REGISTERED_DRIVERS en camera_factory.py
+    address: rtsp://10.8.51.1:8554/cam_1   # IP, ID de GenTL o ruta al video, según el driver
     rotation: null              # null | 90cw | 90ccw | 180
     acquisition:
-      fps_limit: 1              # tope de frames por segundo; 0 = el fps del video (10)
+      fps_limit: 10             # tope de frames por segundo; 0 = el fps del video (10)
       exposure_time_us: 25000
       gain: 1.0
     decode:
@@ -426,7 +423,7 @@ cameras:
       # los streams quedan en él, y cambiarlo obliga a revisar el ROI y a recalibrar la
       # nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
       # que decodificar y reducir por CPU; NVDEC sin reducir ahorra poco.
-      backend: cpu              # cpu | nvdec | auto; se aplica al reiniciar
+      backend: auto             # cpu | nvdec | auto; se aplica al reiniciar
       width_px: 0               # 0 y 0 = tamaño del video
       height_px: 0
     roi:
@@ -479,19 +476,19 @@ cameras:
       brightness_factor: 1.0    # x0.1–x5.0, lineal y saturado en 255; 1.0 = sin cambio
       clahe_clip: 0.0           # contraste local 0–8; 0 = apagado
   camera_2:
-    name: Chasis
+    name: Calza izquierda
     enabled: true
-    brand: replay
-    model: file
-    driver: video_file
-    address: recordings/chasis.mp4
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_2
     rotation: null
     acquisition:
-      fps_limit: 1
+      fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
     decode:
-      backend: cpu
+      backend: auto
       width_px: 0
       height_px: 0
     roi:
@@ -516,19 +513,19 @@ cameras:
       brightness_factor: 1.0
       clahe_clip: 0.0
   camera_3:
-    name: Calza izquierda
+    name: Acoplado
     enabled: true
-    brand: replay
-    model: file
-    driver: video_file
-    address: recordings/calza_izq.mp4
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_3
     rotation: null
     acquisition:
-      fps_limit: 1
+      fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
     decode:
-      backend: cpu
+      backend: auto
       width_px: 0
       height_px: 0
     roi:
@@ -553,19 +550,19 @@ cameras:
       brightness_factor: 1.0
       clahe_clip: 0.0
   camera_4:
-    name: Calza derecha
+    name: Chasis
     enabled: true
-    brand: replay
-    model: file
-    driver: video_file
-    address: recordings/calza_der.mp4
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_4
     rotation: null
     acquisition:
-      fps_limit: 1
+      fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
     decode:
-      backend: cpu
+      backend: auto
       width_px: 0
       height_px: 0
     roi:
