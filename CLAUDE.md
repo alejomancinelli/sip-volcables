@@ -65,6 +65,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
           model_key.py        de dónde sale la clave con la que se abren esos pesos
           model_factory.py    único archivo que conoce las clases concretas
           mock_model.py       detecciones sintéticas, sin framework
+          yolo_model.py       YOLO de ultralytics en TensorRT: yolo_det, yolo_seg, yolo_cls
+          tensorrt_runtime.py un .engine abierto desde bytes; lo único que toca la GPU
           null_model.py       lo que devuelve la fábrica ante una config inválida
         abstract_pipeline.py  maquinaria de las etapas: las crea, las carga y las cronometra
         pipeline.py           los pipelines concretos; es lo que cambia en cada instalación
@@ -115,11 +117,16 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         camera_factory.py     único archivo que conoce las clases concretas
         basler_driver.py      pypylon
         st_driver.py          stapipy (Sentech / Omron)
-        rtsp_driver.py        cámara IP por RTSP, con FFmpeg de OpenCV
+        rtsp_driver.py        cámara IP por RTSP
         video_file_driver.py  video grabado en loop, al ritmo del reloj, como cámara en vivo
+        decoder.py            quién decodifica a esos dos: OpenCV por CPU o NVDEC + VIC
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
+      jetson/                 la Jetson leída sin root; fuera de una, todo vacío y sin excepciones
+        board.py              módulo, L4T, modo de potencia, relojes fijados y sobrecorriente
+        capabilities.py       qué motor anda de verdad: un pipeline corto por motor
+        tegrastats.py         carga del VIC, NVENC, NVDEC, NVJPG, DLA y la memoria
       image/                  operaciones sobre un frame; no saben de dónde salió
         enhance.py            gamma para mirar; factor de brillo lineal por cámara para medir
         undistort.py          corrección de lente; va en el preprocessor del motor
@@ -146,6 +153,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+      model_export/           exporta un .pt de ultralytics a .engine, cuadrado o rectangular
+      jetson_accelerators/    qué motores tiene la Jetson y cuánto CPU libera cada etapa en ellos
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
@@ -160,7 +169,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               licensing.md (cómo se pide y se renueva una licencia)
                               mqtt.md (la misma estructura, en tópicos y JSON),
                               model_protection.md (cómo se protege y se reemplaza un modelo),
-                              offline_testing.md (video grabado e imágenes sueltas) y
+                              offline_testing.md (video grabado e imágenes sueltas),
+                              jetson.md (los aceleradores: qué parámetros los controlan, qué
+                              le hacen a la imagen y cómo exportar los engines) y
                               tests.md (el índice de la suite, generado)
     recordings/               videos que el driver `video_file` reproduce; no se versionan
     data/                     logs y dataset en runtime
@@ -299,6 +310,16 @@ Lo que no se deduce leyendo un archivo suelto:
   `InferenceThread.process()`, sin arrancar el hilo. Un segundo camino de inferencia
   podría dar distinto que el primero, y una imagen que pasa la prueba no diría nada de la
   línea. Por eso lo del fork que entra al motor vive en `hooks.py` y no en `main.py`.
+- **El tamaño al que sale el video decodificado es de la cámara, no del decodificador.**
+  `cameras.<slot>.decode` elige quién decodifica una cámara RTSP o un video —`cpu` o
+  `nvdec`, que es NVDEC más el VIC de la Jetson— y a qué tamaño sale el frame. En `nvdec`
+  reduce el VIC y en `cpu` un `cv2.resize`, los dos bilineales, así que cambiar de backend
+  cambia quién trabaja y no lo que ve la app. Para la app la cámara pasa a ser de ese tamaño:
+  el ROI, el dataset y los streams quedan en él. Reducir es lo que ahorra: NVDEC a tamaño
+  completo apenas gana, porque copiar el frame grande a numpy cuesta casi lo que
+  decodificarlo. `nvdec` en un equipo que no lo tiene no cae a la CPU: la cámara no abre y
+  el log dice por qué, porque una planta que cuenta con el VIC no puede pasar a gastar CPU
+  sin que se note. El default es `cpu`.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -690,8 +711,19 @@ La tabla completa, archivo por archivo, está en `README.md`.
   simulado. Lo que queda es de cada instalación: declarar en `gpio:` los offsets de su
   placa y verlos conmutar en el borne.
 - El modelo del proyecto. El template trae el mock —detecciones sintéticas, sin
-  framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
-  fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
+  framework— y los YOLO de ultralytics exportados a TensorRT (`yolo_det`, `yolo_seg`,
+  `yolo_cls`), que corren el engine sin ultralytics y cargan desde bytes. Lo que falta de
+  ellos es verlos andar en la Jetson con un engine de verdad: la suite prueba el pre y post
+  proceso, no la pasada por la GPU. Un modelo de otro framework lo agrega el fork en
+  `system/inference/models/` registrándolo en la fábrica; el pipeline y las métricas son
+  los otros dos archivos que se reescriben.
+- **De los motores de la Jetson, la app usa hoy el VIC y NVENC en los codecs `_hw` del
+  RTSP, y NVDEC + VIC para decodificar las cámaras RTSP y los videos** con
+  `decode.backend: nvdec`. La telemetría publica qué motor está en uso, leído de sysfs sin
+  root. La decodificación por NVDEC falta verla andar en la Jetson con una cámara de
+  verdad. Para un frame que ya está en numpy —el de una cámara GigE— el VIC y NVJPG no
+  convienen: copiarlo al motor y de vuelta cuesta más de lo que ahorran. Las mediciones y
+  el plan están en `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado

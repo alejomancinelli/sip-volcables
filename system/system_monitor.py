@@ -18,6 +18,12 @@ Las fuentes cambian según la plataforma, el contrato no:
   gpu_usage_pct   /sys/devices/…/load (por mil)        nvidia-smi
   gpu_temp_c      zona de GPU, o la del SoC            nvidia-smi
   power_w         rails INA3221 del módulo             nvidia-smi (solo la GPU)
+  engines         runtime PM y devfreq (tools/jetson)  — ({})
+  overcurrent_count  hwmon de sobrecorriente           — (0)
+
+`engines` dice qué motor de la Jetson (VIC, NVENC, NVDEC, NVJPG, DLA...) se usó hace poco
+y a qué frecuencia, leído sin root. No es carga en %: eso sólo lo publica `tegrastats`
+como root. El dueño de esas rutas y de los nombres es `tools/jetson/board.py`.
 
 La temperatura en Windows es la que publica el firmware en sus zonas ACPI
 (`\\_TZ.TZ00`), no el sensor del die del CPU: ese está en
@@ -49,6 +55,7 @@ import psutil
 from system.config_manager import ConfigManager
 from system.logger import logger
 from system.paths import DATA_DIR
+from tools.jetson import board
 
 _MB = 1024 ** 2
 _GB = 1024 ** 3
@@ -245,6 +252,10 @@ class SystemMonitor:
         # proceso. Va guardada como el resto: construir el monitor no puede tumbar
         # el arranque de la app por una métrica.
         self._read_or(lambda: psutil.cpu_percent(interval=None), 0, "el uso de CPU")
+        # Los motores se buscan una vez: recorrer /sys/devices/platform en cada vuelta
+        # cuesta más que leerlos, y no aparecen ni desaparecen en caliente.
+        self._engine_devices = (self._read_or(board.find_engine_devices, {}, "los motores")
+                                if self._is_linux else {})
 
     # ── API pública ──────────────────────────────────────────────────────────
 
@@ -258,6 +269,10 @@ class SystemMonitor:
           power_w                        W del módulo, o de la GPU discreta; 0 sin sensor
           net_mbps                       {interfaz: {"rx_mbps": float, "tx_mbps": float}}
           temps_c                        {zona: °C} con el nombre que le da la plataforma
+          engines                        {motor: {"is_active": bool, "mhz": int}}; {} fuera
+                                         de una Jetson
+          overcurrent_count              eventos de sobrecorriente desde el arranque, todos
+                                         los canales sumados; 0 sin sensor
 
         No propaga excepciones: la métrica de una fuente que falla queda en su
         valor neutro y el resto se reporta igual.
@@ -289,6 +304,10 @@ class SystemMonitor:
                 "power_w": power_w if power_w is not None else gpu.get("power_w", 0),
                 "net_mbps": self._read_or(self._read_net_mbps, {}, "la red"),
                 "temps_c": zones,
+                "engines": self._read_or(
+                    lambda: board.read_engines(self._engine_devices), {}, "los motores"),
+                "overcurrent_count": self._read_or(
+                    self._read_overcurrent_count, 0, "la sobrecorriente"),
             }
 
     # ── Temperaturas ─────────────────────────────────────────────────────────
@@ -408,6 +427,15 @@ class SystemMonitor:
             if voltage_mv is not None and current_ma is not None:
                 return round(voltage_mv * current_ma / 1_000_000.0, 1)
         return None
+
+    def _read_overcurrent_count(self) -> int:
+        """
+        Eventos de sobrecorriente desde el arranque, sumando los canales. Un salto entre
+        dos lecturas es que el módulo recortó relojes para protegerse.
+        """
+        if not self._is_linux:
+            return 0
+        return sum(board.read_overcurrent_counts().values())
 
     def _read_nvidia_smi(self) -> dict:
         """

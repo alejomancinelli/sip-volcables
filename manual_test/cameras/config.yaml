@@ -52,6 +52,21 @@ cameras:
     acquisition:
       fps_limit: 15
 
+  # La misma cámara decodificada por NVDEC y reducida en el VIC (sólo en la Jetson). Contra
+  # `rtsp` muestra el cambio de backend con una cámara de verdad: su red, su codec —muchas
+  # mandan H.265— y su autenticación.
+  rtsp_nvdec:
+    driver: rtsp
+    address: rtsp://192.168.1.64:554/Streaming/channels/101
+    credentials_env: CAM1
+    rotation: null
+    acquisition:
+      fps_limit: 15
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360
+
   # La misma cámara sin tope de entrega: muestra el fps real del stream.
   rtsp_full_rate:
     driver: rtsp
@@ -73,3 +88,37 @@ cameras:
   # Verifica la salida por configuración inválida: debe dar un NullDriver.
   unregistered:
     driver: DOES_NOT_EXIST
+
+  # Decodificación por NVDEC y el VIC (tools/camera/decoder.py), para probar en la Jetson
+  # sin una cámara IP: la fuente es el servidor de manual_test/rtsp_video corriendo en el
+  # mismo equipo, en otra terminal. Los dos casos tienen que entregar el mismo tamaño —lo
+  # pone `decode`, no el backend— y el log dice cuál decodificó.
+  rtsp_local_nvdec:
+    driver: rtsp
+    address: rtsp://127.0.0.1:8654/camera_1/raw
+    rotation: null
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360
+
+  rtsp_local_cpu:
+    driver: rtsp
+    address: rtsp://127.0.0.1:8654/camera_1/raw
+    rotation: null
+    decode:
+      backend: cpu
+      width_px: 640
+      height_px: 360
+
+  # Las grabaciones de recordings/ como cámara, decodificadas por NVDEC.
+  video_nvdec:
+    driver: video_file
+    address: recordings
+    rotation: null
+    acquisition:
+      fps_limit: 0
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360

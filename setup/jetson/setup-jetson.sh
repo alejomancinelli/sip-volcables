@@ -13,6 +13,14 @@
 #
 #     --camera-iface=IFACE   NIC the GigE camera is on: MTU 9000. Repeatable.
 #     --no-hold              do not apt-mark hold the L4T boot and kernel packages
+#     --power-mode=NAME      set the nvpmodel power mode by name (e.g. 20W); persists
+#     --clocks-at-boot       pin the clocks with jetson_clocks at every boot (systemd unit)
+#     --headless-boot        boot to a console, without the desktop
+#
+# The last three are the plant's choice, so without them the script only reports how the
+# board is set. Measured on the Orin NX of volcables: 20W with jetson_clocks gave the
+# best stable result. MAXN raised an over-current alert. The desktop costs memory and CPU
+# that a board without a screen doesn't need.
 #
 # Not here, on purpose: Docker. The app ships as a Nuitka build with its own launchers
 # (build/), not as a container.
@@ -25,10 +33,16 @@ CONFIG_FILE="$PROJECT_ROOT/config.yaml"
 
 CAMERA_IFACES=()
 HOLD_L4T=1
+POWER_MODE=""
+CLOCKS_AT_BOOT=0
+HEADLESS_BOOT=0
 for _arg in "$@"; do
     case "$_arg" in
         --camera-iface=*) CAMERA_IFACES+=("${_arg#--camera-iface=}") ;;
         --no-hold)        HOLD_L4T=0 ;;
+        --power-mode=*)   POWER_MODE="${_arg#--power-mode=}" ;;
+        --clocks-at-boot) CLOCKS_AT_BOOT=1 ;;
+        --headless-boot)  HEADLESS_BOOT=1 ;;
         *) echo "unknown option: $_arg" >&2; exit 2 ;;
     esac
 done
@@ -51,8 +65,8 @@ echo "======================================================================"
 echo " Jetson system setup"
 echo "======================================================================"
 
-# --- 1/7  Preconditions --------------------------------------------------------
-step "1/7  Checking this is a Jetson on JetPack 6"
+# --- 1/8  Preconditions --------------------------------------------------------
+step "1/8  Checking this is a Jetson on JetPack 6"
 
 [ "$(id -u)" -ne 0 ] || fail "Run as the app user, not as root: sudo is called where needed."
 [ -f /etc/nv_tegra_release ] || fail "/etc/nv_tegra_release not found: this is not a Jetson."
@@ -68,10 +82,10 @@ ok "Module: $MODEL"
 # pinned to 3.10 by the stapipy wheel. R38+ moves to another Python. Neither can work.
 [ "$L4T_MAJOR" = "36" ] || fail "L4T R$L4T_MAJOR found; this project needs R36 (JetPack 6.x, Python 3.10)."
 
-# --- 2/7  L4T package hold ---------------------------------------------------------
+# --- 2/8  L4T package hold ---------------------------------------------------------
 # On a third-party carrier board an apt upgrade of these can flash a bootloader or a
 # device tree made for NVIDIA's devkit, and the board stops booting.
-step "2/7  Holding the L4T boot and kernel packages"
+step "2/8  Holding the L4T boot and kernel packages"
 
 L4T_HOLD=(nvidia-l4t-bootloader nvidia-l4t-kernel nvidia-l4t-kernel-dtbs
           nvidia-l4t-kernel-headers nvidia-l4t-core)
@@ -90,8 +104,8 @@ else
     note "--no-hold given: L4T packages left as they are"
 fi
 
-# --- 3/7  apt packages -----------------------------------------------------------
-step "3/7  Installing system packages"
+# --- 3/8  apt packages -----------------------------------------------------------
+step "3/8  Installing system packages"
 
 APT_PACKAGES=(
     # Python: the venv and the headers Nuitka compiles against.
@@ -122,8 +136,8 @@ sudo apt-get update -qq
 sudo apt-get install -y --no-upgrade "${APT_PACKAGES[@]}"
 ok "${#APT_PACKAGES[@]} packages present"
 
-# --- 4/7  NVIDIA runtime pieces ------------------------------------------------------
-step "4/7  Checking TensorRT, the Jetson GStreamer plugins and what NVIDIA's torch loads"
+# --- 4/8  NVIDIA runtime pieces ------------------------------------------------------
+step "4/8  Checking TensorRT, the Jetson GStreamer plugins and what NVIDIA's torch loads"
 
 # TensorRT's Python binding is a JetPack apt package for the system Python 3.10;
 # venv-setup.sh links it into the venv.
@@ -163,11 +177,11 @@ else
     hint "  sudo apt-get install -y libcusparselt0 libcusparselt-dev"
 fi
 
-# --- 5/7  Device permissions -------------------------------------------------------
+# --- 5/8  Device permissions -------------------------------------------------------
 # The app opens /dev/gpiochipN (GPIO) and /dev/ttyTHSn or a USB adapter (Modbus RTU)
 # as a normal user. Without these groups it degrades to simulated GPIO, or the RTU
 # server reports the port, and nothing says "permission".
-step "5/7  GPIO chip and serial port permissions"
+step "5/8  GPIO chip and serial port permissions"
 
 GPIO_RULE=/etc/udev/rules.d/99-gpiochip.rules
 sudo groupadd -f gpio
@@ -220,10 +234,10 @@ else
     fi
 fi
 
-# --- 6/7  Network ------------------------------------------------------------------
+# --- 6/8  Network ------------------------------------------------------------------
 # Each sysctl file is loaded on its own (-p), not with --system: that reloads every file
 # in /etc/sysctl.d and prints the errors of other packages' settings as if they were ours.
-step "6/7  Network: listening ports and GigE Vision cameras"
+step "6/8  Network: listening ports and GigE Vision cameras"
 
 # Modbus TCP listens on 502, and Linux reserves ports below 1024 for root. The app runs
 # as this user, so the threshold drops to the lowest port config.yaml enables. That
@@ -286,8 +300,82 @@ for _iface in "${CAMERA_IFACES[@]}"; do
     ok "$_iface: MTU $(cat "/sys/class/net/$_iface/mtu")"
 done
 
-# --- 7/7  Summary ------------------------------------------------------------------
-step "7/7  Done"
+# --- 7/8  Platform -----------------------------------------------------------------
+# What the board can do before any code runs. The power mode caps every clock, and
+# jetson_clocks holds them at that cap instead of letting them scale with load, which is
+# what makes Python's pre- and post-processing faster. Neither is changed without its flag:
+# the power mode is a decision about heat and power for the plant's enclosure.
+step "7/8  Platform: power mode, clocks and boot target"
+
+NVPMODEL_CONF=/etc/nvpmodel.conf
+CLOCKS_UNIT=/etc/systemd/system/jetson-clocks.service
+
+current_power_mode() {
+    sudo nvpmodel -q 2>/dev/null | sed -n 's/^NV Power Mode: *//p' | head -n 1
+}
+
+if [ -n "$POWER_MODE" ]; then
+    _mode_id="$(sed -n "s/^< *POWER_MODEL *ID=\([0-9]*\) *NAME=${POWER_MODE} *>.*/\1/p" \
+        "$NVPMODEL_CONF" | head -n 1)"
+    if [ -z "$_mode_id" ]; then
+        _modes="$(sed -n 's/^< *POWER_MODEL *ID=[0-9]* *NAME=\([^ >]*\).*/\1/p' "$NVPMODEL_CONF" | tr '\n' ' ')"
+        fail "power mode '$POWER_MODE' is not in $NVPMODEL_CONF. This module has: $_modes"
+    fi
+    if [ "$(current_power_mode)" = "$POWER_MODE" ]; then
+        ok "power mode $POWER_MODE (already set)"
+    else
+        # nvpmodel asks before rebooting when the new mode changes which cores are online.
+        # It is told no: the mode applies on the next reboot, and rebooting is the user's call.
+        echo "NO" | sudo nvpmodel -m "$_mode_id" > /dev/null 2>&1 || true
+        ok "power mode set to $POWER_MODE (id $_mode_id); some changes only apply after a reboot"
+    fi
+    case "$POWER_MODE" in
+        MAXN*) note "MAXN raised an over-current alert on the Orin NX of volcables: watch the"
+               hint "over-current counters with manual_test/jetson_accelerators/probe_report.py" ;;
+    esac
+else
+    note "power mode left as it is: $(current_power_mode || echo unknown). --power-mode=NAME sets it"
+fi
+
+# jetson_clocks does not survive a reboot. A oneshot unit after nvpmodel's runs it at every
+# boot, so the clocks are pinned to whatever the power mode allows.
+if [ "$CLOCKS_AT_BOOT" -eq 1 ]; then
+    if [ ! -f "$CLOCKS_UNIT" ]; then
+        sudo tee "$CLOCKS_UNIT" > /dev/null <<'UNIT'
+[Unit]
+Description=Pin the Jetson clocks at the maximum the power mode allows
+After=nvpmodel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jetson_clocks
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        sudo systemctl daemon-reload
+    fi
+    sudo systemctl enable --now jetson-clocks.service > /dev/null 2>&1 \
+        || fail "could not enable jetson-clocks.service: see 'systemctl status jetson-clocks'"
+    ok "jetson_clocks at every boot ($CLOCKS_UNIT), and pinned now"
+    hint "after changing the power mode, run 'sudo jetson_clocks' or reboot"
+elif systemctl is-enabled jetson-clocks.service > /dev/null 2>&1; then
+    ok "jetson_clocks at every boot (jetson-clocks.service)"
+else
+    note "clocks not pinned at boot: --clocks-at-boot sets it"
+fi
+
+if [ "$HEADLESS_BOOT" -eq 1 ]; then
+    sudo systemctl set-default multi-user.target > /dev/null 2>&1
+    ok "boots to a console from the next reboot"
+    hint "the app then runs with --headless (or ui.enabled: false)"
+    hint "desktop back: sudo systemctl set-default graphical.target"
+else
+    note "boot target: $(systemctl get-default). --headless-boot boots without the desktop"
+fi
+
+# --- 8/8  Summary ------------------------------------------------------------------
+step "8/8  Done"
 echo ""
 [ "$_relogin" -eq 0 ] || echo " Log out and back in (or reboot): the new groups apply to new sessions."
 echo " Next:"

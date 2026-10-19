@@ -119,12 +119,25 @@ mismo nombre: no hay traducción en el camino.
 | `ram_used_mb`, `ram_total_mb` | MB |
 | `disk_free_gb` | GB |
 | `power_w` | W |
+| `overcurrent_count` | eventos de sobrecorriente desde el arranque |
 | `net_<iface>_rx_mbps`, `net_<iface>_tx_mbps` | Mbps |
+| `engine_<motor>_active` | 0 / 1 — el motor de la Jetson se usó hace poco |
+| `engine_<motor>_mhz` | MHz mientras está activo; 0 si no |
 
-**Ojo con los dos anidados.** `get_metrics()` devuelve `net_mbps` como
-`{iface: {rx_mbps, tx_mbps}}` y `temps_c` como `{zona: °C}`, y **los fields de Influx son
-escalares**: un dict no entra. Hay que aplanarlos —`net_eth0_rx_mbps`— y no filtrar por
-tipo, que es la forma silenciosa de perder el tráfico de red entero.
+**Ojo con los anidados.** `get_metrics()` devuelve `net_mbps` como
+`{iface: {rx_mbps, tx_mbps}}`, `engines` como `{motor: {is_active, mhz}}` y `temps_c` como
+`{zona: °C}`, y **los fields de Influx son escalares**: un dict no entra. Hay que
+aplanarlos —`net_eth0_rx_mbps`, `engine_vic_active`— y no filtrar por tipo, que es la
+forma silenciosa de perder el tráfico de red entero.
+
+**Los motores** son los de la Jetson: `vic`, `nvenc`, `nvdec`, `nvjpg`, `nvjpg1`, `ofa`,
+`nvdla0`, `pva0`, según el módulo. Fuera de una Jetson no hay ningún campo `engine_*`.
+- `engine_<motor>_active` es un entero y no un booleano: su **media en una ventana es la
+  fracción del tiempo que el motor estuvo en uso**, que es lo que sirve graficar.
+- No es carga en %. Sale de sysfs sin root, y «activo» quiere decir «usado en los últimos
+  segundos»: el kernel tarda en suspenderlo.
+- Un `overcurrent_count` que sube es que el módulo recortó relojes para protegerse. Las
+  métricas de ese momento no valen como rendimiento normal.
 
 `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
 `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard

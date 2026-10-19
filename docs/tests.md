@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**68 archivos, 373 grupos, 1858 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**74 archivos, 414 grupos, 2022 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,22 +14,23 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 293 |
+| [test/](#test) | 6 | 303 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
-| [test/image_collector/](#testimage_collector) | 2 | 77 |
+| [test/image_collector/](#testimage_collector) | 2 | 80 |
 | [test/inference/](#testinference) | 12 | 311 |
-| [test/inference/models/](#testinferencemodels) | 4 | 86 |
+| [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 5 | 119 |
+| [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
+| [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
-| [test/video/](#testvideo) | 3 | 182 |
+| [test/video/](#testvideo) | 3 | 192 |
 
 ## test/
 
@@ -188,7 +189,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 90 tests
+### [test_main.py](../test/test_main.py) — 95 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -199,6 +200,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
+| `TestSystemFields` |  | 5 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
@@ -237,6 +239,12 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_map_the_server_refuses_to_serve`
   - `test_with_the_map_loaded_nothing_blocks_it`
   - `test_it_passes_the_error_that_registers_reports`
+- `TestSystemFields`
+  - `test_each_engine_opens_into_two_scalar_fields`
+  - `test_active_is_an_integer_so_its_mean_is_a_fraction_of_time`
+  - `test_the_overcurrent_count_is_published`
+  - `test_no_field_is_a_dict`
+  - `test_outside_a_jetson_there_are_no_engine_fields`
 - `TestInferenceFields`
   - `test_the_cycle_dispersion_travels_untouched`
   - `test_nothing_gets_a_second_round_of_suffixes`
@@ -362,7 +370,7 @@ Tests de las dos raíces.
 
 </details>
 
-### [test_system_monitor.py](../test/test_system_monitor.py) — 106 tests
+### [test_system_monitor.py](../test/test_system_monitor.py) — 111 tests
 
 Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows, cálculo del throughput de red y estabilidad del contrato de `get_metrics`.
 
@@ -383,6 +391,7 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 | `TestDisk` |  | 5 |
 | `TestNetThroughput` |  | 11 |
 | `TestGetMetrics` |  | 13 |
+| `TestJetsonEngines` |  | 5 |
 
 <details><summary>Tests</summary>
 
@@ -507,6 +516,12 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
   - `test_a_source_that_keeps_failing_warns_once`
   - `test_the_disk_path_is_read_at_each_call`
   - `test_concurrent_calls_do_not_corrupt_the_state`
+- `TestJetsonEngines`
+  - `test_each_engine_reports_whether_it_is_active_and_its_clock`
+  - `test_the_state_is_read_again_on_every_call`
+  - `test_overcurrent_counters_are_summed`
+  - `test_windows_has_no_engines_and_no_overcurrent`
+  - `test_a_failing_engine_source_does_not_drag_the_rest`
 
 </details>
 
@@ -1096,7 +1111,7 @@ Tests de la palabra de estado del sistema: con cualquier bit en 1 las mediciones
 
 ## test/image_collector/
 
-### [test_collector.py](../test/image_collector/test_collector.py) — 62 tests
+### [test_collector.py](../test/image_collector/test_collector.py) — 65 tests
 
 Tests del recolector de dataset: los dos modos de operación, los filtros, el buffer circular y la guardia de disco.
 
@@ -1114,6 +1129,7 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
 | `TestIntervalMode` |  | 8 |
 | `TestIntervalSchedule` |  | 4 |
 | `TestStats` |  | 4 |
+| `TestSameInstant` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1191,6 +1207,10 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
   - `test_counters_start_at_zero`
   - `test_last_save_is_stamped`
   - `test_reports_mode_and_running`
+- `TestSameInstant`
+  - `test_two_captures_in_the_same_instant_are_both_kept`
+  - `test_the_names_keep_the_order_of_the_captures`
+  - `test_each_camera_keeps_its_own_instant`
 
 </details>
 
@@ -1974,6 +1994,111 @@ Tests de la derivación de la clave de los pesos.
 
 </details>
 
+### [test_tensorrt_runtime.py](../test/inference/models/test_tensorrt_runtime.py) — 16 tests
+
+Tests del runtime de TensorRT: el formato del `.engine` de ultralytics, qué engines se aceptan y qué pasa sin el runtime.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestSplitUltralyticsEngine` | 5 |
+| `TestValidateIo` | 6 |
+| `TestDtypeName` | 2 |
+| `TestRunnerWithoutRuntime` | 2 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_every_accepted_type_has_a_torch_type`
+- `TestSplitUltralyticsEngine`
+  - `test_the_metadata_and_the_engine_come_apart`
+  - `test_an_engine_without_header_is_used_as_it_is`
+  - `test_a_header_that_is_not_json_means_no_header`
+  - `test_a_length_past_the_end_means_no_header`
+  - `test_too_short_to_have_a_header`
+- `TestValidateIo`
+  - `test_one_fixed_input_and_an_output_is_fine`
+  - `test_two_inputs_are_not_handled`
+  - `test_an_engine_without_outputs_is_rejected`
+  - `test_a_dynamic_shape_asks_for_a_fixed_export`
+  - `test_an_unknown_type_is_rejected`
+  - `test_the_input_must_be_an_image_batch`
+- `TestDtypeName`
+  - `test_an_enum_member_gives_its_name`
+  - `test_a_printed_enum_gives_the_last_part`
+- `TestRunnerWithoutRuntime`
+  - `test_load_says_the_runtime_is_missing`
+  - `test_close_before_load_does_nothing`
+
+</details>
+
+### [test_yolo_model.py](../test/inference/models/test_yolo_model.py) — 35 tests
+
+Tests de los modelos YOLO sobre TensorRT: el letterbox y el recorte del clasificador, la decodificación de las dos formas de salida, las máscaras, y el ciclo de vida de los tres modelos.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLetterbox` | 4 |
+| `TestCenterCrop` | 2 |
+| `TestDecodeCandidates` | 7 |
+| `TestFrameBox` | 2 |
+| `TestBuildMask` | 2 |
+| `TestProbabilities` | 2 |
+| `TestLoad` | 8 |
+| `TestDetectionModel` | 3 |
+| `TestSegmentationModel` | 2 |
+| `TestClassificationModel` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestLetterbox`
+  - `test_a_640x360_frame_fills_a_rectangular_engine_with_12px_bars`
+  - `test_a_1080p_frame_into_a_square_engine`
+  - `test_the_input_is_rgb_nchw_from_0_to_1_with_grey_bars`
+  - `test_a_grey_frame_is_accepted`
+- `TestCenterCrop`
+  - `test_the_classifier_sees_the_centre_of_the_frame`
+  - `test_a_small_frame_is_scaled_up_to_cover`
+- `TestDecodeCandidates`
+  - `test_boxes_come_out_as_corners`
+  - `test_below_the_threshold_is_dropped`
+  - `test_an_overlapping_box_of_the_same_class_is_suppressed`
+  - `test_an_overlapping_box_of_another_class_survives`
+  - `test_the_best_go_first_and_the_cap_applies`
+  - `test_mask_coefficients_travel_with_their_box`
+  - `test_an_end_to_end_export_is_already_filtered`
+- `TestFrameBox`
+  - `test_a_box_goes_back_through_the_letterbox`
+  - `test_a_box_over_the_bars_is_clipped_to_the_frame`
+- `TestBuildMask`
+  - `test_the_mask_has_the_size_of_the_box`
+  - `test_only_where_the_prototype_is_on`
+- `TestProbabilities`
+  - `test_probabilities_are_left_as_they_are`
+  - `test_logits_go_through_softmax`
+- `TestLoad`
+  - `test_it_loads_and_reads_the_input_from_the_engine`
+  - `test_a_task_mismatch_leaves_it_in_error`
+  - `test_an_engine_that_does_not_open_says_why`
+  - `test_outputs_of_another_task_are_rejected`
+  - `test_the_engine_names_are_used_when_nobody_declares_them`
+  - `test_the_config_names_win_over_the_engine`
+  - `test_unload_releases_the_engine_and_is_idempotent`
+  - `test_before_load_there_are_no_detections`
+- `TestDetectionModel`
+  - `test_detections_come_in_frame_pixels_with_their_names`
+  - `test_the_threshold_comes_from_the_config`
+  - `test_the_nms_extras_are_read_from_params`
+- `TestSegmentationModel`
+  - `test_each_detection_carries_its_mask_area_and_centroid`
+  - `test_an_engine_without_prototypes_is_rejected`
+- `TestClassificationModel`
+  - `test_the_verdict_is_one_detection_over_the_whole_frame`
+  - `test_below_the_threshold_there_is_no_verdict`
+  - `test_the_classifier_gets_the_engine_input_size`
+
+</details>
+
 ## test/license/
 
 ### [test_clock.py](../test/license/test_clock.py) — 12 tests
@@ -2739,6 +2864,58 @@ Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 
 </details>
 
+### [test_decoder.py](../test/tools/camera/test_decoder.py) — 28 tests
+
+Tests del decodificador de los drivers de video: qué backend se elige con qué config, que los dos entreguen el mismo tamaño, cómo se arman los pipelines de la Jetson y qué pasa sin GStreamer.
+
+| Grupo | Tests |
+|---|---:|
+| `TestReadDecodeSettings` | 8 |
+| `TestCpuPath` | 5 |
+| `TestNvdecPipelines` | 7 |
+| `TestRepeatParameterSets` | 2 |
+| `TestBgrxToBgr` | 3 |
+| `TestNvdecWithoutGstreamer` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestReadDecodeSettings`
+  - `test_without_a_section_it_is_the_cpu_at_native_size`
+  - `test_the_section_is_read`
+  - `test_auto_picks_nvdec_where_there_is_one`
+  - `test_auto_picks_the_cpu_where_there_is_none`
+  - `test_nvdec_where_there_is_none_stays_nvdec_and_says_so`
+  - `test_an_unknown_backend_falls_back_to_the_cpu_and_warns`
+  - `test_one_side_alone_leaves_the_native_size`
+  - `test_negative_sizes_are_native`
+- `TestCpuPath`
+  - `test_a_stream_opens_with_ffmpeg_and_the_timeouts`
+  - `test_a_stream_that_does_not_open_is_none_and_released`
+  - `test_the_native_size_is_the_frame_as_it_came`
+  - `test_a_size_resizes_on_the_cpu_like_the_vic_would`
+  - `test_seek_and_fps_go_to_opencv`
+- `TestNvdecPipelines`
+  - `test_the_stream_goes_through_nvdec_and_the_vic_into_bgrx`
+  - `test_the_vic_scales_bilinear`
+  - `test_the_stream_keeps_only_the_newest_frame_over_tcp`
+  - `test_at_native_size_no_size_is_asked`
+  - `test_a_file_drops_nothing_and_keeps_the_reorder_buffer`
+  - `test_credentials_leave_the_url_unescaped`
+  - `test_a_url_without_credentials_stays_as_it_is`
+- `TestRepeatParameterSets`
+  - `test_a_parser_repeats_the_parameter_sets_on_every_keyframe`
+  - `test_an_element_without_the_property_is_left_alone`
+- `TestBgrxToBgr`
+  - `test_the_padding_byte_is_dropped`
+  - `test_padding_at_the_end_of_each_row_is_skipped`
+  - `test_the_frame_is_its_own_array`
+- `TestNvdecWithoutGstreamer`
+  - `test_a_stream_does_not_open`
+  - `test_a_file_does_not_open`
+  - `test_the_reason_names_what_is_missing`
+
+</details>
+
 ### [test_mock_driver.py](../test/tools/camera/test_mock_driver.py) — 15 tests
 
 Tests del MockDriver: es el único driver que corre sin hardware, así que es donde se verifica el contrato que la base impone a todos.
@@ -3029,6 +3206,136 @@ Tests de la corrección de lente: qué cámara se corrige, qué pasa con una cal
   - `test_keep_field_changes_how_much_is_kept`
   - `test_keep_field_saturates`
   - `test_it_names_the_cameras_it_corrects`
+
+</details>
+
+## test/tools/jetson/
+
+### [test_board.py](../test/tools/jetson/test_board.py) — 27 tests
+
+Tests de la lectura del estado de la Jetson: módulo, L4T, modo de potencia, relojes y contadores de sobrecorriente.
+
+| Grupo | Tests |
+|---|---:|
+| `TestIdentity` | 4 |
+| `TestPowerMode` | 5 |
+| `TestClocks` | 6 |
+| `TestDevfreq` | 1 |
+| `TestEngineDevices` | 8 |
+| `TestOvercurrent` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestIdentity`
+  - `test_the_module_name_loses_the_trailing_nul`
+  - `test_the_release_is_major_and_revision`
+  - `test_an_unknown_release_text_is_empty`
+  - `test_outside_a_jetson_everything_is_empty`
+- `TestPowerMode`
+  - `test_the_id_gets_its_name_from_the_table`
+  - `test_an_id_missing_from_the_table_keeps_the_id`
+  - `test_a_status_without_a_mode_is_empty`
+  - `test_it_reads_both_files`
+  - `test_without_the_table_the_name_is_empty`
+- `TestClocks`
+  - `test_cpu_policies_and_gpu_come_out_in_mhz`
+  - `test_a_policy_with_a_missing_file_is_skipped`
+  - `test_jetpack_5_gpu_node_name_is_found_too`
+  - `test_pinned_means_every_minimum_equals_its_maximum`
+  - `test_one_free_clock_means_not_pinned`
+  - `test_without_clocks_pinned_is_unknown`
+- `TestDevfreq`
+  - `test_every_node_comes_out_in_mhz`
+- `TestEngineDevices`
+  - `test_only_engine_devices_are_found_at_any_depth`
+  - `test_a_node_whose_name_merely_contains_an_engine_is_not_one`
+  - `test_states_are_read_from_the_found_paths`
+  - `test_engines_are_named_without_their_address`
+  - `test_a_second_instance_gets_a_number_as_in_tegrastats`
+  - `test_a_suspended_engine_reports_no_frequency`
+  - `test_an_active_engine_without_devfreq_is_active_at_zero`
+  - `test_a_node_that_vanished_is_left_out`
+- `TestOvercurrent`
+  - `test_each_counter_is_named_after_its_hwmon`
+  - `test_a_hwmon_without_a_name_uses_its_directory`
+  - `test_an_unreadable_counter_is_skipped`
+
+</details>
+
+### [test_capabilities.py](../test/tools/jetson/test_capabilities.py) — 16 tests
+
+Tests de la sonda de aceleradores: los pipelines de prueba, cómo se juzga el resultado de cada uno y qué pasa sin GStreamer.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestPipelineChecks` | 4 |
+| `TestCheckPipeline` | 6 |
+| `TestWithoutGstreamer` | 2 |
+| `TestPythonLibs` | 3 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_find_elements_asks_the_registry`
+- `TestPipelineChecks`
+  - `test_there_is_one_check_per_engine`
+  - `test_each_check_goes_through_its_engine`
+  - `test_size_and_frame_count_are_the_ones_asked`
+  - `test_the_vic_halves_to_even_sides`
+- `TestCheckPipeline`
+  - `test_reaching_eos_is_a_pass`
+  - `test_an_error_on_the_bus_is_its_message`
+  - `test_no_message_before_the_timeout_says_so`
+  - `test_a_missing_element_is_the_parse_error`
+  - `test_a_failed_start_reports_the_error_it_left`
+  - `test_the_pipeline_is_always_torn_down`
+- `TestWithoutGstreamer`
+  - `test_no_element_is_found`
+  - `test_a_check_returns_the_import_reason`
+- `TestPythonLibs`
+  - `test_opencv_build_flags_are_read_from_its_build_information`
+  - `test_a_flag_that_is_not_listed_is_empty`
+  - `test_every_library_answers_even_when_missing`
+
+</details>
+
+### [test_tegrastats.py](../test/tools/jetson/test_tegrastats.py) — 19 tests
+
+Tests de la lectura de `tegrastats`: cómo se traduce cada forma de valor, qué se deja afuera de la línea, y el ciclo de vida del proceso lector.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestParseLine` | 9 |
+| `TestReaderWithoutTegrastats` | 2 |
+| `TestReaderLifecycle` | 7 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_the_launch_never_inherits_stdin`
+- `TestParseLine`
+  - `test_an_engine_that_is_off_runs_at_zero`
+  - `test_load_and_frequency_come_out_of_the_percent_at_form`
+  - `test_a_bare_number_is_a_frequency_without_a_known_load`
+  - `test_the_freq_suffix_is_dropped_from_the_name`
+  - `test_a_per_gpc_frequency_reports_the_highest`
+  - `test_a_load_without_frequency_keeps_the_load`
+  - `test_only_the_known_engines_come_out`
+  - `test_an_engine_the_module_does_not_have_is_absent`
+  - `test_a_line_without_engines_is_empty`
+- `TestReaderWithoutTegrastats`
+  - `test_it_does_not_start_and_says_why`
+  - `test_a_launch_that_fails_is_a_reason_not_an_exception`
+- `TestReaderLifecycle`
+  - `test_it_reports_the_engines_of_the_last_line`
+  - `test_the_interval_is_passed_to_tegrastats`
+  - `test_starting_twice_does_not_launch_a_second_process`
+  - `test_stop_ends_the_process`
+  - `test_a_process_that_dies_leaves_no_reading_and_its_exit_code`
+  - `test_a_stale_reading_is_not_reported`
+  - `test_the_returned_dict_is_a_copy`
 
 </details>
 
@@ -3368,20 +3675,22 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 79 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 89 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestMountPath` |  | 1 |
-| `TestLaunchString` |  | 7 |
+| `TestLaunchString` |  | 13 |
+| `TestPrepareFrame` |  | 3 |
 | `TestProbeCodec` |  | 5 |
 | `TestScaledSize` |  | 7 |
 | `TestResolveAddresses` |  | 7 |
 | `TestStreamUrls` |  | 4 |
 | `TestFrameStore` |  | 13 |
 | `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 10 |
+| `TestCreateServer` |  | 1 |
 | `TestLifecycle` | Sin GStreamer el módulo no levanta nada y expone la misma API. | 8 |
 | `TestWatchers` | Las altas y bajas de media son lo único que dice quién está mirando qué. | 6 |
 | `TestPushGating` | Lo que ahorra el gating: un stream que nadie mira no retiene frames. | 8 |
@@ -3399,6 +3708,16 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_every_codec_ends_in_pay0`
   - `test_an_unknown_codec_falls_back_and_warns`
   - `test_the_scaling_comes_before_the_encoder`
+  - `test_the_hardware_path_does_no_conversion_on_the_cpu`
+  - `test_the_hardware_scale_filter_is_the_vic_into_nvmm`
+  - `test_there_is_one_keyframe_per_second`
+  - `test_the_bitrate_goes_in_each_encoder_unit`
+  - `test_a_zero_bitrate_leaves_the_encoder_default`
+  - `test_mjpeg_takes_no_bitrate`
+- `TestPrepareFrame`
+  - `test_the_cpu_path_takes_the_bgr_frame_as_it_is`
+  - `test_the_jetson_path_gets_bgrx`
+  - `test_a_gray_frame_goes_as_gray8_on_both_paths`
 - `TestProbeCodec`
   - `test_without_gstreamer_the_reason_is_the_import_error`
   - `test_an_unknown_codec_is_a_reason_and_not_the_default`
@@ -3451,6 +3770,8 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_the_last_frame_is_resent_after_the_keepalive`
   - `test_a_faster_camera_does_not_speed_up_the_stream`
   - `test_each_stream_has_its_own_pacer`
+- `TestCreateServer`
+  - `test_it_is_attached_to_the_context_of_its_own_loop`
 - `TestLifecycle`
   - `test_disabled_in_config_is_not_an_error`
   - `test_enabled_without_gstreamer_reports_error`
