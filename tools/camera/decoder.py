@@ -59,6 +59,7 @@ _NVDEC_ELEMENTS = ("nvv4l2decoder", "nvvidconv")
 _NS_PER_MS = 1_000_000
 _US_PER_MS = 1_000
 _NVVIDCONV_BILINEAR = 1     # el default de nvvidconv es vecino más cercano: pierde lo chico
+_PARAMETER_SETS_EVERY_KEYFRAME = -1     # `config-interval` de los parsers h264/h265
 _FILE_READ_TIMEOUT_MS = 5000
 _FILE_QUEUE_BUFFERS = 2     # un archivo no descarta: el decodificador espera al lector
 
@@ -333,9 +334,25 @@ def _read_fps(caps) -> float:
     return numerator / denominator if is_found and denominator else 0.0
 
 
+def repeat_parameter_sets(element) -> None:
+    """
+    Hace que un parser de video repita SPS/PPS antes de cada keyframe.
+
+    NVDEC descarta cada frame hasta ver los parámetros en el stream, y un servidor RTSP
+    que los manda sólo en el SDP —lo normal— lo deja sin entregar un solo frame. Lo
+    cumplen los elementos con la propiedad `config-interval` (`h264parse`, `h265parse`);
+    el resto queda como está, así que sirve para cualquier codec que arme `parsebin`.
+    """
+    if element.find_property("config-interval") is not None:
+        element.set_property("config-interval", _PARAMETER_SETS_EVERY_KEYFRAME)
+
+
 def _open_gst(launch: str, properties: dict, *, open_timeout_ms: int,
-              read_timeout_ms: int) -> Capture | None:
-    """Arma el pipeline, le pone las propiedades a `source` y espera el primer frame."""
+              read_timeout_ms: int, is_live: bool = False) -> Capture | None:
+    """
+    Arma el pipeline, le pone las propiedades a `source` y espera el primer frame.
+    Con `is_live` los parsers que `parsebin` arma repiten SPS/PPS en cada keyframe.
+    """
     reason = get_nvdec_unavailable_reason()
     if reason:
         # Ya se avisó como error al leer el config; acá se repetiría en cada reintento.
@@ -346,6 +363,9 @@ def _open_gst(launch: str, properties: dict, *, open_timeout_ms: int,
     except GLib.Error as e:
         logger.warning(f"[Decoder] No se pudo armar el pipeline de NVDEC: {e}")
         return None
+    if is_live:
+        pipeline.connect("deep-element-added",
+                         lambda parent_bin, sub_bin, element: repeat_parameter_sets(element))
     source = pipeline.get_by_name("source")
     for name, value in properties.items():
         if value:
@@ -375,7 +395,8 @@ def open_stream(url: str, settings: DecodeSettings, *, open_timeout_ms: int,
         location, user, password = split_credentials(url)
         return _open_gst(build_stream_launch(settings, read_timeout_ms),
                          {"location": location, "user-id": user, "user-pw": password},
-                         open_timeout_ms=open_timeout_ms, read_timeout_ms=read_timeout_ms)
+                         open_timeout_ms=open_timeout_ms, read_timeout_ms=read_timeout_ms,
+                         is_live=True)
 
     capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG, [
         cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, open_timeout_ms,

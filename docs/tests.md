@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**74 archivos, 413 grupos, 2020 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**74 archivos, 414 grupos, 2022 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -26,7 +26,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/modbus/](#testmodbus) | 3 | 138 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 6 | 145 |
+| [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 7 | 49 |
@@ -2864,7 +2864,7 @@ Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 
 </details>
 
-### [test_decoder.py](../test/tools/camera/test_decoder.py) — 26 tests
+### [test_decoder.py](../test/tools/camera/test_decoder.py) — 28 tests
 
 Tests del decodificador de los drivers de video: qué backend se elige con qué config, que los dos entreguen el mismo tamaño, cómo se arman los pipelines de la Jetson y qué pasa sin GStreamer.
 
@@ -2873,6 +2873,7 @@ Tests del decodificador de los drivers de video: qué backend se elige con qué 
 | `TestReadDecodeSettings` | 8 |
 | `TestCpuPath` | 5 |
 | `TestNvdecPipelines` | 7 |
+| `TestRepeatParameterSets` | 2 |
 | `TestBgrxToBgr` | 3 |
 | `TestNvdecWithoutGstreamer` | 3 |
 
@@ -2901,6 +2902,9 @@ Tests del decodificador de los drivers de video: qué backend se elige con qué 
   - `test_a_file_drops_nothing_and_keeps_the_reorder_buffer`
   - `test_credentials_leave_the_url_unescaped`
   - `test_a_url_without_credentials_stays_as_it_is`
+- `TestRepeatParameterSets`
+  - `test_a_parser_repeats_the_parameter_sets_on_every_keyframe`
+  - `test_an_element_without_the_property_is_left_alone`
 - `TestBgrxToBgr`
   - `test_the_padding_byte_is_dropped`
   - `test_padding_at_the_end_of_each_row_is_skipped`

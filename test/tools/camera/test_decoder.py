@@ -14,7 +14,8 @@ import pytest
 from tools.camera import decoder
 from tools.camera.decoder import (BACKEND_CPU, BACKEND_NVDEC, DecodeSettings,
                                   bgrx_to_bgr, build_file_launch, build_stream_launch,
-                                  read_decode_settings, split_credentials)
+                                  read_decode_settings, repeat_parameter_sets,
+                                  split_credentials)
 
 
 def _logged(caplog: pytest.LogCaptureFixture, text: str) -> int:
@@ -196,6 +197,32 @@ class TestNvdecPipelines:
 
     def test_a_url_without_credentials_stays_as_it_is(self):
         assert split_credentials("rtsp://10.0.0.5/ch1") == ("rtsp://10.0.0.5/ch1", "", "")
+
+
+class _FakeParser:
+    """Un elemento de GStreamer con las propiedades que se le declaren."""
+
+    def __init__(self, properties: dict):
+        self.properties = dict(properties)
+
+    def find_property(self, name: str):
+        return name if name in self.properties else None
+
+    def set_property(self, name: str, value):
+        self.properties[name] = value
+
+
+class TestRepeatParameterSets:
+    def test_a_parser_repeats_the_parameter_sets_on_every_keyframe(self):
+        """Sin SPS/PPS en el stream NVDEC descarta todos los frames y la cámara no abre."""
+        parser = _FakeParser({"config-interval": 0})
+        repeat_parameter_sets(parser)
+        assert parser.properties["config-interval"] == -1
+
+    def test_an_element_without_the_property_is_left_alone(self):
+        queue = _FakeParser({"max-size-buffers": 200})
+        repeat_parameter_sets(queue)
+        assert queue.properties == {"max-size-buffers": 200}
 
 
 class TestBgrxToBgr:
