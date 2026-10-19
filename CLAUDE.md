@@ -77,6 +77,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         composer.py           nivel 1 — un anotado por cámara con los overlays de sus pipelines
         annotations.py        nivel 1 — dibujos propios de la planta; se reescribe en cada fork
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
+        geometry.py           nivel 1 — una máscara contra una altura y la distancia entre dos
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
@@ -144,7 +145,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         diagnostics/          hardware, Modbus, video, licencia y logs
       widgets/                form, status_chip, log_table, realtime_chart,
                               camera_panel (una cámara), camera_grid (N, con foco)
-      dialogs/                roi_dialog, gpio_dialog
+      dialogs/                roi_dialog, level_dialog, gpio_dialog
       styles/                 dark.qss y light.qss, espejados regla por regla
 
     test/                     espeja el árbol de arriba; conftest.py en la raíz
