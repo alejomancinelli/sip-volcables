@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**74 archivos, 414 grupos, 2022 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**75 archivos, 417 grupos, 2033 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -20,7 +20,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 12 | 311 |
+| [test/inference/](#testinference) | 13 | 322 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -1529,6 +1529,35 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_does_not_add_to_the_counters_of_the_thread`
   - `test_it_does_not_load_the_pipeline`
   - `test_it_refuses_to_run_while_the_thread_is_running`
+
+</details>
+
+### [test_geometry.py](../test/inference/test_geometry.py) — 11 tests
+
+Tests de la geometría sobre detecciones: una máscara contra una línea y la distancia más corta entre dos máscaras.
+
+| Grupo | Tests |
+|---|---:|
+| `TestMaskPoints` | 2 |
+| `TestAboveY` | 4 |
+| `TestClosestPoints` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestMaskPoints`
+  - `test_the_points_are_placed_in_the_full_frame`
+  - `test_a_detection_without_mask_counts_its_whole_bbox`
+- `TestAboveY`
+  - `test_it_counts_the_pixels_with_a_smaller_y`
+  - `test_a_shape_below_the_height_has_none_above`
+  - `test_a_shape_above_the_height_counts_whole`
+  - `test_only_the_mask_counts_not_its_bbox`
+- `TestClosestPoints`
+  - `test_two_separate_shapes_give_their_gap`
+  - `test_a_diagonal_gap_is_euclidean`
+  - `test_touching_shapes_give_zero_and_a_shared_point`
+  - `test_an_empty_mask_gives_none`
+  - `test_long_contours_are_still_exact`
 
 </details>
 
