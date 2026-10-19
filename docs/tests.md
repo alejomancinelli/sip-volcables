@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**75 archivos, 417 grupos, 2033 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**76 archivos, 418 grupos, 2037 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -29,7 +29,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 7 | 49 |
+| [test/ui/](#testui) | 8 | 53 |
 | [test/video/](#testvideo) | 3 | 192 |
 
 ## test/
@@ -3473,6 +3473,24 @@ Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()`
 - `TestSlotTabs`
   - `test_a_long_bar_scrolls_instead_of_eliding`
   - `test_ten_pipelines_keep_their_full_labels`
+
+</details>
+
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 4 tests
+
+Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLevelDialog` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestLevelDialog`
+  - `test_it_starts_at_the_configured_height`
+  - `test_without_a_height_it_starts_at_the_top`
+  - `test_a_marked_height_reaches_the_field`
+  - `test_it_saves_one_row_under_its_key_and_persists`
 
 </details>
 
