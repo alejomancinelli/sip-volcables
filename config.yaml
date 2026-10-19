@@ -94,9 +94,17 @@ process:
   scale_px_per_mm: {}           # {camera_1: 3.2} — calibración; sin esto no hay medidas físicas
   max_load_y_px: {}             # {camera_1: 430} — altura del límite de carga de la cinta
   min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
-  # Caída de grano. Declarada, el anotado muestra el veredicto `grain_flow` del clasificador
-  # en un panel; acá va a ir el canal de GPIO de la señal de volteo de cada cámara.
+  # Caída de grano. Declarada, el anotado de cada cámara del grano lleva el estado de la
+  # descarga: un borde verde sólo si cae grano y no hay personas en la zona de exclusión,
+  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK. Acá va a ir el canal de GPIO de
+  # la señal de volteo de cada cámara.
   grain_flow: {}
+  person_safety:
+    # Zona de exclusión por cámara: un polígono en píxeles del frame de referencia —el que
+    # sale después del decodificador, así que cambiar su tamaño obliga a redibujarla—.
+    # Una persona cuenta si los pies —el centro del borde inferior de su caja— caen
+    # adentro. Una cámara sin zona cuenta a cualquier persona del frame.
+    exclusion_zone_px: {}       # {camera_3: [[x, y], [x, y], [x, y], ...]}
   #
   # VARIOS PROCESOS. Una instalación con más de un proceso —cuatro cintas iguales, cada
   # una con su calibración— abre una sub-sección por proceso y declara qué cámaras mide

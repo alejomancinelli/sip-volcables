@@ -30,6 +30,9 @@ from .result import Detection, InferenceResult
 Classifier = Callable[[list[Detection], str], list[Detection]]
 Analyzer = Callable[[InferenceResult], dict]
 
+_FLOW_CLASS = "flow"   # la clase de `grain_cls` que dice que cae grano
+_PERSON_PIPELINE_TYPE = "person_safety"
+
 
 @dataclass(frozen=True)
 class EngineHooks:
@@ -57,17 +60,43 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     Arma los hooks del proyecto con los valores de `process:`.
 
     No filtra ni reetiqueta y cuenta con el analyzer genérico. Dibuja el límite de carga
-    sólo si alguna cámara lo declara, y el panel de veredictos —el `grain_flow` del
-    clasificador— sólo si el config declara la sección `process.grain_flow`.
+    sólo si alguna cámara lo declara, y el estado de la descarga —borde y panel OK / NOK del
+    grano y de las personas— sólo si el config declara la sección `process.grain_flow`.
+
+    Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines`: los
+    habilitados de tipo `person_safety`, con `cameras: []` = todas las del config. La zona
+    de exclusión sale de `process.person_safety.exclusion_zone_px`.
     """
     max_load_y_px = config.get("process.max_load_y_px", {}) or {}
     has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
 
     selected = []
     if has_grain_flow:
-        selected.append(annotations.labels_panel_annotator())
+        person_pipelines, person_cameras = _read_person_pipelines(config)
+        selected.append(annotations.unload_status_annotator(
+            flow_class=_FLOW_CLASS,
+            person_pipelines=person_pipelines,
+            person_cameras=person_cameras,
+            exclusion_zone_px_by_camera=config.get(
+                "process.person_safety.exclusion_zone_px", {}) or {},
+        ))
     if max_load_y_px:
         selected.append(annotations.max_load_line_annotator(max_load_y_px))
     annotator = annotations.chain(*selected) if selected else None
 
     return EngineHooks(analyzer=compute_metrics, annotator=annotator)
+
+
+def _read_person_pipelines(config: ConfigManager) -> tuple[set[str], set[str]]:
+    """Los slots habilitados de tipo `person_safety` y las cámaras que miran entre todos."""
+    all_cameras = set((config.get("cameras", {}) or {}).keys())
+    pipelines: set[str] = set()
+    cameras: set[str] = set()
+    for pipeline_slot, section in (config.get("inference.pipelines", {}) or {}).items():
+        if not isinstance(section, dict) or not section.get("enabled", True):
+            continue
+        if section.get("type") != _PERSON_PIPELINE_TYPE:
+            continue
+        pipelines.add(pipeline_slot)
+        cameras |= set(section.get("cameras") or []) or all_cameras
+    return pipelines, cameras

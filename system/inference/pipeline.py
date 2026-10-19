@@ -65,6 +65,8 @@ import numpy as np
 from .abstract_pipeline import AbstractPipeline
 from .result import Detection
 
+_PERSON_CLASS = "person"
+
 
 class Pipeline(AbstractPipeline):
     """
@@ -99,12 +101,19 @@ class GrainFlowPipeline(AbstractPipeline):
 
 
 class PersonPipeline(AbstractPipeline):
-    """Personas en la escena: una etapa de detección. La zona la juzga el analyzer."""
+    """
+    Personas en la escena: una etapa de detección. La zona la juzgan el analyzer y el
+    annotator.
+
+    Devuelve sólo la clase `person`: el modelo puede ser un YOLO genérico que también
+    detecta autos y camiones, y esas cajas no tienen que dibujarse ni contarse.
+    """
 
     model_slots = ("person_det",)
 
     def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
-        return self._run_stage("person_det", frame_bgr)
+        return [detection for detection in self._run_stage("person_det", frame_bgr)
+                if detection.class_name == _PERSON_CLASS]
 
 
 class StopperPipeline(AbstractPipeline):

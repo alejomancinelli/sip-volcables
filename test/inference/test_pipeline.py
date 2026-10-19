@@ -302,7 +302,6 @@ class TestProjectPipelines:
         assert pipeline.labels == {"grain_flow": "none"}
 
     @pytest.mark.parametrize("pipeline_class, model_slot", [
-        (PersonPipeline, "person_det"),
         (StopperPipeline, "stopper_seg"),
     ])
     def test_a_one_stage_pipeline_returns_what_its_model_found(self, monkeypatch,
@@ -310,3 +309,10 @@ class TestProjectPipelines:
         found = [_detection("x", 90.0)]
         pipeline = self._loaded(monkeypatch, pipeline_class, model_slot, found)
         assert [d.class_name for d in pipeline.run(_frame(), _SLOT)] == ["x"]
+
+    def test_the_person_pipeline_keeps_only_persons(self, monkeypatch):
+        """Un YOLO genérico también detecta autos y camiones: esas cajas no se dibujan."""
+        found = [_detection("person", 90.0), _detection("car", 90.0),
+                 _detection("class_7", 90.0)]
+        pipeline = self._loaded(monkeypatch, PersonPipeline, "person_det", found)
+        assert [d.class_name for d in pipeline.run(_frame(), _SLOT)] == ["person"]
