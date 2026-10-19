@@ -547,9 +547,10 @@ are already in JetPack and cover the four engines.
   prints the module's capability table.
 - `build/` (Nuitka): make sure the build carries the `vpi` binding and that the GStreamer
   plugin path still resolves from the compiled launcher.
-- Docs: a `docs/jetson.md` for the integrator (which module gives which engines, the
-  stream budget, how to read the new telemetry fields). Update `CLAUDE.md` (map, decisions)
-  and `docs/influxdb.md`/`docs/mqtt.md` for the new fields.
+- Docs: `docs/jetson.md` is written, for the integrator: which module gives which engines,
+  every config key that touches the image, choosing the decode size, exporting the engines
+  and the telemetry fields. A stream budget table (NVENC sessions per module) is not in it
+  yet: it needs the number measured on each module.
 
 ## 7. Suggested order and expected value
 
