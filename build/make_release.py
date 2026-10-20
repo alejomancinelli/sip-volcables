@@ -13,6 +13,7 @@ Deja una carpeta lista para copiar al equipo de la planta:
         <APP_NAME> sin pantalla.cmd
         Crear accesos directos.cmd   se corre una vez, ya instalado
         Verificar camara.cmd         que el equipo tenga lo que la cámara necesita
+        <calibrador>.cmd             uno por cada fila de `calibration/registry.py`
 
 **En Linux —la Jetson— la forma es la misma** y cambian los lanzadores: `.sh` en vez de
 `.cmd`, `_entorno.sh` en vez de `_Entorno.cmd`, el ejecutable es `main.bin`, y los accesos
@@ -40,6 +41,14 @@ en el lugar donde quedó instalado**, con el icono que el `.exe` ya lleva compil
 **La app se larga con `start` y no deja consola.** El `.exe` es de subsistema Windows
 —`--windows-console-mode=attach` en `build.py`— así que no abre consola propia; la que se
 vería sin `start` es la del `cmd` que lo lanza, esperando a que el programa termine.
+
+**Los calibradores sí la dejan.** Cada fila de `calibration/registry.py` es un lanzador más,
+que llama al mismo ejecutable con `--calibrate <nombre>`, no se larga y termina en `pause`:
+lo que imprime un calibrador es su resultado, y un `.cmd` abierto con doble clic cierra la
+consola al terminar. Sus carpetas de entrada y salida se arman vacías en
+`installation/calibration/<nombre>/`, con un `LEEME.txt` que dice qué va en cada una: son
+de la planta, sobreviven a una actualización como el config, y son la misma ruta relativa a
+`SIP_DATA_DIR` que el calibrador usa corriendo desde fuentes.
 
 **Por qué separadas.** El programa se actualiza reemplazando `program/`. Si el
 `config.yaml` con los valores calibrados y el mapa de registros que acordó el integrador
@@ -83,6 +92,7 @@ _BUILD_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_BUILD_DIR)
 sys.path.insert(0, _REPO_ROOT)
 
+from calibration import registry  # noqa: E402
 from system.version import APP_VERSION  # noqa: E402
 
 _DEFAULT_DIST = "build/out/main.dist"
@@ -122,6 +132,11 @@ _INSTALLATION_FILES = (
 # propio, y entonces no se copia nada ni se avisa de nada.
 _MODELS_DIR = "models"
 
+# Las carpetas de los calibradores, relativas a la raíz del repo y a `installation/`: es la
+# misma ruta en los dos lados, y por eso el calibrador no necesita saber cómo corre.
+_CALIBRATION_DIR = "calibration"
+_CALIBRATION_NOTE = "LEEME.txt"
+
 # El único archivo donde vive la ruta de datos. Los lanzadores lo llaman con `call`, que
 # corre en el mismo proceso, así que el `set` les queda puesto.
 _ENV_NAME = "_Entorno.cmd"
@@ -148,16 +163,17 @@ call "%~dp0{env_name}"
 # Lo que sí queda en el log: un arranque que no llega a abrir la ventana no deja nada en
 # pantalla, porque la consola se cierra con el `cmd`. Queda en installation\data\logs.
 _DETACHED = 'start "" "%~dp0program\\main.exe"{arguments} %*'
-_FOREGROUND = '"%~dp0program\\main.exe"{arguments} %*'
+# Una herramienta deja su resultado en la consola, y abierta con doble clic el `cmd` la
+# cierra al terminar: el `pause` es lo que deja leerlo.
+_FOREGROUND = '"%~dp0program\\main.exe"{arguments} %*\npause'
 
 
 def _launchers(app_name: str, extension: str) -> tuple:
     """
     Nombre, descripción, qué le pasa al ejecutable y si el proceso queda suelto.
 
-    Dos por defecto: con ventana y sin ventana. Un fork con una herramienta de línea de
-    comandos que comparte el mismo ejecutable —un subcomando de calibración, por
-    ejemplo— agrega su fila acá con `detach=False`, porque **`detach` es lo que decide si
+    Dos para la app —con ventana y sin ventana— y uno por calibrador de
+    `calibration/registry.py`, que no se editan acá. **`detach` es lo que decide si
     aparece una consola**: con `start` el `cmd` larga el proceso y se cierra sin dejar
     ventana, que es lo que quiere la app; una herramienta que tiene que mostrar algo en
     esa consola —el resultado de un ajuste, un chequeo— no se larga y se espera. En Linux
@@ -168,7 +184,43 @@ def _launchers(app_name: str, extension: str) -> tuple:
         (f"{app_name} sin pantalla{extension}",
          "Arranca sin ventana: equipo en gabinete sin monitor. No hace falta tocar el "
          "config.", "--headless", True),
+        *((f"{tool.launcher}{extension}", tool.description, f"--calibrate {tool.name}", False)
+          for tool in registry.TOOLS),
     )
+
+
+def _require_valid_tools():
+    """
+    La tabla de calibradores se puede empaquetar, o no se arma nada.
+
+    Un nombre con espacios da un lanzador que llama a un calibrador que no existe, y dos
+    con el mismo lanzador se pisan: los dos fallan recién en la planta, con el equipo
+    delante, y acá se ven antes de copiar un byte.
+    """
+    problems = registry.check_tools(registry.TOOLS)
+    if problems:
+        raise SystemExit("calibration/registry.py tiene problemas:\n"
+                         + "\n".join(f"  {problem}" for problem in problems))
+
+
+def _write_calibration_dirs(installation: str):
+    """
+    Las carpetas de entrada y salida de cada calibrador, vacías y con su nota adentro.
+
+    No se copian del repo: lo que haya ahí es una corrida del equipo de desarrollo, que no
+    es de esta planta y por eso no se versiona. Sí viaja el ejemplo de formato
+    (`example.*`), que es de donde el que calibra saca cómo armar el suyo.
+    """
+    for tool in registry.TOOLS:
+        for relative, note in tool.folders:
+            source = os.path.join(_REPO_ROOT, _CALIBRATION_DIR, tool.name, relative)
+            target = os.path.join(installation, _CALIBRATION_DIR, tool.name, relative)
+            os.makedirs(target, exist_ok=True)
+            _write_note(os.path.join(target, _CALIBRATION_NOTE), note)
+            for example in glob.glob(os.path.join(source, "example.*")):
+                shutil.copy2(example, target)
+        print(f"    installation/{_CALIBRATION_DIR}/{tool.name}/   "
+              f"{len(tool.folders)} carpetas para {tool.launcher}")
 
 
 # Accesos directos en el escritorio, creados **en el equipo de la planta y en el lugar
@@ -814,6 +866,12 @@ def _write_text(path: str, text: str):
         handle.write(text)
 
 
+def _write_note(path: str, text: str):
+    """Una nota para leer en el equipo, con los saltos de su plataforma."""
+    with open(path, "w", encoding="utf-8", newline="\r\n" if _IS_WINDOWS else "\n") as handle:
+        handle.write(text)
+
+
 def _copy_into(source: str, target: str) -> bool:
     """Copia un archivo o una carpeta, creando lo que falte. False si no estaba."""
     if not os.path.exists(source):
@@ -860,6 +918,7 @@ def main() -> int:
 
     if not _IS_WINDOWS and not sys.platform.startswith("linux"):
         raise SystemExit(f"Sin entregable para {sys.platform}: sólo Windows y Linux.")
+    _require_valid_tools()
     accelerated = _build_script()._ACCELERATED
     dist = args.dist or (_DEFAULT_ACCELERATED_DIST if accelerated else _DEFAULT_DIST)
     dist = os.path.join(_REPO_ROOT, dist) if not os.path.isabs(dist) else dist
@@ -891,6 +950,7 @@ def main() -> int:
     # `missing`. El tamaño de lo que sí haya ya entra en el total que se imprime abajo.
     _copy_into(os.path.join(_REPO_ROOT, _MODELS_DIR),
                os.path.join(installation, _MODELS_DIR))
+    _write_calibration_dirs(installation)
     print(f"    installation/   {_size_mb(installation):6.1f} MB")
 
     if _IS_WINDOWS:

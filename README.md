@@ -245,6 +245,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `ui/views/config/<otra>_tab.py` | otra sección propia, más **una línea** en `_TAB_CLASSES` |
 | `test/` | un test por archivo nuevo, espejando el árbol |
 | `manual_test/<tema>/` | verificaciones con hardware, con su `config.yaml` al lado |
+| `calibration/<tool>/` | una herramienta de puesta en marcha que produce valores del config, con su `README.md` para quien calibra, más **una línea** en `calibration/registry.py`: con eso es un subcomando de `main.py` y un lanzador del entregable. La jerarquía y las reglas, en [calibration/README.md](calibration/README.md) |
 | `docs/` | notas de puesta en marcha, protocolos nuevos |
 
 ### Maquinaria: no se edita

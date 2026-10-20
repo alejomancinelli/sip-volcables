@@ -57,6 +57,46 @@ class TestExit:
         assert calls == ["shutdown", "exit"]
 
 
+class TestCalibrate:
+    """
+    `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del
+    calibrador, y este archivo no lo interpreta.
+    """
+
+    def test_the_name_and_the_rest_of_the_line_go_through_untouched(self):
+        args = main._parse_args(["--calibrate", "mesh", "--samples", "a.csv", "--headless"])
+        assert args.calibrate == ["mesh", "--samples", "a.csv", "--headless"]
+        assert not args.headless
+
+    def test_the_config_path_still_comes_first(self):
+        args = main._parse_args(["otro.yaml", "--calibrate", "mesh"])
+        assert args.config == "otro.yaml"
+        assert args.calibrate == ["mesh"]
+
+    def test_without_it_the_app_opens(self):
+        assert main._parse_args([]).calibrate is None
+
+    def test_it_runs_before_the_license_and_qt(self, monkeypatch):
+        """
+        La puesta en marcha viene antes que la licencia, y el calibrador arma su propia
+        ventana: ni una cosa ni la otra tienen que existir cuando corre.
+        """
+        config = _MockConfig()
+        calls = []
+        monkeypatch.setattr(main, "ConfigManager", lambda path: config)
+        monkeypatch.setattr(main, "_setup_logging", lambda cfg: None)
+        monkeypatch.setattr(main, "load_env_file", lambda: None)
+        monkeypatch.setattr(main, "_exit", lambda code, cfg: code)
+        monkeypatch.setattr(main, "LicenseManager", lambda cfg: pytest.fail("licencia"))
+        monkeypatch.setattr(main, "QApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "QCoreApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "run_calibration_tool",
+                            lambda cfg, argv: calls.append((cfg, argv)) or _EXIT_CODE)
+
+        assert main.main(["--calibrate", "mesh", "--x", "1"]) == _EXIT_CODE
+        assert calls == [(config, ["mesh", "--x", "1"])]
+
+
 class TestUnlicensedCamera:
     """El status que el cableado publica por una cámara que la licencia deja afuera."""
 
