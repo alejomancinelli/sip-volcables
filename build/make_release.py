@@ -46,9 +46,10 @@ vería sin `start` es la del `cmd` que lo lanza, esperando a que el programa ter
 que llama al mismo ejecutable con `--calibrate <nombre>`, no se larga y termina en `pause`:
 lo que imprime un calibrador es su resultado, y un `.cmd` abierto con doble clic cierra la
 consola al terminar. Sus carpetas de entrada y salida se arman vacías en
-`installation/calibration/<nombre>/`, con un `LEEME.txt` que dice qué va en cada una: son
-de la planta, sobreviven a una actualización como el config, y son la misma ruta relativa a
-`SIP_DATA_DIR` que el calibrador usa corriendo desde fuentes.
+`installation/calibration/<nombre>/`, junto a la guía del calibrador (su `README.md`) y con
+un `LEEME.txt` que dice qué va en cada una: son de la planta, sobreviven a una
+actualización como el config, y son la misma ruta relativa a `SIP_DATA_DIR` que el
+calibrador usa corriendo desde fuentes.
 
 **Por qué separadas.** El programa se actualiza reemplazando `program/`. Si el
 `config.yaml` con los valores calibrados y el mapa de registros que acordó el integrador
@@ -136,6 +137,7 @@ _MODELS_DIR = "models"
 # misma ruta en los dos lados, y por eso el calibrador no necesita saber cómo corre.
 _CALIBRATION_DIR = "calibration"
 _CALIBRATION_NOTE = "LEEME.txt"
+_CALIBRATION_GUIDE = "README.md"
 
 # El único archivo donde vive la ruta de datos. Los lanzadores lo llaman con `call`, que
 # corre en el mismo proceso, así que el `set` les queda puesto.
@@ -208,10 +210,13 @@ def _write_calibration_dirs(installation: str):
     Las carpetas de entrada y salida de cada calibrador, vacías y con su nota adentro.
 
     No se copian del repo: lo que haya ahí es una corrida del equipo de desarrollo, que no
-    es de esta planta y por eso no se versiona. Sí viaja el ejemplo de formato
-    (`example.*`), que es de donde el que calibra saca cómo armar el suyo.
+    es de esta planta y por eso no se versiona. Sí viajan el ejemplo de formato
+    (`example.*`), que es de donde el que calibra saca cómo armar el suyo, y el `README.md`
+    del calibrador: es lo que explica cómo usarlo, y quien lo usa está en la planta.
     """
     for tool in registry.TOOLS:
+        _copy_into(os.path.join(_REPO_ROOT, _CALIBRATION_DIR, tool.name, _CALIBRATION_GUIDE),
+                   os.path.join(installation, _CALIBRATION_DIR, tool.name, _CALIBRATION_GUIDE))
         for relative, note in tool.folders:
             source = os.path.join(_REPO_ROOT, _CALIBRATION_DIR, tool.name, relative)
             target = os.path.join(installation, _CALIBRATION_DIR, tool.name, relative)

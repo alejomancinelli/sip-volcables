@@ -175,6 +175,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               mqtt.md (la misma estructura, en tópicos y JSON),
                               model_protection.md (cómo se protege y se reemplaza un modelo),
                               offline_testing.md (video grabado e imágenes sueltas),
+                              calibration.md (cómo se calibra un equipo en la puesta en
+                              marcha, con los calibradores del fork),
                               jetson.md (los aceleradores: qué parámetros los controlan, qué
                               le hacen a la imagen y cómo exportar los engines) y
                               tests.md (el índice de la suite, generado)

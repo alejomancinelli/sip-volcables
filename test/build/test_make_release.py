@@ -148,6 +148,19 @@ class TestCalibrationTools:
         out = installation / "calibration" / "mesh" / "out"
         assert [item.name for item in out.iterdir()] == ["LEEME.txt"]
 
+    def test_its_guide_travels_with_it(self, make_release, monkeypatch, tmp_path):
+        """Quien calibra está en la planta, y sin la guía tiene el lanzador y no cómo usarlo."""
+        tool_dir = tmp_path / "repo" / "calibration" / "mesh"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "README.md").write_text("# Umbrales de malla\n", encoding="utf-8")
+        monkeypatch.setattr(make_release, "_REPO_ROOT", str(tmp_path / "repo"))
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(folders=()),))
+
+        make_release._write_calibration_dirs(str(tmp_path / "installation"))
+
+        guide = tmp_path / "installation" / "calibration" / "mesh" / "README.md"
+        assert guide.read_text(encoding="utf-8") == "# Umbrales de malla\n"
+
     def test_without_tools_there_is_no_calibration_folder(self, make_release, monkeypatch,
                                                          tmp_path):
         monkeypatch.setattr(registry, "TOOLS", ())

@@ -8,6 +8,11 @@ vivo, y los umbrales de malla ajustados contra zarandeos pesados a mano.
 El template no trae ningún calibrador, porque qué se calibra es lo más específico de cada
 instalación. Trae dónde van, cómo se ordenan y qué reglas siguen.
 
+Este documento es para quien escribe un calibrador. Cómo se usan en la planta —abrirlos,
+dejarles las entradas, llevar el resultado al config— está en
+[docs/calibration.md](../docs/calibration.md), y vale para todos; lo propio de cada uno va
+en su `README.md`.
+
 ## Qué es un calibrador y qué no
 
 Un calibrador **produce valores del config de una instalación**. Por eso no es:
@@ -119,7 +124,8 @@ agregar un calibrador:
 - **`build/make_release.py`** escribe un lanzador por calibrador al lado de los de la app
   —en Windows deja la consola abierta al terminar, para que se lea el resultado— y crea
   sus `folders` en `installation/calibration/<name>/`, cada una con un `LEEME.txt` que
-  tiene la nota de la fila y el `example.*` que haya en el repo. Antes de armar nada
+  tiene la nota de la fila y el `example.*` que haya en el repo. El `README.md` del
+  calibrador viaja con ellas, porque quien lo lee está en la planta. Antes de armar nada
   revisa la tabla, y una fila mal escrita corta el entregable con el motivo.
 
 `installation/` es lo que sobrevive a una actualización, así que las entradas y los

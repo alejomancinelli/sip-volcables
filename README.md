@@ -46,6 +46,12 @@ los pipelines sobre una carpeta de imágenes y deja el resultado en una carpeta 
 Cómo se preparan los videos y cómo se lee el resultado está en
 [docs/offline_testing.md](docs/offline_testing.md).
 
+Lo que se calibra en la puesta en marcha —una escala, un umbral contra muestras pesadas—
+son calibradores del fork, subcomandos del mismo ejecutable (`main.py --calibrate
+<nombre>`) con un lanzador cada uno en el entregable. Cómo se usan en la planta está en
+[docs/calibration.md](docs/calibration.md); cómo se escribe uno, en
+[calibration/README.md](calibration/README.md).
+
 ## Cómo se crea el repo del proyecto
 
 Una aclaración de vocabulario antes: en este repo y en `CLAUDE.md`, **«fork» significa

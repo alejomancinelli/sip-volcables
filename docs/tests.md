@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**75 archivos, 420 grupos, 2053 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**75 archivos, 420 grupos, 2054 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -15,7 +15,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
 | [test/](#test) | 6 | 307 |
-| [test/build/](#testbuild) | 2 | 54 |
+| [test/build/](#testbuild) | 2 | 55 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -584,14 +584,14 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 30 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
-| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 8 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
 | `TestDesktopEntryId` |  | 2 |
@@ -610,6 +610,7 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_the_windows_launcher_keeps_the_console_open`
   - `test_the_linux_launcher_calls_the_same_binary`
   - `test_its_folders_are_created_empty_with_a_note`
+  - `test_its_guide_travels_with_it`
   - `test_without_tools_there_is_no_calibration_folder`
   - `test_a_broken_table_stops_the_release`
   - `test_the_shipped_table_can_be_packaged`
