@@ -99,6 +99,11 @@ completa del entregable, por qué el programa y los datos de la instalación que
 carpetas separadas (`program/` e `installation/`), por qué los accesos directos se crean
 en el equipo y no viajan adentro del paquete, y qué hace `Verificar camara.cmd`.
 
+**Los calibradores viajan sin tocar estos scripts.** Cada fila de `calibration/registry.py`
+es un subcomando del mismo ejecutable (`--calibrate <nombre>`): `build.py` compila el
+paquete `calibration` y `make_release.py` agrega su lanzador y sus carpetas vacías en
+`installation/calibration/<nombre>/`. Cómo se arma uno está en `calibration/README.md`.
+
 ## En la Jetson
 
 El mismo par de scripts, corrido en una Jetson. `build.py` compila en la forma acelerada y
@@ -113,6 +118,7 @@ archivo— y `make_release.py` arma la misma carpeta con lanzadores de bash:
         <APP_NAME> sin pantalla.sh
         Crear accesos directos.sh    menú de aplicaciones y escritorio, con un .desktop
         Verificar camara.sh          le pregunta a ldd qué biblioteca del SDK falta
+        <calibrador>.sh              uno por cada fila de calibration/registry.py
     <APP_NAME>-<version>.tar.gz   esto es lo que se copia al equipo
 
 **Se copia el `.tar.gz`, no la carpeta.** Un pendrive en FAT32 o exFAT no guarda el

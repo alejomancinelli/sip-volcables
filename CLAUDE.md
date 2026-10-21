@@ -154,6 +154,11 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+    calibration/              herramientas de puesta en marcha que producen valores del config;
+                              una carpeta por calibrador, con su README para quien calibra.
+                              La jerarquía y las reglas, en `calibration/README.md`
+      registry.py             la tabla de calibradores; de ahí salen el subcomando, el build
+                              y el lanzador. Vacía en el template
       model_export/           exporta un .pt de ultralytics a .engine, cuadrado o rectangular
       jetson_accelerators/    qué motores tiene la Jetson y cuánto CPU libera cada etapa en ellos
     setup/                    instalación (en inglés, ver skill)
@@ -171,6 +176,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               mqtt.md (la misma estructura, en tópicos y JSON),
                               model_protection.md (cómo se protege y se reemplaza un modelo),
                               offline_testing.md (video grabado e imágenes sueltas),
+                              calibration.md (cómo se calibra un equipo en la puesta en
+                              marcha, con los calibradores del fork),
                               jetson.md (los aceleradores: qué parámetros los controlan, qué
                               le hacen a la imagen y cómo exportar los engines) y
                               tests.md (el índice de la suite, generado)
@@ -250,6 +257,10 @@ Son punteros: el contrato vive en el archivo, no acá.
   pide y se renueva está en `docs/licensing.md`.
 - **Configuración** — `system/config_manager.py`: rutas punteadas, copias en la
   entrega, config de rescate.
+- **Calibrador** — `calibration/registry.py`: los campos de una fila y qué arma cada uno;
+  el calibrador expone `run(config, argv) -> int`. Las reglas que sigue —rutas desde
+  `DATA_DIR`, reporte en `out/`, cuándo escribe el config y cuándo propone— están en
+  `calibration/README.md`.
 - **Pestaña de configuración** — `ui/views/config/abstract_tab.py`: `TITLE_KEY`,
   `load()` y `save()`, y la regla de que `save()` no persiste el archivo.
 - **Área central del monitor** — `ui/views/monitor_view.py`: `set_content()` es el punto
@@ -325,6 +336,16 @@ Lo que no se deduce leyendo un archivo suelto:
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
   necesita GStreamer instalado en el equipo.
+- **Un calibrador es un subcomando del ejecutable, no un programa aparte.** `main.py
+  --calibrate <nombre>` lo despacha antes de la ventana y de la licencia, y el entregable
+  lleva un lanzador por cada uno. Así llega compilado a una planta sin Python y lee el
+  config de la instalación ya resuelto; un `.exe` por herramienta sería otra compilación,
+  otro binario sin firmar para el antivirus y otro lugar que elige qué `config.yaml` leer.
+  Lo que dice qué calibradores hay es una tabla (`calibration/registry.py`) y no código en
+  la maquinaria, porque el primer fork que lo hizo tuvo que editar `main.py` y
+  `make_release.py` por cada herramienta. Sus entradas y reportes viven en
+  `calibration/<nombre>/` relativo a `DATA_DIR`, que compilado es `installation/` y
+  sobrevive a una actualización; en el repo no se versionan.
 - **Un hilo de inferencia por pipeline, no por cámara.** Las cámaras que comparten
   modelo comparten el hilo: entran por una cola con el último frame de cada una, y el
   hilo las atiende por turno. Así los pesos se cargan una sola vez y el acceso a la
@@ -664,8 +685,9 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   `system/inference/` (+1 línea en la fábrica), otra clase de pipeline en `pipeline.py`
   (+1 línea en `pipeline_factory.py`), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
-  (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
-  `manual_test/` y `docs/`.
+  (lo devuelve `_build_monitor_content()` de `main.py`), un calibrador en
+  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), y lo que corresponda en
+  `test/`, `manual_test/` y `docs/`.
 - **De `main.py` se completan tres métodos**, los del bloque marcado: el widget del
   monitor, el contexto que se guarda con el dataset y las compuertas de frames —que el
   template deja vacías—. Lo que entra al motor —classifier,

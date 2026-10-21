@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**76 archivos, 418 grupos, 2037 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 424 grupos, 2069 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,8 +14,9 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 303 |
-| [test/build/](#testbuild) | 2 | 43 |
+| [test/](#test) | 6 | 307 |
+| [test/build/](#testbuild) | 2 | 55 |
+| [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
@@ -189,13 +190,14 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 95 tests
+### [test_main.py](../test/test_main.py) — 99 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestExit` |  | 3 |
+| `TestCalibrate` | `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del calibrador, y este archivo no lo interpreta. | 4 |
 | `TestUnlicensedCamera` | El status que el cableado publica por una cámara que la licencia deja afuera. | 3 |
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
@@ -223,6 +225,11 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_by_default_it_returns_instead_of_killing_the_process`
   - `test_hard_exit_terminates_without_unwinding`
   - `test_the_log_is_flushed_either_way`
+- `TestCalibrate`
+  - `test_the_name_and_the_rest_of_the_line_go_through_untouched`
+  - `test_the_config_path_still_comes_first`
+  - `test_without_it_the_app_opens`
+  - `test_it_runs_before_the_license_and_qt`
 - `TestUnlicensedCamera`
   - `test_it_uses_the_stable_keys_of_a_driver`
   - `test_it_reads_as_a_camera_that_cannot_operate`
@@ -527,7 +534,7 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 
 ## test/build/
 
-### [test_build.py](../test/build/test_build.py) — 21 tests
+### [test_build.py](../test/build/test_build.py) — 24 tests
 
 Tests de las opciones con las que se llama a Nuitka.
 
@@ -535,6 +542,7 @@ Tests de las opciones con las que se llama a Nuitka.
 |---|---|---:|
 | `TestExtraFlags` | Las opciones que suma cada fork. | 5 |
 | `TestOptionalPackages` | Lo que la maquinaria necesita que Nuitka incluya a mano, y sólo donde está instalado. Va fuera de `_EXTRA_FLAGS`: el GPIO es del template, no de un fork. | 4 |
+| `TestCalibrators` | `calibration/` entra al binario aunque `main.py` no lo importe de forma estática: el registro importa cada calibrador por nombre, y Nuitka no sigue un import armado con un string. Sin esto el build sale bien y el lanzador falla recién en la planta. | 3 |
 | `TestExclusions` |  | 2 |
 | `TestPlatform` | Las propiedades y el icono del `.exe` son recursos de un binario PE. En la Jetson no hay dónde guardarlos, y el comando no los lleva. | 3 |
 | `TestAcceleratedBuild` | La forma de Linux: se compila lo nuestro y lo de terceros viaja suelto. | 4 |
@@ -553,6 +561,10 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_a_missing_one_is_left_out`
   - `test_the_fork_block_stays_empty_either_way`
   - `test_the_accelerated_build_leaves_it_loose`
+- `TestCalibrators`
+  - `test_the_standalone_build_includes_them`
+  - `test_the_accelerated_build_compiles_them`
+  - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
   - `test_excluding_nothing_is_the_default`
@@ -572,13 +584,14 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 22 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
 | `TestDesktopEntryId` |  | 2 |
@@ -591,6 +604,16 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_a_fork_without_a_model_yet_is_not_a_failure`
   - `test_a_directory_that_is_not_there_says_so`
   - `test_the_models_directory_is_the_one_the_repo_ships`
+- `TestCalibrationTools`
+  - `test_the_template_ships_only_the_app_launchers`
+  - `test_each_tool_gets_a_launcher_that_waits`
+  - `test_the_windows_launcher_keeps_the_console_open`
+  - `test_the_linux_launcher_calls_the_same_binary`
+  - `test_its_folders_are_created_empty_with_a_note`
+  - `test_its_guide_travels_with_it`
+  - `test_without_tools_there_is_no_calibration_folder`
+  - `test_a_broken_table_stops_the_release`
+  - `test_the_shipped_table_can_be_packaged`
 - `TestLinuxRelease`
   - `test_the_launchers_exec_the_nuitka_binary`
   - `test_the_data_dir_lives_in_one_file`
@@ -613,6 +636,42 @@ Tests del armado del entregable: qué se copia y qué no.
 - `TestFindExecutable`
   - `test_linux_names_the_binary_main_bin`
   - `test_a_dist_without_a_binary_says_so_with_an_empty_name`
+
+</details>
+
+## test/calibration/
+
+### [test_registry.py](../test/calibration/test_registry.py) — 16 tests
+
+Tests de la tabla de calibradores: qué se puede registrar y cómo se lanza uno.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestShippedTable` | La tabla que se entrega. En el template está vacía; en un fork, estos tests son los que frenan una fila mal escrita antes de que `make_release.py` la empaquete. | 2 |
+| `TestCheckTools` |  | 8 |
+| `TestRunTool` |  | 6 |
+
+<details><summary>Tests</summary>
+
+- `TestShippedTable`
+  - `test_it_has_no_problems`
+  - `test_each_module_is_where_it_says`
+- `TestCheckTools`
+  - `test_a_well_formed_tool_passes`
+  - `test_the_name_has_to_work_as_a_word_and_a_package`
+  - `test_two_tools_cannot_share_a_name`
+  - `test_two_tools_cannot_share_a_launcher`
+  - `test_the_module_lives_in_its_own_folder`
+  - `test_the_launcher_has_to_be_a_file_name`
+  - `test_a_folder_cannot_leave_the_tool_directory`
+  - `test_each_problem_is_reported_once`
+- `TestRunTool`
+  - `test_the_tool_gets_the_config_and_the_rest_of_the_line`
+  - `test_its_exit_code_comes_back`
+  - `test_an_unknown_name_lists_what_there_is`
+  - `test_a_missing_name_says_so`
+  - `test_without_tools_it_says_there_are_none`
+  - `test_listing_the_tools_does_not_import_them`
 
 </details>
 
