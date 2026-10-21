@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**75 archivos, 420 grupos, 2054 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 424 grupos, 2069 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 12 | 311 |
+| [test/inference/](#testinference) | 13 | 322 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -30,7 +30,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 7 | 49 |
+| [test/ui/](#testui) | 8 | 53 |
 | [test/video/](#testvideo) | 3 | 192 |
 
 ## test/
@@ -1588,6 +1588,35 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_does_not_add_to_the_counters_of_the_thread`
   - `test_it_does_not_load_the_pipeline`
   - `test_it_refuses_to_run_while_the_thread_is_running`
+
+</details>
+
+### [test_geometry.py](../test/inference/test_geometry.py) — 11 tests
+
+Tests de la geometría sobre detecciones: una máscara contra una línea y la distancia más corta entre dos máscaras.
+
+| Grupo | Tests |
+|---|---:|
+| `TestMaskPoints` | 2 |
+| `TestAboveY` | 4 |
+| `TestClosestPoints` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestMaskPoints`
+  - `test_the_points_are_placed_in_the_full_frame`
+  - `test_a_detection_without_mask_counts_its_whole_bbox`
+- `TestAboveY`
+  - `test_it_counts_the_pixels_with_a_smaller_y`
+  - `test_a_shape_below_the_height_has_none_above`
+  - `test_a_shape_above_the_height_counts_whole`
+  - `test_only_the_mask_counts_not_its_bbox`
+- `TestClosestPoints`
+  - `test_two_separate_shapes_give_their_gap`
+  - `test_a_diagonal_gap_is_euclidean`
+  - `test_touching_shapes_give_zero_and_a_shared_point`
+  - `test_an_empty_mask_gives_none`
+  - `test_long_contours_are_still_exact`
 
 </details>
 
@@ -3503,6 +3532,24 @@ Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()`
 - `TestSlotTabs`
   - `test_a_long_bar_scrolls_instead_of_eliding`
   - `test_ten_pipelines_keep_their_full_labels`
+
+</details>
+
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 4 tests
+
+Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLevelDialog` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestLevelDialog`
+  - `test_it_starts_at_the_configured_height`
+  - `test_without_a_height_it_starts_at_the_top`
+  - `test_a_marked_height_reaches_the_field`
+  - `test_it_saves_one_row_under_its_key_and_persists`
 
 </details>
 
