@@ -166,7 +166,7 @@ class TestFreshness:
     def test_a_camera_whose_results_expired_has_nothing_fresh(self):
         composer = FrameComposer({_GRAIN: 0.5})
         composer.add(_result(_GRAIN, 10.0), now_s=0.0)
-        assert composer.has_fresh(_CAMERA, 2.0) is False
+        assert composer.has_fresh(_CAMERA, 6.0) is False
 
     def test_another_camera_does_not_count(self):
         composer = FrameComposer()
@@ -196,6 +196,15 @@ class TestFreshness:
         assert composer.has_fresh(_CAMERA, 4.5) is True
         assert composer.has_fresh(_CAMERA, 8.5) is False
 
+    def test_a_late_result_does_not_send_the_camera_live(self):
+        """Una inferencia demorada no es un pipeline caído: el anotado no pierde el overlay."""
+        composer = FrameComposer({_GRAIN: 0.0})
+        composer.add(_result(_GRAIN, 10.0), now_s=0.0)
+        composer.add(_result(_GRAIN, 10.3), now_s=0.3)
+        assert composer.others(_CAMERA, _PERSON, 1.8) == []
+        assert composer.has_fresh(_CAMERA, 1.8) is True
+        assert composer.has_fresh(_CAMERA, 5.5) is False
+
     def test_an_on_request_pipeline_ignores_the_time_between_requests(self):
         """Dos minutos entre pedidos es el ritmo de quien pide, no la salud del pipeline."""
         composer = FrameComposer({_GRAIN: 10.0}, on_request=frozenset({_GRAIN}))
@@ -223,4 +232,4 @@ class TestFreshness:
         composer.add(_result(_GRAIN, 10.0), now_s=0.0)
         composer.forget(_CAMERA, _GRAIN)
         composer.add(_result(_GRAIN, 3610.0), now_s=3600.0)
-        assert composer.has_fresh(_CAMERA, 3601.5) is False
+        assert composer.has_fresh(_CAMERA, 3606.0) is False

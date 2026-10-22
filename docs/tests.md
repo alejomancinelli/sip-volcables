@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**80 archivos, 470 grupos, 2341 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**80 archivos, 470 grupos, 2344 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 13 | 375 |
+| [test/inference/](#testinference) | 13 | 378 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
@@ -1543,7 +1543,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_composer.py](../test/inference/test_composer.py) — 27 tests
+### [test_composer.py](../test/inference/test_composer.py) — 28 tests
 
 Tests del composer: qué resultado pone el frame de una cámara y qué overlays van encima.
 
@@ -1552,7 +1552,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 | `TestDriving` |  | 5 |
 | `TestOthers` |  | 7 |
 | `TestCompose` |  | 5 |
-| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 10 |
+| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 11 |
 
 <details><summary>Tests</summary>
 
@@ -1583,6 +1583,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
   - `test_a_forgotten_pair_stops_being_drawn_at_once`
   - `test_forgetting_keeps_the_other_pipelines`
   - `test_a_slow_pipeline_stays_fresh_between_its_results`
+  - `test_a_late_result_does_not_send_the_camera_live`
   - `test_an_on_request_pipeline_ignores_the_time_between_requests`
   - `test_without_being_on_request_the_same_gap_keeps_it_fresh`
   - `test_set_intervals_also_replaces_the_on_request_pipelines`
@@ -1590,14 +1591,14 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 122 tests
+### [test_engine.py](../test/inference/test_engine.py) — 124 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestConstruction` |  | 7 |
-| `TestQueue` |  | 10 |
+| `TestQueue` |  | 12 |
 | `TestConfigCache` | El config se lee una vez, no por frame: cada `get` es un lock global y una copia. | 2 |
 | `TestRoiAndIllumination` |  | 7 |
 | `TestPipelineRoi` | El ROI propio de un pipeline reemplaza al de la cámara, sólo para ese pipeline. | 6 |
@@ -1635,6 +1636,8 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_the_frame_is_kept_without_a_copy`
   - `test_the_turn_rotates_between_cameras`
   - `test_the_interval_drops_frames_that_arrive_early`
+  - `test_a_frame_waiting_its_turn_is_refreshed_within_the_interval`
+  - `test_a_consumed_frame_is_not_replaced_within_the_interval`
   - `test_ignore_interval_forces_the_frame`
 - `TestConfigCache`
   - `test_frames_after_the_first_do_not_read_the_config`
