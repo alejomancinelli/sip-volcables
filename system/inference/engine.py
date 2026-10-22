@@ -183,7 +183,12 @@ class InferenceThread(QThread):
         y copiar 3 MP a 15 fps es memoria que se tira cada vez que el frame se reemplaza.
 
         Descarta sin avisar el frame que llega antes de que venza `interval_s`, y cuenta
-        en `dropped` el que reemplaza a uno que el hilo todavía no consumió.
+        en `dropped` el que reemplaza a uno que el hilo todavía no consumió. La excepción
+        es el que llega antes de que venza mientras el de su cámara sigue esperando turno:
+        ése lo reemplaza sin contarlo ni correr el período. No agrega trabajo —sigue
+        habiendo uno solo— y con varias cámaras por pipeline el que espera envejece una
+        inferencia de la otra; reemplazado, el modelo infiere el más nuevo y el anotado
+        sale menos atrasado respecto del vivo.
         `ignore_interval` fuerza la inferencia de ese frame: es lo que necesita un
         proyecto que captura con la luz encendida y no quiere esperar el período.
         """
@@ -196,10 +201,12 @@ class InferenceThread(QThread):
         now_s = time.monotonic()
         with self._pending_lock:
             last_push_s = self._last_push_s.get(camera_slot, 0.0)
+            replaced = camera_slot in self._pending
             if not ignore_interval and interval_s > 0 and (now_s - last_push_s) < interval_s:
+                if replaced:
+                    self._pending[camera_slot] = frame_bgr
                 return
             self._last_push_s[camera_slot] = now_s
-            replaced = camera_slot in self._pending
             self._pending[camera_slot] = frame_bgr
         if replaced:
             self._count("dropped")

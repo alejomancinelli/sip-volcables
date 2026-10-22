@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**77 archivos, 428 grupos, 2110 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 428 grupos, 2114 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -20,7 +20,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 13 | 384 |
+| [test/inference/](#testinference) | 13 | 387 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -30,7 +30,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 9 | 64 |
-| [test/video/](#testvideo) | 3 | 192 |
+| [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
 
@@ -1411,7 +1411,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_composer.py](../test/inference/test_composer.py) — 24 tests
+### [test_composer.py](../test/inference/test_composer.py) — 25 tests
 
 Tests del composer: qué resultado pone el frame de una cámara y qué overlays van encima.
 
@@ -1420,7 +1420,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 | `TestDriving` |  | 5 |
 | `TestOthers` |  | 7 |
 | `TestCompose` |  | 5 |
-| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 7 |
+| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 8 |
 
 <details><summary>Tests</summary>
 
@@ -1451,18 +1451,19 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
   - `test_a_forgotten_pair_stops_being_drawn_at_once`
   - `test_forgetting_keeps_the_other_pipelines`
   - `test_a_slow_pipeline_stays_fresh_between_its_results`
+  - `test_a_late_result_does_not_send_the_camera_live`
   - `test_a_pause_after_forgetting_is_not_taken_as_the_period`
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 94 tests
+### [test_engine.py](../test/inference/test_engine.py) — 96 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestConstruction` |  | 7 |
-| `TestQueue` |  | 10 |
+| `TestQueue` |  | 12 |
 | `TestConfigCache` | El config se lee una vez, no por frame: cada `get` es un lock global y una copia. | 2 |
 | `TestRoiAndIllumination` |  | 7 |
 | `TestPreprocessor` | El frame de referencia es lo que devuelve el preprocessor: el modelo y el overlay miden y dibujan sobre la misma imagen, así que no pueden divergir. | 8 |
@@ -1495,6 +1496,8 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_the_frame_is_kept_without_a_copy`
   - `test_the_turn_rotates_between_cameras`
   - `test_the_interval_drops_frames_that_arrive_early`
+  - `test_a_frame_waiting_its_turn_is_refreshed_within_the_interval`
+  - `test_a_consumed_frame_is_not_replaced_within_the_interval`
   - `test_ignore_interval_forces_the_frame`
 - `TestConfigCache`
   - `test_frames_after_the_first_do_not_read_the_config`
@@ -3827,7 +3830,7 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 89 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 90 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
@@ -3841,7 +3844,7 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
 | `TestResolveAddresses` |  | 7 |
 | `TestStreamUrls` |  | 4 |
 | `TestFrameStore` |  | 13 |
-| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 10 |
+| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 11 |
 | `TestCreateServer` |  | 1 |
 | `TestLifecycle` | Sin GStreamer el módulo no levanta nada y expone la misma API. | 8 |
 | `TestWatchers` | Las altas y bajas de media son lo único que dice quién está mirando qué. | 6 |
@@ -3916,7 +3919,8 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_closing_the_store_ends_the_wait`
   - `test_a_closed_store_returns_none_at_once`
   - `test_the_duration_matches_the_declared_fps`
-  - `test_the_pts_advances_one_duration_per_frame`
+  - `test_the_pts_starts_at_zero_and_never_goes_back`
+  - `test_the_pts_follows_the_clock_when_frames_arrive_slower_than_the_fps`
   - `test_only_the_newest_frame_is_sent`
   - `test_the_same_frame_is_not_sent_twice`
   - `test_the_last_frame_is_resent_after_the_keepalive`

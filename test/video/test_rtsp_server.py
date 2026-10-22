@@ -508,16 +508,25 @@ class TestFramePacer:
         store.update(_RAW_1, _frame())
         assert _FramePacer(store, _RAW_1, 25).get_next().duration_ns == 40_000_000
 
-    def test_the_pts_advances_one_duration_per_frame(self):
-        """Framerate fijo: es lo que declara el caps y lo que espera el reproductor."""
+    def test_the_pts_starts_at_zero_and_never_goes_back(self):
         store = _FrameStore()
         pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
         stamps = []
         for marker in range(3):
             store.update(_RAW_1, _frame(marker))
-            stamps.append(pacer.get_next())
-        duration_ns = stamps[0].duration_ns
-        assert [timed.pts_ns for timed in stamps] == [0, duration_ns, 2 * duration_ns]
+            stamps.append(pacer.get_next().pts_ns)
+        assert stamps[0] == 0
+        assert stamps[0] < stamps[1] < stamps[2]
+
+    def test_the_pts_follows_the_clock_when_frames_arrive_slower_than_the_fps(self):
+        """El anotado llega al ritmo de la inferencia: por contador, el reproductor se traba."""
+        store = _FrameStore()
+        pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
+        store.update(_RAW_1, _frame(1))
+        first = pacer.get_next()
+        threading.Timer(0.1, lambda: store.update(_RAW_1, _frame(2))).start()
+        second = pacer.get_next()
+        assert second.pts_ns - first.pts_ns >= 90_000_000
 
     def test_only_the_newest_frame_is_sent(self):
         """Always-fresh: lo que se acumuló mientras se codificaba no se emite atrasado."""
@@ -547,7 +556,7 @@ class TestFramePacer:
         first = pacer.get_next()
         second = pacer.get_next()
         assert _marker_of(second.frame_bgr) == 4
-        assert second.pts_ns == first.pts_ns + first.duration_ns
+        assert second.pts_ns - first.pts_ns >= 50_000_000     # lo que pasó, no 1/fps
 
     def test_a_faster_camera_does_not_speed_up_the_stream(self):
         """El ritmo lo pone el `fps` declarado: de más frames se descartan."""

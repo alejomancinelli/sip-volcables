@@ -262,6 +262,24 @@ class TestQueue:
         status = engine.get_status()
         assert (status["queued"], status["dropped"]) == (1, 0)
 
+    def test_a_frame_waiting_its_turn_is_refreshed_within_the_interval(self):
+        """Con otra cámara infiriendo, el modelo tiene que ver el frame más nuevo."""
+        config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.interval_s": 60})
+        engine = _engine(_FakePipeline(), config)
+        engine.push_frame(_frame(level=10), _SLOT)
+        engine.push_frame(_frame(level=200), _SLOT)
+        status = engine.get_status()
+        assert (status["queued"], status["dropped"]) == (1, 0)
+        assert engine._take_next()[1][0, 0, 0] == 200
+
+    def test_a_consumed_frame_is_not_replaced_within_the_interval(self):
+        config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.interval_s": 60})
+        engine = _engine(_FakePipeline(), config)
+        engine.push_frame(_frame(), _SLOT)
+        engine._take_next()
+        engine.push_frame(_frame(), _SLOT)
+        assert engine.get_status()["queued"] == 0
+
     def test_ignore_interval_forces_the_frame(self):
         config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.interval_s": 60})
         engine = _engine(_FakePipeline(), config)

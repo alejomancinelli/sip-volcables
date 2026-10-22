@@ -27,7 +27,11 @@ que resuelve este módulo es la regla, no el dibujo:
     que el overlay se vaya en el frame siguiente y no tres períodos después.
   - **Sin nada vigente, la cámara se ve en vivo.** `has_fresh()` dice si a una cámara le
     queda algún resultado vigente; sin ninguno, quien cablea muestra el frame de la cámara
-    en lugar de dejar congelado el último anotado.
+    en lugar de dejar congelado el último anotado. Su piso es `_IDLE_MIN_S` y no
+    `_STALE_MIN_S`: es para un pipeline cortado —que `forget()` ya resuelve en el acto— o
+    caído, y un modelo que se demora un segundo y medio no es ninguno de los dos. Con el
+    piso corto, esa demora pasaría el anotado a frames en vivo sin overlay, y el resultado
+    siguiente —de un frame anterior— lo haría saltar para atrás.
 
 `compose()` junta las tres cosas: guarda el resultado y, si maneja, devuelve el frame a
 mostrar con los overlays de los demás dibujados encima. El dibujo no es de acá: lo hace el
@@ -53,6 +57,7 @@ from .result import InferenceResult
 
 _STALE_FACTOR = 3.0   # períodos de su par que un resultado sigue vigente
 _STALE_MIN_S = 1.0    # piso: con `interval_s` en 0 el período es el de la cámara
+_IDLE_MIN_S = 5.0     # piso de `has_fresh()`: antes de esto la cámara no pasa a vivo
 
 
 class Painter(Protocol):
@@ -147,7 +152,8 @@ class FrameComposer:
 
     def has_fresh(self, camera_slot: str, now_s: float) -> bool:
         """True si a esa cámara le queda algún resultado vigente, de cualquier pipeline."""
-        return any(camera == camera_slot and not self._is_stale(pipeline, added_s, gap_s, now_s)
+        return any(camera == camera_slot
+                   and not self._is_stale(pipeline, added_s, gap_s, now_s, _IDLE_MIN_S)
                    for (camera, pipeline), (_, added_s, gap_s) in self._latest.items())
 
     def forget(self, camera_slot: str, pipeline_slot: str):
@@ -159,6 +165,6 @@ class FrameComposer:
         self._latest.pop((camera_slot, pipeline_slot), None)
 
     def _is_stale(self, pipeline_slot: str, added_s: float, gap_s: float,
-                  now_s: float) -> bool:
+                  now_s: float, min_s: float = _STALE_MIN_S) -> bool:
         period_s = max(self._interval_s_by_pipeline.get(pipeline_slot, 0.0), gap_s)
-        return now_s - added_s > max(_STALE_MIN_S, _STALE_FACTOR * period_s)
+        return now_s - added_s > max(min_s, _STALE_FACTOR * period_s)
