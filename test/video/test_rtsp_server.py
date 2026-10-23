@@ -527,27 +527,26 @@ class TestFramePacer:
             store.update(_RAW_1, _frame(marker))
         assert _marker_of(pacer.get_next().frame_bgr) == 3
 
-    def test_the_same_frame_is_not_sent_twice(self, monkeypatch):
-        """Sin frame nuevo no se empuja: repetir cuesta encoder y ancho de banda."""
-        monkeypatch.setattr(rtsp, "_KEEPALIVE_S", 30.0)
+    def test_the_same_frame_is_not_sent_before_its_period_is_due(self):
+        """Sin frame nuevo no se repite antes de tiempo: el stream no sale más rápido que su `fps`."""
         store = _FrameStore()
-        pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
-        store.update(_RAW_1, _frame())
-        assert pacer.get_next() is not None
+        pacer = _FramePacer(store, _RAW_1, 10)          # período de 100 ms
+        store.update(_RAW_1, _frame(4))
+        pacer.get_next()
+        started_s = time.monotonic()
+        repeated = pacer.get_next()
+        assert _marker_of(repeated.frame_bgr) == 4
+        assert time.monotonic() - started_s >= 0.09
 
-        threading.Timer(0.15, store.close).start()
-        assert pacer.get_next() is None      # esperó al siguiente, no reenvió
-
-    def test_the_last_frame_is_resent_after_the_keepalive(self, monkeypatch):
-        """Una cámara que se cayó tiene que dejar al reproductor con imagen, no colgado."""
-        monkeypatch.setattr(rtsp, "_KEEPALIVE_S", 0.05)
+    def test_the_last_frame_is_repeated_every_period_without_new_ones(self):
+        """Una cámara lenta o caída deja al reproductor con imagen y al ritmo declarado."""
         store = _FrameStore()
-        pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
+        pacer = _FramePacer(store, _RAW_1, 20)          # período de 50 ms
         store.update(_RAW_1, _frame(4))
         first = pacer.get_next()
-        second = pacer.get_next()
-        assert _marker_of(second.frame_bgr) == 4
-        assert second.pts_ns == first.pts_ns + first.duration_ns
+        repeats = [pacer.get_next() for _ in range(3)]
+        assert [_marker_of(timed.frame_bgr) for timed in repeats] == [4, 4, 4]
+        assert repeats[-1].pts_ns == first.pts_ns + 3 * first.duration_ns
 
     def test_a_faster_camera_does_not_speed_up_the_stream(self):
         """El ritmo lo pone el `fps` declarado: de más frames se descartan."""
