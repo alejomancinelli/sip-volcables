@@ -508,16 +508,26 @@ class TestFramePacer:
         store.update(_RAW_1, _frame())
         assert _FramePacer(store, _RAW_1, 25).get_next().duration_ns == 40_000_000
 
-    def test_the_pts_advances_one_duration_per_frame(self):
-        """Framerate fijo: es lo que declara el caps y lo que espera el reproductor."""
+    def test_the_pts_starts_at_zero_and_never_goes_back(self):
         store = _FrameStore()
         pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
         stamps = []
         for marker in range(3):
             store.update(_RAW_1, _frame(marker))
-            stamps.append(pacer.get_next())
-        duration_ns = stamps[0].duration_ns
-        assert [timed.pts_ns for timed in stamps] == [0, duration_ns, 2 * duration_ns]
+            stamps.append(pacer.get_next().pts_ns)
+        assert stamps[0] == 0
+        assert stamps[0] < stamps[1] < stamps[2]
+
+    def test_the_pts_follows_the_clock_when_a_frame_arrives_late(self):
+        """El anotado llega al ritmo de la inferencia: por contador, el reproductor se traba."""
+        store = _FrameStore()
+        pacer = _FramePacer(store, _RAW_1, 20)          # período de 50 ms
+        store.update(_RAW_1, _frame(1))
+        first = pacer.get_next()
+        time.sleep(0.2)
+        store.update(_RAW_1, _frame(2))
+        second = pacer.get_next()
+        assert second.pts_ns - first.pts_ns >= 190_000_000     # lo que pasó, no 1/fps
 
     def test_only_the_newest_frame_is_sent(self):
         """Always-fresh: lo que se acumuló mientras se codificaba no se emite atrasado."""
@@ -546,7 +556,7 @@ class TestFramePacer:
         first = pacer.get_next()
         repeats = [pacer.get_next() for _ in range(3)]
         assert [_marker_of(timed.frame_bgr) for timed in repeats] == [4, 4, 4]
-        assert repeats[-1].pts_ns == first.pts_ns + 3 * first.duration_ns
+        assert repeats[-1].pts_ns - first.pts_ns >= 140_000_000
 
     def test_a_faster_camera_does_not_speed_up_the_stream(self):
         """El ritmo lo pone el `fps` declarado: de más frames se descartan."""

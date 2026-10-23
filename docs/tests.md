@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**77 archivos, 426 grupos, 2075 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 426 grupos, 2076 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -31,7 +31,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 8 | 53 |
-| [test/video/](#testvideo) | 3 | 192 |
+| [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
 
@@ -3791,7 +3791,7 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 89 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 90 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
@@ -3805,7 +3805,7 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
 | `TestResolveAddresses` |  | 7 |
 | `TestStreamUrls` |  | 4 |
 | `TestFrameStore` |  | 13 |
-| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 10 |
+| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 11 |
 | `TestCreateServer` |  | 1 |
 | `TestLifecycle` | Sin GStreamer el módulo no levanta nada y expone la misma API. | 8 |
 | `TestWatchers` | Las altas y bajas de media son lo único que dice quién está mirando qué. | 6 |
@@ -3880,7 +3880,8 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_closing_the_store_ends_the_wait`
   - `test_a_closed_store_returns_none_at_once`
   - `test_the_duration_matches_the_declared_fps`
-  - `test_the_pts_advances_one_duration_per_frame`
+  - `test_the_pts_starts_at_zero_and_never_goes_back`
+  - `test_the_pts_follows_the_clock_when_a_frame_arrives_late`
   - `test_only_the_newest_frame_is_sent`
   - `test_the_same_frame_is_not_sent_before_its_period_is_due`
   - `test_the_last_frame_is_repeated_every_period_without_new_ones`

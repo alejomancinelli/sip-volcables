@@ -44,8 +44,7 @@ Tres puntos del contrato que no se ven en las firmas:
     se repite el último al vencer cada período. Sin eso el reproductor se queda
     esperando: un cliente que abre el stream consume del orden de 30 frames antes de
     mostrar el primero, y el anotado, al ritmo de la inferencia, tardaba ~15 s con
-    2 fps. Un `fps` más bajo que el de la cámara atrasa el stream respecto del tiempo
-    real.
+    2 fps. El PTS es el del reloj, así que lo repetido no atrasa el stream.
 
 Sin GStreamer instalado el módulo degrada a no-op: expone la misma API, no levanta
 nada y lo dice por `status`. El llamador no pregunta si está disponible.
@@ -434,7 +433,7 @@ class _FramePacer:
         self._duration_ns = int(_NS_PER_S / fps)
         self._period_s = 1.0 / fps
         self._last_seq = 0               # 0 = todavía no se empujó nada de este stream
-        self._pushed = 0
+        self._first_push_s: float | None = None
         self._last_push_s: float | None = None
 
     def get_next(self) -> _TimedFrame | None:
@@ -452,8 +451,11 @@ class _FramePacer:
             siempre al `fps` declarado. Un cliente necesita unas decenas de frames para
             abrir y un keyframe por segundo para engancharse, y un anotado que llega a
             2 fps no se los da en menos de ~15 s.
-          - El PTS lo lleva el contador de frames, no el reloj: es lo que declara el
-            caps y lo que espera un reproductor de framerate fijo.
+          - El PTS lo lleva el reloj, no el contador de frames: el anotado llega al
+            ritmo de la inferencia, no al del `fps`. Por contador, un frame que tardó
+            medio segundo declararía 1/fps: el reproductor ve llegar tarde lo que el PTS
+            prometía antes, se traba, reproduce de golpe lo acumulado y queda cada vez
+            más atrás del tiempo real.
         """
         while not self._store.is_closed:
             frame_bgr, seq = self._store.get(self._key)
@@ -465,22 +467,25 @@ class _FramePacer:
 
     def _is_repeat_due(self) -> bool:
         return (self._last_push_s is not None
-                and time.monotonic() - self._last_push_s >= self._period_s)
+                and time.perf_counter() - self._last_push_s >= self._period_s)
 
     def _get_wait_s(self) -> float:
         """Cuánto dormir: lo que falta para repetir, sin pasar del troceo."""
         if self._last_push_s is None:
             return _WAIT_STEP_S
-        remaining_s = self._period_s - (time.monotonic() - self._last_push_s)
+        remaining_s = self._period_s - (time.perf_counter() - self._last_push_s)
         return min(_WAIT_STEP_S, max(remaining_s, 0.001))
 
     def _stamp(self, frame_bgr: np.ndarray) -> _TimedFrame:
-        """Espera lo que falte del período y le pone al frame el PTS que sigue."""
+        """Espera lo que falte del período y le pone al frame el tiempo desde el primero."""
         if self._last_push_s is not None:
-            time.sleep(max(0.0, self._period_s - (time.monotonic() - self._last_push_s)))
-        self._last_push_s = time.monotonic()
-        pts_ns = self._pushed * self._duration_ns
-        self._pushed += 1
+            time.sleep(max(0.0, self._period_s - (time.perf_counter() - self._last_push_s)))
+        # perf_counter y no monotonic: en Windows monotonic avanza de a 15.6 ms y dos frames
+        # dentro del mismo tick saldrían con el mismo PTS.
+        self._last_push_s = time.perf_counter()
+        if self._first_push_s is None:
+            self._first_push_s = self._last_push_s
+        pts_ns = int((self._last_push_s - self._first_push_s) * _NS_PER_S)
         return _TimedFrame(frame_bgr, pts_ns, self._duration_ns)
 
 
