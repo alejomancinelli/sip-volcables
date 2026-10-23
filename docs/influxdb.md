@@ -177,9 +177,18 @@ estable dentro de ese segundo. Quedarse con el último tiraría cuatro de cada c
 | `invalid_reason` | el motivo del último descarte —vocabulario `REASON_*`—, vacío si no hubo |
 | `confidence_pct_mean`, `detection_count_mean` | sólo sobre los confiables |
 | `inference_time_ms_mean`, `inference_time_ms_max` | sobre todos |
+| `cycle_time_ms_mean`, `cycle_time_ms_max` | período de la cámara: del arranque de un frame al del siguiente |
 | `illumination_pct_mean` | sobre todos |
 | `stage_<slot>_ms_mean` | por etapa del pipeline |
 | `<métrica>_mean`, `_std`, `_min`, `_max` | las del analyzer, vía `analysis.summarize_metrics()` |
+
+`inference_time_ms` mide lo que tarda un frame en el motor —preprocesado, etapas y
+filtros—; no incluye la espera en la cola ni el analyzer, el dibujado y la publicación.
+`cycle_time_ms` es el tiempo real entre un frame y el siguiente **de la misma cámara**, así
+que sí los incluye, y con varias cámaras en un pipeline suma además el turno de las otras:
+dos cámaras con 100 ms por frame dan un ciclo de unos 200 ms por cámara. Cuenta todo frame
+que el motor procesa, también el descartado por poca luz. La primera muestra de una cámara
+no tiene frame anterior y no entra al promedio.
 
 Qué se promedia sobre qué no es un detalle: la confianza y el conteo de detecciones **sólo
 sobre los confiables**, porque promediar la confianza de un descarte da un número que no

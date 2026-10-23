@@ -2004,6 +2004,12 @@ def _build_inference_fields(results: list) -> dict:
     if times_ms:
         fields["inference_time_ms_max"] = round(max(times_ms), 2)
 
+    # El primer frame de una cámara no tiene anterior: su 0 no es un período.
+    cycle_times_ms = [r.cycle_time_ms for r in results if r.cycle_time_ms > 0]
+    fields.update(_mean_field("cycle_time_ms", cycle_times_ms))
+    if cycle_times_ms:
+        fields["cycle_time_ms_max"] = round(max(cycle_times_ms), 2)
+
     # Tiempo por etapa: la clave es el slot del modelo, así que un pipeline de dos etapas
     # publica dos campos y se ve cuál se llevó el tiempo.
     stage_samples: dict[str, list] = {}

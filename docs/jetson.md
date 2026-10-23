@@ -319,7 +319,7 @@ se codifica nada.
 | Clave | Qué hace en la imagen |
 |---|---|
 | `codec` | `*_hw`: el VIC escala y convierte, y **NVENC** codifica; la CPU sólo pasa de BGR a BGRx. Cuesta aproximadamente la tercera parte de CPU que `h264_sw`. Sólo existe en una Jetson con NVENC (no en un Orin Nano). `*_sw`: codifica por CPU (x264/x265 en `ultrafast`) y anda en cualquier equipo. `mjpeg`: un JPEG por frame, mucho más ancho de banda. H.265 da el mismo aspecto con menos bitrate. |
-| `fps` | Ritmo del stream, y es el que manda: si la cámara entrega más, se descartan frames; si entrega menos o se detiene, se reenvía el último para que el reproductor no crea que se cayó. Un `fps` menor que el de la cámara **atrasa** el stream respecto del tiempo real. |
+| `fps` | Ritmo del stream, y es el que manda: si la cámara entrega más, se descartan frames; si entrega menos o se detiene, se repite el último al vencer cada período, así que el stream sale siempre a este ritmo —también el anotado, que llega al de la inferencia—. Sin eso un reproductor tarda del orden de 30 frames en mostrar el primero. Un `fps` menor que el de la cámara **atrasa** el stream respecto del tiempo real. |
 | `frame_width_px` | Reduce el ancho antes de codificar (bilineal en el VIC con `_hw`; nunca amplía; lados pares); 0 = nativo. |
 | `bitrate_kbps` | kbit/s del H.264/H.265; 0 = el del encoder. **Es la calidad visual del stream**: a un frame grande, un bitrate bajo da una imagen empastada y con bloques. 4000 kbit/s no alcanza para 5 MP. |
 | `net_interfaces` | Interfaces por las que se publica; `[]` = todas. Se publica una instancia por interfaz. |

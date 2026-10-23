@@ -22,9 +22,9 @@ ENV_USER = "RTSP_USER"
 ENV_PASSWORD = "RTSP_PASSWORD"
 
 _QUEUE_MAXSIZE = 2        # cola corta: semántica always-fresh
-_OPEN_TIMEOUT_MS = 5000   # espera al handshake RTSP
+_OPEN_TIMEOUT_MS = 15000   # espera al handshake RTSP
 _READ_TIMEOUT_MS = 5000   # espera a un paquete de un stream ya abierto
-_CONNECT_TIMEOUT_S = 10   # espera máxima a que el thread confirme el stream abierto
+_CONNECT_TIMEOUT_S = 20   # espera máxima a que el thread confirme el stream abierto
 _CONNECT_POLL_S = 0.1
 _JOIN_TIMEOUT_S = 5.0
 _RETRY_DELAY_S = 5        # entre reintentos de apertura del stream
