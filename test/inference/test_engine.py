@@ -834,6 +834,31 @@ class TestLifecycle:
         assert result.inference_time_ms >= 20
 
 
+# ── Período por cámara ───────────────────────────────────────────────────────
+
+class TestCycleTime:
+    """`cycle_time_ms`: del arranque de un frame al arranque del siguiente de la misma cámara."""
+
+    def test_the_first_frame_of_a_camera_has_no_cycle_time(self):
+        assert _engine(_FakePipeline()).process(_frame(), _SLOT).cycle_time_ms == 0.0
+
+    def test_the_cycle_counts_what_the_inference_time_leaves_out(self):
+        """El analyzer queda fuera de `inference_time_ms` y dentro del período."""
+        engine = _engine(_FakePipeline(), analyzer=lambda result: time.sleep(0.05) or {})
+        engine.process(_frame(), _SLOT)
+        second = engine.process(_frame(), _SLOT)
+        assert second.cycle_time_ms >= 50
+        assert second.cycle_time_ms > second.inference_time_ms
+
+    def test_each_camera_has_its_own_cycle(self):
+        engine = _engine(_FakePipeline())
+        engine.process(_frame(), _SLOT)
+        other = engine.process(_frame(), _OTHER_SLOT)
+        again = engine.process(_frame(), _SLOT)
+        assert other.cycle_time_ms == 0.0
+        assert again.cycle_time_ms > 0.0
+
+
 # ── Corrida sincrónica ───────────────────────────────────────────────────────
 
 class TestSynchronousProcess:

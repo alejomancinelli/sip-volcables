@@ -336,6 +336,22 @@ class TestInferenceFields:
                 fields["sample_count"]) == (50.0, 10.0, 2)
 
 
+class TestCycleTimeFields:
+    """El período de la cámara se agrega sin contar el 0 del primer frame."""
+
+    def _results(self, cycle_times_ms: tuple) -> list:
+        return [InferenceResult(camera_slot="camera_1", cycle_time_ms=value)
+                for value in cycle_times_ms]
+
+    def test_the_first_frame_without_a_previous_one_is_left_out(self):
+        fields = main._build_inference_fields(self._results((0.0, 100.0, 300.0)))
+        assert (fields["cycle_time_ms_mean"], fields["cycle_time_ms_max"]) == (200.0, 300.0)
+
+    def test_without_any_period_there_is_no_field(self):
+        fields = main._build_inference_fields(self._results((0.0,)))
+        assert not [name for name in fields if name.startswith("cycle_time_ms")]
+
+
 class _FrameSink:
     """Motor o servidor de video: registra lo que le empujan."""
 

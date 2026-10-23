@@ -106,6 +106,7 @@ class InferenceResult:
     metrics: dict = field(default_factory=dict)
     confidence_pct: float = 0.0              # media de las detecciones que sobrevivieron
     inference_time_ms: float = 0.0           # frame completo: recorte, etapas y filtros
+    cycle_time_ms: float = 0.0               # desde el arranque del frame anterior de la cámara; 0 = no hay
     stage_times_ms: dict = field(default_factory=dict)   # {model_slot: ms}
     illumination_pct: int = 0                # brillo medio del ROI, 0–100
     roi_px: tuple[int, int, int, int] | None = None      # None = se infirió el frame entero
@@ -138,6 +139,7 @@ class InferenceResult:
             "confidence_pct": round(float(self.confidence_pct), 1),
             "detection_count": self.detection_count,
             "inference_time_ms": round(float(self.inference_time_ms), 1),
+            "cycle_time_ms": round(float(self.cycle_time_ms), 1),
             "stage_times_ms": dict(self.stage_times_ms),
             "roi_px": None if self.roi_px is None else list(self.roi_px),
             "labels": dict(self.labels),

@@ -122,6 +122,7 @@ planta terminados en `_mean`, `_std`, `_min` y `_max` son los del analyzer del f
   "sample_count": 4,
   "confidence_pct_mean": 87.4, "detection_count_mean": 12.0,
   "inference_time_ms_mean": 196.3, "inference_time_ms_max": 241.0,
+  "cycle_time_ms_mean": 412.8, "cycle_time_ms_max": 497.5,
   "illumination_pct_mean": 58.2,
   "stage_detector_ms_mean": 174.1,
   "load_height_mm_mean": 812.4, "load_height_mm_std": 6.1,
