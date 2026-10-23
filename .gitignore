@@ -467,3 +467,16 @@ recordings/*
 manual_test/offline_inference/images/*
 !manual_test/offline_inference/images/.gitkeep
 manual_test/offline_inference/output/
+
+# Inputs and outputs of a calibration run: they belong to one commissioning day of one
+# plant, and what stays of them is the value they produced, in config.yaml. Each folder
+# keeps its .gitkeep, and samples/ keeps a format example. `**` plus the re-included
+# directories lets a calibrator split its inputs into subfolders (samples/<kind>/) and
+# still keep each one's .gitkeep: git cannot re-include a file under an ignored directory.
+calibration/*/samples/**
+!calibration/*/samples/**/
+!calibration/*/samples/**/.gitkeep
+!calibration/*/samples/**/example.*
+calibration/*/out/**
+!calibration/*/out/**/
+!calibration/*/out/**/.gitkeep

@@ -46,6 +46,12 @@ los pipelines sobre una carpeta de imágenes y deja el resultado en una carpeta 
 Cómo se preparan los videos y cómo se lee el resultado está en
 [docs/offline_testing.md](docs/offline_testing.md).
 
+Lo que se calibra en la puesta en marcha —una escala, un umbral contra muestras pesadas—
+son calibradores del fork, subcomandos del mismo ejecutable (`main.py --calibrate
+<nombre>`) con un lanzador cada uno en el entregable. Cómo se usan en la planta está en
+[docs/calibration.md](docs/calibration.md); cómo se escribe uno, en
+[calibration/README.md](calibration/README.md).
+
 ## Cómo se crea el repo del proyecto
 
 Una aclaración de vocabulario antes: en este repo y en `CLAUDE.md`, **«fork» significa
@@ -245,6 +251,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `ui/views/config/<otra>_tab.py` | otra sección propia, más **una línea** en `_TAB_CLASSES` |
 | `test/` | un test por archivo nuevo, espejando el árbol |
 | `manual_test/<tema>/` | verificaciones con hardware, con su `config.yaml` al lado |
+| `calibration/<tool>/` | una herramienta de puesta en marcha que produce valores del config, con su `README.md` para quien calibra, más **una línea** en `calibration/registry.py`: con eso es un subcomando de `main.py` y un lanzador del entregable. La jerarquía y las reglas, en [calibration/README.md](calibration/README.md) |
 | `docs/` | notas de puesta en marcha, protocolos nuevos |
 
 ### Maquinaria: no se edita

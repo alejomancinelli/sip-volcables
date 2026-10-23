@@ -11,6 +11,17 @@ Uso — con el intérprete del venv, no con el `python` del PATH:
 Acepta una ruta de config como argumento (`main.py otro-config.yaml`); sin argumento usa
 el `config.yaml` de la raíz del repo.
 
+**`--calibrate <nombre> [opciones]` abre un calibrador en vez de la app**, y es la forma en
+que las herramientas de puesta en marcha llegan a una planta donde sólo está el compilado:
+
+    .venv/bin/python main.py --calibrate mesh      # y las opciones de ese calibrador
+
+Qué calibradores hay lo dice `calibration/registry.py`, y lo que sigue al nombre lo parsea
+el calibrador: este archivo no conoce ninguno. No son programas aparte porque así reciben
+el config de la instalación ya resuelto —como scripts sueltos cada uno elegiría el suyo, y
+compilado el programa y los datos están en carpetas distintas—, y porque todo lo que usan
+ya está adentro de este ejecutable.
+
 **Modo headless.** Con `--headless`, o con `ui.enabled: false` en el config, no se crea
 ninguna ventana: es el modo de un equipo en gabinete sin monitor, de un servicio que
 arranca con el sistema, y de un contenedor sin X11. El flag manda sobre el config, para
@@ -91,6 +102,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
+from calibration.registry import run_tool as run_calibration_tool
 from system import paths
 from system.camera.capture_scheduler import CaptureScheduler, has_measurement_cycle
 from system.camera.capture_thread import CaptureThread
@@ -1928,6 +1940,11 @@ def _parse_args(argv: list) -> argparse.Namespace:
                         help="ruta del config.yaml; por defecto el de la raíz del repo")
     parser.add_argument("--headless", action="store_true",
                         help="no abrir la ventana; también se puede con ui.enabled: false")
+    # `REMAINDER`: el nombre y todo lo que sigue van al calibrador tal cual. Las opciones
+    # de cada uno son suyas, y repetirlas acá obligaría a editar este archivo por cada una.
+    parser.add_argument("--calibrate", nargs=argparse.REMAINDER, default=None,
+                        metavar="NOMBRE ...",
+                        help="abrir un calibrador en vez de la app; lo que sigue va a él")
     return parser.parse_args(argv)
 
 
@@ -1986,6 +2003,12 @@ def _build_inference_fields(results: list) -> dict:
     times_ms = [r.inference_time_ms for r in results]
     if times_ms:
         fields["inference_time_ms_max"] = round(max(times_ms), 2)
+
+    # El primer frame de una cámara no tiene anterior: su 0 no es un período.
+    cycle_times_ms = [r.cycle_time_ms for r in results if r.cycle_time_ms > 0]
+    fields.update(_mean_field("cycle_time_ms", cycle_times_ms))
+    if cycle_times_ms:
+        fields["cycle_time_ms_max"] = round(max(cycle_times_ms), 2)
 
     # Tiempo por etapa: la clave es el slot del modelo, así que un pipeline de dos etapas
     # publica dos campos y se ve cuál se llevó el tiempo.
@@ -2048,6 +2071,13 @@ def main(argv: list | None = None) -> int:
     # Después del log y antes de cualquier subsistema: los que usan un secreto lo leen
     # del entorno cuando arrancan, y de qué se cargó tiene que quedar constancia.
     load_env_file()
+
+    # Un calibrador es otro programa que comparte este ejecutable: arma su propia ventana si
+    # la necesita, así que se despacha antes de que este archivo arme la suya. Y antes de la
+    # licencia, porque la puesta en marcha viene antes que ella —la solicitud se genera en
+    # este mismo equipo— y un calibrador no publica nada que haya que restringir.
+    if args.calibrate is not None:
+        return _exit(run_calibration_tool(config, args.calibrate), config)
 
     # Antes de Qt y de cualquier subsistema, para que el veredicto quede en el log pase lo
     # que pase después. Un equipo sin licencia utilizable YA NO aborta acá: abre igual, en

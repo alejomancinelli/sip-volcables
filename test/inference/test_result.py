@@ -92,6 +92,10 @@ class TestInferenceResult:
         result.to_dict()["labels"]["belt"] = "empty"
         assert result.labels == {"belt": "full"}
 
+    def test_the_cycle_time_travels_in_the_dict(self):
+        result = InferenceResult(camera_slot="camera_1", cycle_time_ms=412.84)
+        assert result.to_dict()["cycle_time_ms"] == 412.8
+
     def test_the_confidence_key_is_the_one_the_save_conditions_read(self):
         """`image_collector.conditions` filtra por 'confidence_pct': el nombre es contrato."""
         assert "confidence_pct" in InferenceResult(camera_slot="camera_1").to_dict()

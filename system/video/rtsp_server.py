@@ -40,10 +40,11 @@ Tres puntos del contrato que no se ven en las firmas:
     `video.rtsp.net_interfaces`. Con la lista vacía se escucha en todas las
     interfaces; con nombres, lo que no está en la lista no ve el stream.
   - El `fps` del config es el ritmo del stream, y es el que manda: si la cámara
-    entrega más rápido se descartan frames, y si deja de entregar se reenvía el
-    último para que el reproductor no se quede sin saber si sigue vivo. El PTS es
-    el del reloj, así que un stream que recibe menos frames que su `fps` —el anotado,
-    al ritmo de la inferencia— va a saltos pero no se atrasa.
+    entrega más rápido se descartan frames, y si entrega más lento o deja de entregar
+    se repite el último al vencer cada período. Sin eso el reproductor se queda
+    esperando: un cliente que abre el stream consume del orden de 30 frames antes de
+    mostrar el primero, y el anotado, al ritmo de la inferencia, tardaba ~15 s con
+    2 fps. El PTS es el del reloj, así que lo repetido no atrasa el stream.
 
 Sin GStreamer instalado el módulo degrada a no-op: expone la misma API, no levanta
 nada y lo dice por `status`. El llamador no pregunta si está disponible.
@@ -99,7 +100,6 @@ _NVVIDCONV_BILINEAR = 1
 
 _NS_PER_S = 1_000_000_000       # GStreamer estampa los buffers en nanosegundos
 
-_KEEPALIVE_S = 1.0              # sin frame nuevo se reenvía el último
 _WAIT_STEP_S = 0.05             # troceo de la espera; acota la salida al detener
 _START_TIMEOUT_S = 10.0         # espera al arranque del loop de GLib
 _STOP_TIMEOUT_S = 5.0           # espera al hilo de GLib al detenerlo
@@ -447,8 +447,10 @@ class _FramePacer:
         Tres cosas las decide el ritmo declarado y no el de la cámara:
           - No sale más de un frame por período: una cámara más rápida que el `fps`
             no acelera el stream, se le descartan frames.
-          - Sin frame nuevo, cada `_KEEPALIVE_S` se reenvía el último: un pipeline
-            sin datos deja al reproductor sin saber si el stream sigue vivo.
+          - Sin frame nuevo, al vencer el período se reenvía el último: el stream sale
+            siempre al `fps` declarado. Un cliente necesita unas decenas de frames para
+            abrir y un keyframe por segundo para engancharse, y un anotado que llega a
+            2 fps no se los da en menos de ~15 s.
           - El PTS lo lleva el reloj, no el contador de frames: el anotado llega al
             ritmo de la inferencia, no al del `fps`. Por contador, un frame que tardó
             medio segundo declararía 1/fps: el reproductor ve llegar tarde lo que el PTS
@@ -457,15 +459,22 @@ class _FramePacer:
         """
         while not self._store.is_closed:
             frame_bgr, seq = self._store.get(self._key)
-            if frame_bgr is not None and (seq != self._last_seq or self._is_keepalive_due()):
+            if frame_bgr is not None and (seq != self._last_seq or self._is_repeat_due()):
                 self._last_seq = seq
                 return self._stamp(frame_bgr)
-            self._store.wait_for_change(self._key, seq, timeout_s=_WAIT_STEP_S)
+            self._store.wait_for_change(self._key, seq, timeout_s=self._get_wait_s())
         return None
 
-    def _is_keepalive_due(self) -> bool:
+    def _is_repeat_due(self) -> bool:
         return (self._last_push_s is not None
-                and time.perf_counter() - self._last_push_s >= _KEEPALIVE_S)
+                and time.perf_counter() - self._last_push_s >= self._period_s)
+
+    def _get_wait_s(self) -> float:
+        """Cuánto dormir: lo que falta para repetir, sin pasar del troceo."""
+        if self._last_push_s is None:
+            return _WAIT_STEP_S
+        remaining_s = self._period_s - (time.perf_counter() - self._last_push_s)
+        return min(_WAIT_STEP_S, max(remaining_s, 0.001))
 
     def _stamp(self, frame_bgr: np.ndarray) -> _TimedFrame:
         """Espera lo que falte del período y le pone al frame el tiempo desde el primero."""

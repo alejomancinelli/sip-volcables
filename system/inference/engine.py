@@ -136,6 +136,9 @@ class InferenceThread(QThread):
         self._frame_available = threading.Event()
         self._next_slot_index = 0
         self._last_push_s: dict[str, float] = {}
+        # Arranque del último frame de cada cámara: de ahí sale `cycle_time_ms`. Lo toca
+        # sólo quien llama a `_process()`, el hilo o `process()`.
+        self._last_start_s: dict[str, float] = {}
 
         # Valores del config ya leídos, válidos mientras no cambie su `revision`.
         self._settings: dict = {}
@@ -405,6 +408,10 @@ class InferenceThread(QThread):
     def _process(self, frame_bgr: np.ndarray, camera_slot: str) -> InferenceResult:
         """Corre el ciclo completo sobre un frame y devuelve el resultado ya anotado."""
         started_s = time.perf_counter()
+        previous_start_s = self._last_start_s.get(camera_slot)
+        self._last_start_s[camera_slot] = started_s
+        cycle_time_ms = 0.0 if previous_start_s is None else (started_s - previous_start_s) * 1000
+
         frame_bgr = self._preprocess(frame_bgr, camera_slot)
         roi_px = self._read_roi_px(camera_slot, frame_bgr)
         region_bgr = self._crop(frame_bgr, roi_px)
@@ -412,6 +419,7 @@ class InferenceThread(QThread):
         result = InferenceResult(
             camera_slot=camera_slot,
             pipeline_slot=self.pipeline_slot,
+            cycle_time_ms=cycle_time_ms,
             source_bgr=frame_bgr,
             roi_px=roi_px,
             illumination_pct=_compute_illumination_pct(region_bgr),

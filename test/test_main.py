@@ -57,6 +57,46 @@ class TestExit:
         assert calls == ["shutdown", "exit"]
 
 
+class TestCalibrate:
+    """
+    `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del
+    calibrador, y este archivo no lo interpreta.
+    """
+
+    def test_the_name_and_the_rest_of_the_line_go_through_untouched(self):
+        args = main._parse_args(["--calibrate", "mesh", "--samples", "a.csv", "--headless"])
+        assert args.calibrate == ["mesh", "--samples", "a.csv", "--headless"]
+        assert not args.headless
+
+    def test_the_config_path_still_comes_first(self):
+        args = main._parse_args(["otro.yaml", "--calibrate", "mesh"])
+        assert args.config == "otro.yaml"
+        assert args.calibrate == ["mesh"]
+
+    def test_without_it_the_app_opens(self):
+        assert main._parse_args([]).calibrate is None
+
+    def test_it_runs_before_the_license_and_qt(self, monkeypatch):
+        """
+        La puesta en marcha viene antes que la licencia, y el calibrador arma su propia
+        ventana: ni una cosa ni la otra tienen que existir cuando corre.
+        """
+        config = _MockConfig()
+        calls = []
+        monkeypatch.setattr(main, "ConfigManager", lambda path: config)
+        monkeypatch.setattr(main, "_setup_logging", lambda cfg: None)
+        monkeypatch.setattr(main, "load_env_file", lambda: None)
+        monkeypatch.setattr(main, "_exit", lambda code, cfg: code)
+        monkeypatch.setattr(main, "LicenseManager", lambda cfg: pytest.fail("licencia"))
+        monkeypatch.setattr(main, "QApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "QCoreApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "run_calibration_tool",
+                            lambda cfg, argv: calls.append((cfg, argv)) or _EXIT_CODE)
+
+        assert main.main(["--calibrate", "mesh", "--x", "1"]) == _EXIT_CODE
+        assert calls == [(config, ["mesh", "--x", "1"])]
+
+
 class TestUnlicensedCamera:
     """El status que el cableado publica por una cámara que la licencia deja afuera."""
 
@@ -294,6 +334,22 @@ class TestInferenceFields:
         fields = main._build_inference_fields(results)
         assert (fields["load_pct_mean"], fields["load_pct_std"],
                 fields["sample_count"]) == (50.0, 10.0, 2)
+
+
+class TestCycleTimeFields:
+    """El período de la cámara se agrega sin contar el 0 del primer frame."""
+
+    def _results(self, cycle_times_ms: tuple) -> list:
+        return [InferenceResult(camera_slot="camera_1", cycle_time_ms=value)
+                for value in cycle_times_ms]
+
+    def test_the_first_frame_without_a_previous_one_is_left_out(self):
+        fields = main._build_inference_fields(self._results((0.0, 100.0, 300.0)))
+        assert (fields["cycle_time_ms_mean"], fields["cycle_time_ms_max"]) == (200.0, 300.0)
+
+    def test_without_any_period_there_is_no_field(self):
+        fields = main._build_inference_fields(self._results((0.0,)))
+        assert not [name for name in fields if name.startswith("cycle_time_ms")]
 
 
 class _FrameSink:
