@@ -30,6 +30,11 @@ Cuatro puntos del contrato que no se ven en las firmas:
     completa ni se recalcula ninguna clave, `fps_estimated` incluido.
   - Una cámara mal configurada (NullDriver) no se reintenta a ciegas: el error
     sale una sola vez al log y viaja en cada status.
+
+Las **vistas** —rectángulos del video cortados a resolución nativa, ver
+`tools/camera/decoder.py`— entran por el constructor y no por el config: son los ROI de los
+pipelines que las piden, y qué pipelines corren lo sabe el cableado. Se le pasan al driver
+en `decode.views` de la sección de la cámara, y salen con cada frame en `frame_ready`.
 """
 
 import time
@@ -57,13 +62,18 @@ class CaptureThread(QThread):
     lado tiene que ser barato o descartar: cualquier demora ahí frena la captura.
     """
 
-    frame_ready = Signal(object, str)     # (frame BGR, slot) — al ritmo de la cámara
+    # (frame BGR, slot, {nombre: FrameView} de ese frame) — al ritmo de la cámara
+    frame_ready = Signal(object, str, object)
     status_updated = Signal(object, str)  # (dict de get_status(), slot) — cada _STATUS_INTERVAL_S
 
-    def __init__(self, config_manager: ConfigManager, camera_slot: str):
+    def __init__(self, config_manager: ConfigManager, camera_slot: str,
+                 views: dict[str, dict] | None = None):
         super().__init__()
         self.camera_slot = camera_slot
-        self._driver = create_camera(config_manager.get(f"cameras.{camera_slot}", {}) or {})
+        config_cam = dict(config_manager.get(f"cameras.{camera_slot}", {}) or {})
+        if views:
+            config_cam["decode"] = {**(config_cam.get("decode") or {}), "views": dict(views)}
+        self._driver = create_camera(config_cam)
         # NullDriver: la config está mal y reintentar connect() no cambia nada. El
         # motivo lo publica el propio driver en su status.
         self._config_error: str | None = (
@@ -154,7 +164,7 @@ class CaptureThread(QThread):
                 continue
 
             if frame is not None:
-                self.frame_ready.emit(frame, self.camera_slot)
+                self.frame_ready.emit(frame, self.camera_slot, self._driver.get_views())
             else:
                 self.msleep(self._idle_sleep_ms())
 

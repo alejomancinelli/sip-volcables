@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from tools.camera import decoder, rtsp_driver
+from tools.camera.abstract_driver import FrameView
 from tools.camera.rtsp_driver import RtspDriver
 
 _STATUS_KEYS = {"connected", "capture_enabled", "temperature", "fps_estimated"}
@@ -263,7 +264,8 @@ class TestGrabLoop:
         driver, _ = _driver(monkeypatch, frames=1, stop_after_grabs=2)
         driver._grab_loop()
 
-        assert driver._img_queue.get_nowait().shape == (4, 4, 3)
+        frame, _ = driver._img_queue.get_nowait()
+        assert frame.shape == (4, 4, 3)
 
     def test_the_stream_is_opened_with_ffmpeg_and_timeouts(self, monkeypatch):
         """Sin timeouts, un host que no contesta deja el thread colgado para siempre."""
@@ -288,7 +290,8 @@ class TestGrabLoop:
         driver, _ = _driver(monkeypatch, frames=6, stop_after_grabs=7)
         driver._grab_loop()
 
-        assert int(driver._img_queue.get_nowait()[0, 0, 0]) >= 5
+        frame, _ = driver._img_queue.get_nowait()
+        assert int(frame[0, 0, 0]) >= 5
         assert driver._img_queue.qsize() == 1
 
     def test_a_camera_that_goes_quiet_is_reported_as_a_drop(self, monkeypatch):
@@ -447,3 +450,45 @@ class TestCaptureEnabled:
 def _stop(driver: RtspDriver):
     """Corta el loop desde la espera de la pausa, para que el test termine."""
     driver._grab_active = False
+
+
+class TestViews:
+    """Las vistas viajan en la cola con su frame y salen rotadas como él."""
+
+    @staticmethod
+    def _connected(**config) -> RtspDriver:
+        driver = RtspDriver({"address": "10.8.83.90", **config})
+        driver.is_connected = True
+        return driver
+
+    def test_a_frame_comes_out_with_its_views(self):
+        driver = self._connected()
+        view = FrameView(np.ones((8, 8, 3), np.uint8), (0, 0, 2, 2))
+        driver._enqueue(np.zeros((4, 4, 3), np.uint8), {"pipeline_1": view})
+        driver.get_frame()
+        assert driver.get_views()["pipeline_1"].image_bgr is view.image_bgr
+
+    def test_the_views_are_rotated_with_the_frame(self):
+        driver = self._connected(rotation="90cw")
+        view = FrameView(np.ones((2, 6, 3), np.uint8), (0, 0, 2, 6))
+        driver._enqueue(np.zeros((4, 4, 3), np.uint8), {"pipeline_1": view})
+        driver.get_frame()
+        assert driver.get_views()["pipeline_1"].image_bgr.shape == (6, 2, 3)
+
+    def test_a_frame_without_views_leaves_none_behind(self):
+        """Las vistas son de un frame: el siguiente sin ellas no hereda las del anterior."""
+        driver = self._connected()
+        view = FrameView(np.ones((8, 8, 3), np.uint8), (0, 0, 2, 2))
+        driver._enqueue(np.zeros((4, 4, 3), np.uint8), {"pipeline_1": view})
+        driver.get_frame()
+        driver._enqueue(np.zeros((4, 4, 3), np.uint8))
+        driver.get_frame()
+        assert driver.get_views() == {}
+
+    def test_the_status_counts_misses_when_there_are_views(self):
+        driver = RtspDriver({"address": "10.8.83.90", "decode": {"views": {
+            "pipeline_1": {"x_px": 0, "y_px": 0, "width_px": 10, "height_px": 10}}}})
+        assert driver.get_status()["view_misses"] == 0
+
+    def test_without_views_the_status_keys_are_the_same(self):
+        assert "view_misses" not in RtspDriver({"address": "10.8.83.90"}).get_status()

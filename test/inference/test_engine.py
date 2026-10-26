@@ -15,8 +15,9 @@ from PySide6.QtCore import Qt
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.engine import InferenceThread
 from system.inference.result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
-                                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, Detection,
-                                     InferenceResult)
+                                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, REASON_NO_VIEW,
+                                     Detection, InferenceResult)
+from tools.camera.abstract_driver import FrameView
 
 _PIPELINE = "pipeline_1"
 _SLOT = "camera_1"
@@ -270,7 +271,8 @@ class TestQueue:
         engine.push_frame(_frame(level=200), _SLOT)
         status = engine.get_status()
         assert (status["queued"], status["dropped"]) == (1, 0)
-        assert engine._take_next()[1][0, 0, 0] == 200
+        _, (frame, _) = engine._take_next()
+        assert frame[0, 0, 0] == 200
 
     def test_a_consumed_frame_is_not_replaced_within_the_interval(self):
         config = _MockConfig(**{f"inference.pipelines.{_PIPELINE}.interval_s": 60})
@@ -391,6 +393,165 @@ class TestRoiAndIllumination:
         assert pipeline.frames == []
         assert (result.is_valid, result.invalid_reason) == (False, REASON_DARK_FRAME)
         assert result.detections == []
+
+
+def _pipeline_roi(**overrides) -> dict:
+    """La clave del ROI propio del pipeline para `_SLOT`, lista para `_MockConfig`."""
+    roi = {"enabled": True, "x_px": 40, "y_px": 20, "width_px": 100, "height_px": 50}
+    roi.update(overrides)
+    return {f"inference.pipelines.{_PIPELINE}.roi.{_SLOT}": roi}
+
+
+class TestPipelineRoi:
+    """El ROI propio de un pipeline reemplaza al de la cámara, sólo para ese pipeline."""
+
+    def test_it_wins_over_the_camera_roi(self):
+        config = _MockConfig(**{f"cameras.{_SLOT}.roi": {
+            "enabled": True, "x_px": 0, "y_px": 0, "width_px": 10, "height_px": 10}},
+            **_pipeline_roi())
+        pipeline = _FakePipeline()
+        result = _process_one(_engine(pipeline, config), _frame())
+        assert pipeline.frames[0].shape[:2] == (50, 100)
+        assert result.roi_px == (40, 20, 100, 50)
+
+    def test_disabled_it_gives_the_whole_frame(self):
+        """Un `enabled: false` propio es ver el frame entero, aunque la cámara recorte."""
+        config = _MockConfig(**{f"cameras.{_SLOT}.roi": {
+            "enabled": True, "x_px": 0, "y_px": 0, "width_px": 10, "height_px": 10}},
+            **_pipeline_roi(enabled=False))
+        pipeline = _FakePipeline()
+        result = _process_one(_engine(pipeline, config), _frame())
+        assert pipeline.frames[0].shape[:2] == (240, 320)
+        assert result.roi_px is None
+
+    def test_without_it_the_camera_roi_applies(self):
+        config = _MockConfig(**{f"cameras.{_SLOT}.roi": {
+            "enabled": True, "x_px": 0, "y_px": 0, "width_px": 10, "height_px": 10}})
+        assert _process_one(_engine(_FakePipeline(), config), _frame()).roi_px == (0, 0, 10, 10)
+
+    def test_another_camera_keeps_its_own_roi(self):
+        config = _MockConfig(**_pipeline_roi())
+        result = _process_one(_engine(_FakePipeline(), config), _frame(), _OTHER_SLOT)
+        assert result.roi_px is None
+
+    def test_illumination_is_measured_on_its_region(self):
+        config = _MockConfig(**_pipeline_roi(x_px=0, y_px=0, width_px=40, height_px=40))
+        frame = _frame(level=0)
+        frame[0:40, 0:40] = 255
+        assert _process_one(_engine(_FakePipeline(), config), frame).illumination_pct == 100
+
+    def test_the_result_carries_the_region_it_ran_on(self):
+        config = _MockConfig(**_pipeline_roi())
+        pipeline = _FakePipeline()
+        result = _process_one(_engine(pipeline, config), _frame())
+        assert result.region_bgr is pipeline.frames[0]
+
+
+def _view(level: int = 200, *, width_px: int = 300, height_px: int = 150,
+          rect_px: tuple = (40, 20, 100, 50)) -> FrameView:
+    """Una vista a 3x del ROI de `_pipeline_roi()`, como la cortaría el decodificador."""
+    return FrameView(np.full((height_px, width_px, 3), level, np.uint8), rect_px)
+
+
+def _process_with_views(engine: InferenceThread, frame: np.ndarray, views: dict,
+                        camera_slot: str = _SLOT) -> InferenceResult:
+    collector = _Collector()
+    engine.result_ready.connect(collector.on_result, Qt.ConnectionType.DirectConnection)
+    engine.start()
+    try:
+        engine.push_frame(frame, camera_slot, views)
+        assert _wait_until(lambda: collector.count() >= 1)
+    finally:
+        engine.requestInterruption()
+        assert engine.wait(_WAIT_TIMEOUT_MS)
+    return collector.last()
+
+
+class TestViews:
+    """Con `full_resolution`, la región es la vista que el decodificador cortó del nativo."""
+
+    def test_the_pipeline_receives_the_view(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        pipeline = _FakePipeline()
+        view = _view()
+        _process_with_views(_engine(pipeline, config), _frame(), {_PIPELINE: view})
+        assert pipeline.frames[0] is view.image_bgr
+
+    def test_the_roi_is_the_rectangle_the_view_covers(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        view = _view(rect_px=(40, 20, 101, 51))
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(),
+                                     {_PIPELINE: view})
+        assert result.roi_px == (40, 20, 101, 51)
+
+    def test_detections_come_back_scaled_to_the_reference_frame(self):
+        """La vista está a 3x: una caja de la vista vuelve a un tercio, corrida al ROI."""
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        pipeline = _FakePipeline([(0, 90.0, (30, 15, 60, 45))])
+        result = _process_with_views(_engine(pipeline, config), _frame(), {_PIPELINE: _view()})
+        assert result.detections[0].bbox_px == (50, 25, 60, 35)
+
+    def test_illumination_is_measured_on_the_view(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(level=0),
+                                     {_PIPELINE: _view(level=255)})
+        assert result.illumination_pct == 100
+
+    def test_the_result_carries_the_view_as_its_region(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        view = _view()
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(),
+                                     {_PIPELINE: view})
+        assert result.region_bgr is view.image_bgr
+
+    def test_the_source_frame_is_still_the_reference_frame(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        frame = _frame()
+        result = _process_with_views(_engine(_FakePipeline(), config), frame,
+                                     {_PIPELINE: _view()})
+        assert result.source_bgr is frame
+
+    def test_without_its_view_the_frame_is_not_inferred(self):
+        """Inferir el recorte reducido daría números de otra imagen que la pedida."""
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        pipeline = _FakePipeline([(0, 90.0, (0, 0, 10, 10))])
+        result = _process_with_views(_engine(pipeline, config), _frame(), {})
+        assert pipeline.frames == []
+        assert (result.is_valid, result.invalid_reason) == (False, REASON_NO_VIEW)
+
+    def test_without_its_view_the_roi_is_still_drawn(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(), {})
+        assert result.roi_px == (40, 20, 100, 50)
+        assert result.region_bgr is None
+
+    def test_the_view_of_another_pipeline_is_ignored(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(),
+                                     {"pipeline_9": _view()})
+        assert result.invalid_reason == REASON_NO_VIEW
+
+    def test_without_full_resolution_the_view_is_ignored(self):
+        config = _MockConfig(**_pipeline_roi())
+        pipeline = _FakePipeline()
+        _process_with_views(_engine(pipeline, config), _frame(), {_PIPELINE: _view()})
+        assert pipeline.frames[0].shape[:2] == (50, 100)
+
+    def test_a_view_of_another_rectangle_is_measured_and_warned(self, caplog):
+        """El corte lo fija el decodificador al abrir: hasta reiniciar manda la vista."""
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        view = _view(rect_px=(0, 0, 100, 50))
+        result = _process_with_views(_engine(_FakePipeline(), config), _frame(),
+                                     {_PIPELINE: view})
+        assert result.roi_px == (0, 0, 100, 50)
+        assert "reiniciar" in caplog.text
+
+    def test_process_takes_the_views_too(self):
+        config = _MockConfig(**_pipeline_roi(full_resolution=True))
+        pipeline = _FakePipeline()
+        view = _view()
+        _engine(pipeline, config).process(_frame(), _SLOT, {_PIPELINE: view})
+        assert pipeline.frames[0] is view.image_bgr
 
 
 class TestPreprocessor:

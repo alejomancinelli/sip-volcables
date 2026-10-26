@@ -9,7 +9,7 @@ import numpy as np
 from system.logger import logger
 
 from . import decoder
-from .abstract_driver import AbstractCameraDriver
+from .abstract_driver import AbstractCameraDriver, FrameView
 
 # Esquema con el que se completa una `address` que trae sólo el host.
 _URL_SCHEME = "rtsp://"
@@ -129,7 +129,8 @@ class RtspDriver(AbstractCameraDriver):
             backend   : cpu | nvdec | auto — quién decodifica (ver decoder.py)
             width_px  : tamaño al que sale el frame; los dos en 0 = el del stream
             height_px
-        rotation        : opcional — la aplica la base
+            views     : rectángulos cortados del video nativo; los arma el cableado
+        rotation        : opcional — la aplica la base, al frame y a sus vistas
 
     `exposure_time_us` y `gain` no se aplican y se ignoran sin avisar: una cámara IP no
     expone nodos de adquisición por el stream. Exposición, ganancia, resolución y fps
@@ -175,7 +176,9 @@ class RtspDriver(AbstractCameraDriver):
         fps_limit = float(config_cam.get("acquisition", {}).get("fps_limit") or 0.0)
         self._min_frame_period_s = 1.0 / fps_limit if fps_limit > 0 else 0.0
 
+        # (frame, vistas): viajan juntos, así un frame nunca sale con las vistas de otro.
         self._img_queue: Queue = Queue(maxsize=_QUEUE_MAXSIZE)
+        self._view_misses = 0
         self._capture = None
         self._grab_active = False
         self._grab_thread: threading.Thread | None = None
@@ -235,7 +238,8 @@ class RtspDriver(AbstractCameraDriver):
         if not self._capture_enabled or not self.is_connected:
             return None
         try:
-            return self._deliver(self._img_queue.get(timeout=timeout_ms / 1000.0))
+            frame, views = self._img_queue.get(timeout=timeout_ms / 1000.0)
+            return self._deliver(frame, views)
         except Empty:
             return None
         except Exception as e:
@@ -246,6 +250,10 @@ class RtspDriver(AbstractCameraDriver):
         """
         Estado para telemetría. `temperature` queda en 0.0 siempre: por el stream la
         cámara no publica ningún sensor, y no hay lectura que reportar.
+
+        Con vistas pedidas agrega `view_misses`: frames que salieron sin alguna de sus
+        vistas porque el decodificador no la pudo aparear. Medido, no pasa; si crece, el
+        pipeline que la pide se está quedando sin inferir.
         """
         status = {
             "connected": self.is_connected,
@@ -253,6 +261,8 @@ class RtspDriver(AbstractCameraDriver):
             "temperature": 0.0,
             "fps_estimated": self._measured_fps(),
         }
+        if self._decode.views:
+            status["view_misses"] = self._view_misses
         if not self._url:
             status["error"] = "Cámara RTSP sin `address`"
         return status
@@ -316,7 +326,9 @@ class RtspDriver(AbstractCameraDriver):
             if not is_retrieved or frame is None:
                 continue
 
-            self._enqueue(frame)
+            views = self._capture.retrieve_views()
+            self._view_misses += len(self._capture.get_view_names()) - len(views)
+            self._enqueue(frame, views)
 
         self._close_capture()
 
@@ -386,14 +398,14 @@ class RtspDriver(AbstractCameraDriver):
         self._frame_credit -= 1.0
         return True
 
-    def _enqueue(self, frame: np.ndarray):
+    def _enqueue(self, frame: np.ndarray, views: dict[str, FrameView] | None = None):
         """Encola descartando el más viejo, así el consumidor lento recibe el último."""
         if self._img_queue.full():
             try:
                 self._img_queue.get_nowait()
             except Empty:
                 pass
-        self._img_queue.put_nowait(frame)
+        self._img_queue.put_nowait((frame, views or {}))
 
     def _drain_queue(self):
         while not self._img_queue.empty():

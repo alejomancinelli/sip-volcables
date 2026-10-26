@@ -385,6 +385,32 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "Com 1 imagem por medição as outras três não fazem "
                                      "nada. Desligar a captura libera a rede, mas deixa o "
                                      "vídeo ao vivo sem imagem até a medição seguinte."},
+    "inf_roi_box":            {"es": "ROI en",         "en": "ROI on",        "pt": "ROI em"},
+    "inf_roi_mode":           {"es": "Región:",        "en": "Region:",       "pt": "Região:"},
+    "inf_roi_mode_camera":    {"es": "La de la cámara",
+                               "en": "The camera's",
+                               "pt": "A da câmera"},
+    "inf_roi_mode_own":       {"es": "Propia de este pipeline",
+                               "en": "This pipeline's own",
+                               "pt": "Própria deste pipeline"},
+    "inf_roi_mode_full":      {"es": "Frame completo", "en": "Whole frame",   "pt": "Frame completo"},
+    "inf_roi_full_resolution": {"es": "Cortarla del video nativo",
+                                "en": "Cut it from the native video",
+                                "pt": "Cortá-la do vídeo nativo"},
+    "inf_roi_output_side":    {"es": "Lado corto de la vista (px, 0 = nativo):",
+                               "en": "View short side (px, 0 = native):",
+                               "pt": "Lado curto da vista (px, 0 = nativo):"},
+    "inf_roi_title":          {"es": "ROI del pipeline", "en": "Pipeline ROI",
+                               "pt": "ROI do pipeline"},
+    "inf_roi_note":           {"es": "Cortada del video nativo, la región no pierde la "
+                                     "resolución que el decodificador le quita al frame. "
+                                     "Ese corte y su tamaño se aplican al reiniciar.",
+                               "en": "Cut from the native video, the region keeps the "
+                                     "resolution the decoder takes away from the frame. "
+                                     "That cut and its size apply on restart.",
+                               "pt": "Cortada do vídeo nativo, a região não perde a "
+                                     "resolução que o decodificador tira do frame. "
+                                     "Esse corte e seu tamanho se aplicam ao reiniciar."},
 
     # ── Proceso (configuración) ──────────────────────────────────────────────
     "process_stopper_box":    {"es": "Calza",          "en": "Stopper",       "pt": "Calço"},

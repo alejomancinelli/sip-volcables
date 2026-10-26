@@ -120,7 +120,7 @@ from system.inference.composer import FrameComposer
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
 from system.inference.pipeline_factory import create_pipeline
-from system.inference.preprocessing import build_preprocessor
+from system.inference.preprocessing import build_camera_views, build_preprocessor
 from system.inference.result import InferenceResult
 from system.license.manager import (
     PERPETUAL_DAYS_SENTINEL, RECHECK_INTERVAL_MS, LicenseManager, read_feature,
@@ -600,6 +600,10 @@ class Application(QObject):
         # manda al operador a revisar un cable que está bien.
         declared_cameras = tuple(config.get("cameras", {}) or {})
         licensed_cameras = self._license.allowed_camera_slots(declared_cameras)
+        # Las vistas a resolución nativa que corta cada cámara: los ROI de los pipelines
+        # que corren y las piden. Por eso se arman después de los motores.
+        camera_views = build_camera_views(
+            config, [engine.pipeline_slot for engine in self._engines])
         self._capture_threads: dict[str, CaptureThread] = {}
         for camera_slot in declared_cameras:
             if camera_slot not in licensed_cameras:
@@ -611,7 +615,7 @@ class Application(QObject):
                 self._on_camera_status(_UNLICENSED_CAMERA_STATUS, camera_slot)
                 self._push_status_to_content(_UNLICENSED_CAMERA_STATUS, camera_slot)
                 continue
-            thread = CaptureThread(config, camera_slot)
+            thread = CaptureThread(config, camera_slot, views=camera_views.get(camera_slot))
             # Directa a propósito: corre en el hilo de captura. Ver `_on_frame_captured`.
             thread.frame_ready.connect(self._on_frame_captured, Qt.DirectConnection)
             thread.status_updated.connect(self._on_camera_status)
@@ -636,9 +640,10 @@ class Application(QObject):
         # array, no una copia: medir por frame costaría milisegundos por cámara y la
         # ventana es de horas, así que alcanza con el último que haya cuando toque.
         self._last_raw_frame: dict[str, np.ndarray] = {}
-        # Último frame de cada cámara que la GUI todavía no tomó. Que el slot esté acá es
-        # también la marca de que ya hay un `_frame_for_gui` en vuelo para esa cámara.
-        self._gui_frames: dict[str, np.ndarray] = {}
+        # Último frame de cada cámara que la GUI todavía no tomó, con sus vistas. Que el slot
+        # esté acá es también la marca de que ya hay un `_frame_for_gui` en vuelo para esa
+        # cámara.
+        self._gui_frames: dict[str, tuple[np.ndarray, dict]] = {}
         self._gui_frames_lock = threading.Lock()
         self._frame_for_gui.connect(self._on_frame_for_gui)
         # Cámaras calibrando ahora: slot -> (varianzas, lumas). Vacío casi siempre.
@@ -884,11 +889,13 @@ class Application(QObject):
             return frame_bgr
         return self._display_adjust(frame_bgr)
 
-    @Slot(object, str)
-    def _on_frame_captured(self, frame_bgr: np.ndarray | None, camera_slot: str):
+    @Slot(object, str, object)
+    def _on_frame_captured(self, frame_bgr: np.ndarray | None, camera_slot: str,
+                           views: dict | None = None):
         """
         Un frame nuevo, **en el hilo de captura**: a la inferencia, al stream crudo y,
-        como mucho uno en vuelo por cámara, a la GUI.
+        como mucho uno en vuelo por cámara, a la GUI. Las vistas del frame van sólo a la
+        inferencia: lo que se mira y se transmite es el frame.
 
         Corre acá y no en la GUI porque todo lo que hace es thread-safe —`push_frame` del
         motor y `push_raw` de los servidores— y porque pasar cada frame por la cola de la
@@ -920,7 +927,7 @@ class Application(QObject):
             if (not self._scheduler.is_cycled(engine.pipeline_slot)
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)):
-                engine.push_frame(frame_bgr, camera_slot)
+                engine.push_frame(frame_bgr, camera_slot, views)
         # Lo que mira una persona puede llevar gamma y contraste local; lo que se mide,
         # nunca. Sin clientes en el crudo no se ajusta nada: `_for_display` crea un frame.
         if (self._http_video.has_raw_clients(camera_slot)
@@ -928,18 +935,19 @@ class Application(QObject):
             display_bgr = self._for_display(frame_bgr)
             self._http_video.push_raw(camera_slot, display_bgr)
             self._rtsp_video.push_raw(camera_slot, display_bgr)
-        self._hand_to_gui(frame_bgr, camera_slot)
+        self._hand_to_gui(frame_bgr, camera_slot, views or {})
 
-    def _hand_to_gui(self, frame_bgr: np.ndarray, camera_slot: str):
+    def _hand_to_gui(self, frame_bgr: np.ndarray, camera_slot: str, views: dict):
         """
-        Deja el frame para la GUI y la avisa, salvo que ya haya un aviso en vuelo.
+        Deja el frame —con sus vistas, para los pipelines con ciclo— para la GUI y la
+        avisa, salvo que ya haya un aviso en vuelo.
 
         Con el aviso pendiente sólo se reemplaza el frame: la GUI toma el último cuando
         llega a atenderlo, y la cola nunca tiene más de uno por cámara.
         """
         with self._gui_frames_lock:
             is_pending = camera_slot in self._gui_frames
-            self._gui_frames[camera_slot] = frame_bgr
+            self._gui_frames[camera_slot] = (frame_bgr, views)
         if not is_pending:
             self._frame_for_gui.emit(camera_slot)
 
@@ -954,7 +962,7 @@ class Application(QObject):
         Un pipeline con ciclo consulta su compuerta acá, antes de pedir el permiso.
         """
         with self._gui_frames_lock:
-            frame_bgr = self._gui_frames.pop(camera_slot, None)
+            frame_bgr, views = self._gui_frames.pop(camera_slot, (None, {}))
         if frame_bgr is None:
             return
         content = self._ui.monitor_content
@@ -976,7 +984,7 @@ class Application(QObject):
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)
                     and self._scheduler.take_frame(camera_slot, engine.pipeline_slot)):
-                engine.push_frame(frame_bgr, camera_slot, ignore_interval=True)
+                engine.push_frame(frame_bgr, camera_slot, views, ignore_interval=True)
 
     @Slot(object, str)
     def _on_camera_status(self, status: dict, camera_slot: str):
@@ -1134,23 +1142,40 @@ class Application(QObject):
             )
 
     def _send_to_dataset(self, result: InferenceResult):
-        """Le pasa la medición al recolector, por el camino de su modo."""
+        """
+        Le pasa la medición al recolector, por el camino de su modo.
+
+        Un pipeline con ROI propio en esa cámara guarda la región que vio —la vista nativa,
+        si la pidió— en un subset a su nombre: es la imagen con la que se reentrena ese
+        modelo, y el pipeline que mira el frame entero no le pisa el guardado. Un resultado
+        que se quedó sin región —llegó sin su vista— no tiene imagen que guardar.
+        """
+        subset = result.pipeline_slot if self._has_own_roi(result) else ""
+        frame_bgr = result.region_bgr if subset else result.source_bgr
+        if frame_bgr is None:
+            return
         context = self._build_dataset_context(result.camera_slot)
         if self._collector.mode == _COLLECTOR_MODE_INTERVAL:
             self._collector.push_frame(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
         elif self._scheduler.is_cycled(result.pipeline_slot):
             # En on_demand el que pide la captura es el ciclo, y es una por medición.
             # `save_now` escribe en este hilo: por frame sería un guardado sincrónico en
             # el hilo de la GUI, que es justo lo que su contrato desaconseja.
             self._collector.save_now(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
+
+    def _has_own_roi(self, result: InferenceResult) -> bool:
+        """True si el pipeline del resultado recorta su propio ROI en esa cámara."""
+        roi = self._config.get(
+            f"inference.pipelines.{result.pipeline_slot}.roi.{result.camera_slot}")
+        return isinstance(roi, dict) and bool(roi.get("enabled", False))
 
     def _annotate_cycle(self, result: InferenceResult) -> np.ndarray | None:
         """

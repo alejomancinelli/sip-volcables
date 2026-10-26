@@ -373,8 +373,9 @@ class _FrameSink:
     def has_camera(self, camera_slot: str) -> bool:
         return not self._cameras or camera_slot in self._cameras
 
-    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
+    def push_frame(self, frame_bgr, camera_slot, views=None, *, ignore_interval=False):
         self.pushed.append((frame_bgr, camera_slot, ignore_interval))
+        self.views = views
 
     def has_raw_clients(self, camera_slot: str) -> bool:
         return self.raw_clients
@@ -432,6 +433,25 @@ def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, conten
     app.notified = []
     app._frame_for_gui.connect(app.notified.append)
     return app
+
+
+class TestFrameViews:
+    """Las vistas viajan con su frame hasta el motor, por los dos caminos."""
+
+    def test_an_uncycled_engine_gets_the_views_in_the_capture_thread(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        assert engine.views is views
+
+    def test_a_cycled_engine_gets_the_views_of_the_frame_it_takes(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=["pipeline_1"])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        app._on_frame_for_gui("camera_1")
+        assert engine.views is views
 
 
 class TestFramePath:
@@ -1085,6 +1105,64 @@ class TestDatasetGating:
         assert (kept.source_bgr, kept.annotated_bgr, kept.detections) == (None, None, [])
         assert kept.metrics == result.metrics and kept.timestamp_s == result.timestamp_s
         assert result.source_bgr is not None, "el resultado original no se toca"
+
+
+class _SpyCollector:
+    """El recolector en modo interval: anota cada `push_frame` con lo que recibió."""
+
+    mode = main._COLLECTOR_MODE_INTERVAL
+
+    def __init__(self):
+        self.pushed: list = []
+
+    def push_frame(self, camera_slot, frame_bgr, **kwargs):
+        self.pushed.append((camera_slot, frame_bgr, kwargs))
+
+
+class TestDatasetSubset:
+    """Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara."""
+
+    def _application(self, **config):
+        app = main.Application.__new__(main.Application)
+        app._config = _MockConfig(**config)
+        app._collector = _SpyCollector()
+        app._build_dataset_context = lambda camera_slot: {}
+        return app
+
+    def _result(self, region: bool = True) -> InferenceResult:
+        source_bgr = np.zeros((8, 8, 3), np.uint8)
+        return InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_1",
+                               source_bgr=source_bgr,
+                               region_bgr=source_bgr[:4, :4] if region else None)
+
+    def test_an_own_roi_saves_the_region_in_its_subset(self):
+        app = self._application(**{"inference.pipelines.pipeline_1.roi.camera_3":
+                                   {"enabled": True}})
+        result = self._result()
+        app._send_to_dataset(result)
+        ((camera_slot, frame_bgr, kwargs),) = app._collector.pushed
+        assert (camera_slot, kwargs["subset"]) == ("camera_3", "pipeline_1")
+        assert frame_bgr is result.region_bgr
+
+    def test_the_camera_roi_saves_the_frame_without_a_subset(self):
+        app = self._application()
+        result = self._result()
+        app._send_to_dataset(result)
+        ((_, frame_bgr, kwargs),) = app._collector.pushed
+        assert kwargs["subset"] == "" and frame_bgr is result.source_bgr
+
+    def test_a_result_without_its_region_is_not_saved(self):
+        """Llegó sin su vista: no hay imagen de lo que el modelo tendría que haber visto."""
+        app = self._application(**{"inference.pipelines.pipeline_1.roi.camera_3":
+                                   {"enabled": True}})
+        app._send_to_dataset(self._result(region=False))
+        assert app._collector.pushed == []
+
+    def test_the_pipeline_travels_for_the_filter(self):
+        app = self._application()
+        app._send_to_dataset(self._result())
+        ((_, _, kwargs),) = app._collector.pushed
+        assert kwargs["pipeline_slot"] == "pipeline_1"
 
 
 class _WritableMockConfig(_MockConfig):

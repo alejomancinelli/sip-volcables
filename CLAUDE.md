@@ -154,6 +154,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+      decoder_views/          las vistas del decodificador contra cámaras de verdad, en la Jetson
     calibration/              herramientas de puesta en marcha que producen valores del config;
                               una carpeta por calibrador, con su README para quien calibra.
                               La jerarquía y las reglas, en `calibration/README.md`
@@ -191,8 +192,11 @@ La dirección de las dependencias y las reglas de límites están en la skill
 
 Son punteros: el contrato vive en el archivo, no acá.
 
-- **Driver de cámara** — `tools/camera/abstract_driver.py`: entrega always-fresh y
-  las claves estables de `get_status()`.
+- **Driver de cámara** — `tools/camera/abstract_driver.py`: entrega always-fresh, las
+  claves estables de `get_status()` y las vistas de cada frame (`FrameView`, `get_views()`):
+  rectángulos del video cortados a resolución nativa, que viajan con su frame y rotan con él.
+  Dónde se corta cada una y las reglas que salen de medirlo en la Jetson están en
+  `tools/camera/decoder.py`.
 - **Backend de telemetría** — `system/telemetry/backends/abstract_backend.py`: la
   forma del registro (`measurement`, `tags`, `fields`, `time`) y los `STATUS_*`.
 - **Servidor de video** — `system/video/abstract_video_server.py`: un stream por
@@ -332,6 +336,20 @@ Lo que no se deduce leyendo un archivo suelto:
   decodificarlo. `nvdec` en un equipo que no lo tiene no cae a la CPU: la cámara no abre y
   el log dice por qué, porque una planta que cuenta con el VIC no puede pasar a gastar CPU
   sin que se note. El default es `cpu`.
+- **Un pipeline que mira una zona chica la recibe a resolución nativa, sin agrandar el frame
+  de toda la app.** Con `full_resolution` en su ROI, el decodificador corta ese rectángulo
+  del video nativo —un segundo `nvvidconv` en paralelo al que reduce, apareado por PTS; o
+  OpenCV antes del resize— y lo entrega con el frame como una *vista* con el nombre del
+  pipeline. Todo sigue en el espacio del frame de referencia: el ROI se dibuja ahí,
+  `roi_px` es lo que la vista cubre y las detecciones vuelven escaladas, así que el overlay,
+  el composer y el PLC no se enteran. Agrandar el frame de toda la app costaría CPU en cada
+  copia —es lo que la reducción ahorra—, y una segunda sesión RTSP como otra cámara movería
+  el resultado a otro slot, donde el composer y el analyzer no lo juntan con el de la
+  cámara. Un frame que llega sin su vista sale `no_view`: inferir el recorte reducido daría,
+  en unos frames sí y en otros no, números de otra imagen. El corte se fija al abrir, así
+  que cambiar el rectángulo exige reiniciar, como todo lo de la cámara. La vista no pasa por
+  el preprocessor, y por eso una cámara con corrección de lente o ajuste de imagen no la
+  corta.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -436,7 +454,20 @@ Lo que no se deduce leyendo un archivo suelto:
   nunca alarma: un vidrio limpio que nadie midió no se afirma.
 - El ROI y el mínimo de iluminación son de la cámara y viven en su sección del config:
   se recorta y se mide el brillo antes de gastar una pasada del modelo, y las
-  detecciones vuelven al espacio del frame de referencia antes de salir.
+  detecciones vuelven al espacio del frame de referencia antes de salir. **Un pipeline
+  puede declarar su propio ROI por cámara** (`inference.pipelines.<slot>.roi.<cámara>`), que
+  reemplaza al de la cámara sólo para él —`enabled: false` es el frame entero—: un
+  clasificador del chorro de grano quiere un recorte justo y el detector de personas de la
+  misma cámara, la escena entera. El mínimo de iluminación sigue siendo de la cámara, y se
+  mide sobre la región que ve cada pipeline.
+- **El dataset de un pipeline con ROI propio es la región que vio, aparte del de la
+  cámara.** Se guarda en `<cámara>-<pipeline>/`, con su tope, su historial de duplicados y
+  su último frame del modo interval: es la imagen con la que se reentrena ese modelo, y el
+  pipeline que mira el frame entero a 15 fps no le pisa cada guardado. Con
+  `full_resolution` es la vista nativa, así que se junta un dataset a resolución completa
+  sin pasar la app entera al tamaño nativo. `image_collector.pipelines` elige de qué
+  pipelines se guarda. El JSON no cambia: la carpeta y el `pipeline_slot` de la inferencia
+  ya dicen de quién es.
 - **La geometría se corrige siempre en el frame de referencia; el brillo, sólo si la
   cámara lo declara.** La corrección de lente cambia *dónde está* un píxel, así que entra
   por el `preprocessor` del motor y lo que devuelve es el frame de referencia: el que ve el
@@ -747,6 +778,11 @@ La tabla completa, archivo por archivo, está en `README.md`.
   verdad. Para un frame que ya está en numpy —el de una cámara GigE— el VIC y NVJPG no
   convienen: copiarlo al motor y de vuelta cuesta más de lo que ahorran. Las mediciones y
   el plan están en `.claude/plans/jetson-accelerators.md`.
+- **Las vistas del decodificador falta verlas andar en la app, en la Jetson.** El corte,
+  el apareo y sus reglas se midieron con un banco aparte
+  (`.claude/plans/decoder-views-jetson-findings.md`); la prueba con el driver de la app es
+  `manual_test/decoder_views/`. La pestaña de diagnóstico todavía no muestra el tamaño de
+  las vistas ni `view_misses`, que hoy salen en el log y en el estado de la cámara.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado

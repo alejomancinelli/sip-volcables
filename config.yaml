@@ -159,7 +159,8 @@ inference:
   # cada modelo y qué cámaras entran a cada pipeline.
   #
   # El ROI y el mínimo de iluminación son de la cámara y viven en su sección: se recorta
-  # y se mide antes de gastar una pasada del modelo.
+  # y se mide antes de gastar una pasada del modelo. Un pipeline puede declarar el suyo
+  # por cámara (`roi:` en su sección, abajo), que reemplaza al de la cámara sólo para él.
   overlay:
     # Dibujado del resultado sobre el frame. Sale una sola vez y el mismo array viaja a
     # la UI, al stream `annotated` y al dataset. La sección entera se edita sólo acá: la
@@ -210,6 +211,21 @@ inference:
       # medición. El descarte por detección es del modelo (`min_confidence_pct`).
       min_detections: 0         # menos detecciones que esto = resultado no confiable
       min_result_confidence_pct: 0   # confianza media por debajo de esto = resultado no confiable
+      # ROI propio de este pipeline, por cámara. Sin la cámara acá —o en null— rige el de
+      # `cameras.<slot>.roi`; con la sección, ésta lo reemplaza entera, y `enabled: false`
+      # es ver el frame completo aunque la cámara recorte. Las coordenadas son del frame
+      # que entrega la cámara —el que se ve en pantalla y se dibuja con el diálogo—.
+      #
+      # `full_resolution: true` hace que el decodificador corte este rectángulo del video
+      # NATIVO antes de reducirlo (tools/camera/decoder.py), así el modelo no pierde el
+      # detalle que la reducción le quita al frame. Lo cortan los drivers `rtsp` y
+      # `video_file`; en cualquier otro, o con corrección de lente o ajuste de imagen en la
+      # cámara, el pipeline no infiere y lo dice. `output_short_side_px` reduce la vista
+      # conservando su forma —el lado corto a esos px; 0 = tamaño nativo del recorte—. Los
+      # dos se aplican al reiniciar. El dataset de un pipeline con ROI propio guarda la
+      # región que vio, en una carpeta `<cámara>-<pipeline>`.
+      roi: {}                   # {camera_1: {enabled: true, x_px: 0, y_px: 0, width_px: 0,
+                                #  height_px: 0, full_resolution: false, output_short_side_px: 0}}
       # ── El ciclo de medición ──────────────────────────────────────────────
       # El motor no lee ninguna de estas cuatro: emite un resultado por frame y no
       # promedia. Las lee `system/camera/capture_scheduler.py`, que junta los N resultados
@@ -301,6 +317,7 @@ image_collector:
   enabled: false                # se prende y se apaga en caliente
   cameras: []                   # slots que se guardan; [] = todas, también las que se agreguen
                                 # después. Con una lista, una cámara nueva no entra hasta sumarla
+  pipelines: []                 # de qué pipelines se guardan resultados; [] = todos
   # on_demand: cada guardado lo pide quien orquesta el ciclo de medición, una vez por
   # medición, que es lo que sirve cuando la inferencia corre cada varios minutos y la luz
   # se enciende solo para la captura; sin ningún pipeline con `frames_per_cycle` > 1 no

@@ -4,7 +4,8 @@ espacio del frame de cámara y serialización.
 
 import numpy as np
 
-from system.inference.result import Detection, InferenceResult, offset_detections
+from system.inference.result import (Detection, InferenceResult, offset_detections,
+                                     scale_detections)
 
 
 def _detection(**overrides) -> Detection:
@@ -60,6 +61,44 @@ class TestOffsetDetections:
         assert detection.bbox_px == (10, 20, 30, 40)
 
 
+class TestScaleDetections:
+    def test_it_scales_the_bbox_and_the_centroid(self):
+        detection = _detection()
+        scale_detections([detection], 0.5, 2.0)
+        assert detection.bbox_px == (5, 40, 15, 80)
+        assert detection.centroid_px == (10, 60)
+
+    def test_the_area_of_a_bbox_follows_the_new_size(self):
+        detection = _detection()
+        scale_detections([detection], 0.5, 0.5)
+        assert detection.area_px == 100
+
+    def test_the_mask_is_resized_to_the_new_bbox(self):
+        """La máscara va recortada al bbox: si el bbox cambia de tamaño, ella también."""
+        detection = _detection(mask=np.ones((20, 20), np.uint8), area_px=400)
+        scale_detections([detection], 0.5, 0.25)
+        assert detection.mask.shape == (5, 10)
+
+    def test_the_area_of_a_mask_is_counted_again(self):
+        mask = np.zeros((20, 20), np.uint8)
+        mask[:, :10] = 1
+        detection = _detection(mask=mask, area_px=200)
+        scale_detections([detection], 2.0, 2.0)
+        assert detection.area_px == 800
+
+    def test_the_mask_stays_binary(self):
+        mask = np.zeros((20, 20), np.uint8)
+        mask[5:15, 5:15] = 1
+        detection = _detection(mask=mask)
+        scale_detections([detection], 1.7, 0.6)
+        assert set(np.unique(detection.mask)) <= {0, 1}
+
+    def test_a_unit_scale_changes_nothing(self):
+        detection = _detection()
+        scale_detections([detection], 1.0, 1.0)
+        assert (detection.bbox_px, detection.area_px) == ((10, 20, 30, 40), 400)
+
+
 class TestInferenceResult:
     def test_the_count_follows_the_detections(self):
         result = InferenceResult(camera_slot="camera_1", detections=[_detection(), _detection()])
@@ -78,6 +117,11 @@ class TestInferenceResult:
         payload = result.to_dict()
         assert "source_bgr" not in payload and "annotated_bgr" not in payload
         assert json.dumps(payload)
+
+    def test_the_region_does_not_go_to_the_dict(self):
+        result = InferenceResult(camera_slot="camera_1",
+                                 region_bgr=np.zeros((4, 4, 3), np.uint8))
+        assert "region_bgr" not in result.to_dict()
 
     def test_a_fresh_result_has_no_labels(self):
         assert InferenceResult(camera_slot="camera_1").labels == {}

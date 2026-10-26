@@ -13,7 +13,8 @@ salen del config.
 Cuatro puntos del contrato que no se ven en los campos:
   - **Todas las coordenadas son del frame de cámara**, en píxeles y con el origen
     arriba a la izquierda, incluso cuando la inferencia corrió sobre un ROI: quien
-    recorta vuelve a sumar el origen con `offset_detections` antes de entregar. Así
+    recorta vuelve a sumar el origen con `offset_detections` antes de entregar —y, si
+    la región llegó a otra escala, la devuelve primero con `scale_detections`—. Así
     una detección se dibuja sobre el frame crudo sin saber si hubo recorte.
   - **`mask` va recortada al bbox**, no al tamaño del frame: con cientos de instancias,
     una máscara por detección del tamaño de la imagen no entra en memoria.
@@ -26,9 +27,10 @@ Cuatro puntos del contrato que no se ven en los campos:
     fuera de rango»). Van aparte de `detections` porque no tienen forma ni posición, y
     aparte de `metrics` porque son texto: quien necesite publicarlos al PLC los traduce
     a un número o a un bit en el analyzer, que es el que sabe a qué equivalen.
-  - **Los frames viajan por referencia.** `source_bgr` es el frame que entró y
-    `annotated_bgr` una copia con las anotaciones dibujadas: quien recibe el resultado
-    no los modifica.
+  - **Los frames viajan por referencia.** `source_bgr` es el frame que entró,
+    `region_bgr` la imagen sobre la que corrió el pipeline —el recorte del ROI, o la
+    vista que el decodificador cortó a resolución nativa— y `annotated_bgr` una copia
+    con las anotaciones dibujadas: quien recibe el resultado no los modifica.
 
 `is_valid` es la única señal de confianza: en False el resultado se emite igual —el
 frame anotado y la iluminación siguen sirviendo— pero sus números no son una medición
@@ -39,6 +41,7 @@ vocabulario REASON_* de este módulo.
 import time
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 # Vocabulario de `invalid_reason`, para que la UI y los tests no repitan literales.
@@ -47,6 +50,7 @@ REASON_DARK_FRAME = "dark_frame"            # iluminación por debajo del mínim
 REASON_LOW_CONFIDENCE = "low_confidence"    # confianza media por debajo del mínimo del pipeline
 REASON_FEW_DETECTIONS = "few_detections"    # menos detecciones que el mínimo del pipeline
 REASON_ERROR = "error"                      # excepción en alguna etapa
+REASON_NO_VIEW = "no_view"                  # el pipeline pide la vista nativa y no llegó
 
 
 @dataclass
@@ -111,6 +115,7 @@ class InferenceResult:
     illumination_pct: int = 0                # brillo medio del ROI, 0–100
     roi_px: tuple[int, int, int, int] | None = None      # None = se infirió el frame entero
     source_bgr: np.ndarray | None = None
+    region_bgr: np.ndarray | None = None     # lo que vio el pipeline; None = no llegó a verlo
     annotated_bgr: np.ndarray | None = None
     is_valid: bool = True
     invalid_reason: str = ""
@@ -164,4 +169,35 @@ def offset_detections(detections: list[Detection], x_px: int, y_px: int) -> list
         if detection.centroid_px is not None:
             cx, cy = detection.centroid_px
             detection.centroid_px = (cx + x_px, cy + y_px)
+    return detections
+
+
+def scale_detections(detections: list[Detection], scale_x: float,
+                     scale_y: float) -> list[Detection]:
+    """
+    Lleva las detecciones de una imagen a otra de distinta escala. Modifica las que recibe.
+
+    Lo llama quien le dio al pipeline la región a otra resolución que el frame —la vista
+    que el decodificador corta a tamaño nativo— con el factor de esa imagen al frame, y
+    después corre el origen con `offset_detections`. Las máscaras se reescalan al bbox
+    nuevo, así que el área de una detección con máscara se vuelve a contar. Con (1, 1)
+    no hay nada que hacer.
+    """
+    if scale_x == 1.0 and scale_y == 1.0:
+        return detections
+    for detection in detections:
+        x1, y1, x2, y2 = detection.bbox_px
+        x1, x2 = round(x1 * scale_x), round(x2 * scale_x)
+        y1, y2 = round(y1 * scale_y), round(y2 * scale_y)
+        detection.bbox_px = (x1, y1, x2, y2)
+        if detection.centroid_px is not None:
+            cx, cy = detection.centroid_px
+            detection.centroid_px = (round(cx * scale_x), round(cy * scale_y))
+        if detection.mask is not None:
+            # Vecino más cercano: la máscara es 0/1 y un bilineal le inventaría valores.
+            detection.mask = cv2.resize(detection.mask, (max(1, x2 - x1), max(1, y2 - y1)),
+                                        interpolation=cv2.INTER_NEAREST)
+            detection.area_px = int(np.count_nonzero(detection.mask))
+        else:
+            detection.area_px = max(0, x2 - x1) * max(0, y2 - y1)
     return detections

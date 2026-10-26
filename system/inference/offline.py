@@ -24,18 +24,26 @@ Qué no hace, a propósito:
 `apply_preprocessor=False` es para las imágenes que ya son frame de referencia —las del
 dataset, que se guardan corregidas y ajustadas—: pasarles el preprocessor otra vez les
 corregiría el lente y les multiplicaría el brillo dos veces.
+
+**Una cámara con vistas** —algún pipeline le pide su ROI con `full_resolution`— recibe la
+imagen como la entrega el video: nativa y sin rotar. Se le hace lo que en vivo hace el
+decodificador por CPU (`decoder.render()`): se reduce al tamaño de `decode`, se le cortan
+las vistas del nativo y se rota, así el pipeline ve la misma vista que en la línea. Una
+cámara sin vistas recibe la imagen tal cual, como siempre.
 """
 
 import numpy as np
 
 from system.config_manager import ConfigManager
 from system.logger import logger
+from tools.camera.abstract_driver import FrameView, rotate_frame
+from tools.camera.decoder import BACKEND_CPU, DecodeSettings, read_decode_settings, render
 
 from .engine import InferenceThread
 from .hooks import build_hooks
 from .abstract_pipeline import AbstractPipeline
 from .pipeline_factory import create_pipeline
-from .preprocessing import build_preprocessor
+from .preprocessing import build_camera_views, build_preprocessor
 from .result import InferenceResult
 
 
@@ -69,6 +77,10 @@ class OfflineRunner:
             ))
             self._pipelines.append(pipeline)
 
+        self._config = config
+        self._camera_views = build_camera_views(config, self.pipeline_slots)
+        self._decode_by_camera: dict[str, DecodeSettings] = {}
+
     @property
     def pipeline_slots(self) -> tuple[str, ...]:
         return tuple(engine.pipeline_slot for engine in self._engines)
@@ -92,7 +104,29 @@ class OfflineRunner:
 
         Qué pipelines la reciben lo dice `inference.pipelines.<slot>.cameras`, igual que en
         vivo; una lista vacía las recibe a todas. Una cámara que no entra a ninguno
-        devuelve lista vacía.
+        devuelve lista vacía. En una cámara con vistas la imagen es la del video nativo
+        (ver el docstring del módulo).
         """
-        return [engine.process(frame_bgr, camera_slot) for engine in self._engines
+        frame_bgr, views = self._render(frame_bgr, camera_slot)
+        return [engine.process(frame_bgr, camera_slot, views) for engine in self._engines
                 if engine.has_camera(camera_slot)]
+
+    def _render(self, image_bgr: np.ndarray,
+                camera_slot: str) -> tuple[np.ndarray, dict[str, FrameView]]:
+        """(frame, vistas) de esa imagen, como los entregaría la cámara; sin vistas, tal cual."""
+        camera_views = self._camera_views.get(camera_slot)
+        if not camera_views:
+            return image_bgr, {}
+        settings = self._decode_by_camera.get(camera_slot)
+        if settings is None:
+            # Siempre por CPU: es lo que hay en una corrida sin video, y las dos vías
+            # entregan lo mismo.
+            config_cam = dict(self._config.get(f"cameras.{camera_slot}", {}) or {})
+            config_cam["decode"] = {**(config_cam.get("decode") or {}),
+                                    "backend": BACKEND_CPU, "views": camera_views}
+            settings = read_decode_settings(config_cam, camera_slot)
+            self._decode_by_camera[camera_slot] = settings
+        frame_bgr, views = render(image_bgr, settings)
+        return rotate_frame(frame_bgr, settings.rotation), {
+            name: FrameView(rotate_frame(view.image_bgr, settings.rotation), view.rect_px)
+            for name, view in views.items()}

@@ -370,6 +370,97 @@ class TestCameraFilter:
         assert collector.get_stats()["cameras"] == ["camera_2"]
 
 
+class TestPipelineFilter:
+    """`image_collector.pipelines` elige de qué pipelines se guardan resultados; vacía = todos."""
+
+    def test_a_pipeline_off_the_list_is_skipped(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(
+            dataset_path, **{"image_collector.pipelines": ["pipeline_1"]}))
+        assert collector.save_now("camera_1", _frame(1), pipeline_slot="pipeline_2") is False
+        assert collector.save_now("camera_1", _frame(2), pipeline_slot="pipeline_1") is True
+
+    def test_without_a_pipeline_the_list_does_not_apply(self, dataset_path, build_collector):
+        """El frame crudo de una cámara no es de ningún pipeline."""
+        collector = build_collector(_MockConfig(
+            dataset_path, **{"image_collector.pipelines": ["pipeline_1"]}))
+        assert collector.should_collect("camera_1") is True
+
+    def test_an_empty_list_saves_every_pipeline(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(dataset_path))
+        assert collector.should_collect("camera_1", "pipeline_9") is True
+
+    def test_push_frame_skips_a_pipeline_off_the_list(self, dataset_path, build_collector,
+                                                      fast_interval):
+        collector = build_collector(_MockConfig(dataset_path, **{
+            "image_collector.mode": "interval",
+            "image_collector.pipelines": ["pipeline_1"],
+        }))
+        collector.start()
+        collector.push_frame("camera_1", _frame(2), pipeline_slot="pipeline_2")
+        time.sleep(_FAST_INTERVAL_S * _TICKS_TO_WAIT)
+        assert collector.get_stats()["saved"] == 0
+
+
+class TestSubsets:
+    """Un subset es un dataset aparte dentro de la cámara: no se pisa con el de ella."""
+
+    def test_it_has_its_own_folder(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(dataset_path))
+        collector.save_now("camera_3", _frame(1), subset="pipeline_1")
+        (path,) = _pngs(dataset_path)
+        assert path.split("/")[-2] == "camera_3-pipeline_1"
+        assert os.path.basename(path).startswith("camera_3-pipeline_1_")
+
+    def test_without_a_subset_the_layout_is_the_camera(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(dataset_path))
+        collector.save_now("camera_3", _frame(1))
+        (path,) = _pngs(dataset_path)
+        assert path.split("/")[-2] == "camera_3"
+
+    def test_it_has_its_own_cap(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(
+            dataset_path, **{"image_collector.max_images": 1}))
+        collector.save_now("camera_3", _frame(1))
+        collector.save_now("camera_3", _frame(2), subset="pipeline_1")
+        assert collector.get_stats()["images"] == {"camera_3": 1, "camera_3-pipeline_1": 1}
+
+    def test_in_interval_mode_it_does_not_replace_the_camera_frame(self, dataset_path,
+                                                                   build_collector,
+                                                                   fast_interval):
+        """Un pipeline a 15 fps sobre el frame entero no le pisa el guardado al del ROI."""
+        collector = build_collector(_MockConfig(dataset_path, **{
+            "image_collector.mode": "interval",
+            "image_collector.interval_min_s": _WINDOW_INTERVAL_S,
+            "image_collector.interval_max_s": _WINDOW_INTERVAL_S,
+        }))
+        collector.start()
+        collector.push_frame("camera_3", _frame(1), subset="pipeline_1")
+        collector.push_frame("camera_3", _frame(2))
+        assert _wait_until(lambda: collector.get_stats()["saved"] == 2)
+
+    def test_its_duplicates_are_its_own(self, dataset_path, build_collector):
+        """El mismo frame en la cámara y en el subset no es un duplicado: son dos datasets."""
+        collector = build_collector(_MockConfig(
+            dataset_path, **{"image_collector.dedup.enabled": True}))
+        assert collector.save_now("camera_3", _frame(1)) is True
+        assert collector.save_now("camera_3", _frame(1), subset="pipeline_1") is True
+
+    def test_the_json_keeps_the_camera_slot(self, dataset_path, build_collector):
+        collector = build_collector(_MockConfig(dataset_path))
+        collector.save_now("camera_3", _frame(1), inference={"pipeline_slot": "pipeline_1"},
+                           subset="pipeline_1")
+        (json_path,) = [p for p in _files(dataset_path) if p.endswith(".json")]
+        payload = json.loads((dataset_path / json_path).read_text(encoding="utf-8"))
+        assert payload["camera_slot"] == "camera_3"
+
+    def test_a_restart_indexes_it_apart(self, dataset_path, build_collector):
+        config = _MockConfig(dataset_path)
+        build_collector(config).save_now("camera_3", _frame(1), subset="pipeline_1")
+        restarted = build_collector(config)
+        restarted.save_now("camera_3", _frame(2))
+        assert restarted.get_stats()["images"] == {"camera_3": 1, "camera_3-pipeline_1": 1}
+
+
 class TestSaveConditions:
     def test_condition_not_met_skips_the_frame(self, dataset_path, build_collector):
         collector = build_collector(_MockConfig(dataset_path),

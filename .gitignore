@@ -468,6 +468,9 @@ manual_test/offline_inference/images/*
 !manual_test/offline_inference/images/.gitkeep
 manual_test/offline_inference/output/
 
+# Snapshots of the decoder-views manual test: one run on one Jetson.
+manual_test/decoder_views/output/
+
 # Inputs and outputs of a calibration run: they belong to one commissioning day of one
 # plant, and what stays of them is the value they produced, in config.yaml. Each folder
 # keeps its .gitkeep, and samples/ keeps a format example. `**` plus the re-included
