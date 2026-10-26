@@ -33,11 +33,20 @@ Tres cosas de la sección no están en esta pantalla, y no es un olvido:
 Las claves del ciclo de medición —`frames_per_cycle` y las tres que dependen de él— sí se
 muestran: no las lee el motor sino el scheduler, y la nota del grupo dice que con una
 imagen por medición las otras tres no hacen nada.
+
+**El ROI de cada pipeline, por cámara.** Cada pipeline tiene un grupo por cámara que mira,
+con tres opciones: la región de la cámara —sin clave propia, que es lo de siempre—, una
+propia, o el frame completo. Las tres se guardan distinto porque el motor las distingue
+así: sin `inference.pipelines.<slot>.roi.<cámara>` —se escribe en null—, con la sección y
+`enabled: true`, o con la sección y `enabled: false`. El rectángulo se dibuja con el mismo
+diálogo que el de la cámara, pidiéndolo con la clave de este pipeline, y con
+`full_resolution` el decodificador lo corta del video nativo al reiniciar.
 """
 
 from collections.abc import Callable, Iterable
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
 from system.inference.models.model_factory import REGISTERED_MODELS
 from system.inference.pipeline_factory import DEFAULT_PIPELINE, REGISTERED_PIPELINES
@@ -49,7 +58,7 @@ from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
     add_check_row, add_form_row, add_hint_row, build_combo_box, build_double_spin_box,
     build_form_page, build_group_box, build_line_edit, build_slot_tabs, build_spin_box,
-    join_list, set_combo_value, split_list,
+    build_value_combo_box, join_list, set_combo_data, set_combo_value, split_list,
 )
 
 _MAX_SIDE_PX = 8192
@@ -57,6 +66,21 @@ _MAX_DETECTIONS = 10000
 _MAX_INTERVAL_S = 3600.0
 _MAX_FRAMES_PER_CYCLE = 100      # N imágenes por medición; más que esto es otro problema
 _MAX_CYCLE_INTERVAL_S = 86400.0  # una medición por día es el extremo razonable
+_MAX_VIEW_SIDE_PX = 4096
+
+# Las tres formas del ROI de un pipeline en una cámara. Son de la pantalla, no del config:
+# el config las dice con la presencia de la sección y su `enabled`.
+_ROI_MODE_CAMERA = "camera"
+_ROI_MODE_OWN = "own"
+_ROI_MODE_FULL = "full"
+
+# Claves de la geometría del ROI, con la etiqueta que ya usa la pestaña de cámaras.
+_ROI_FIELDS = (
+    ("x_px", "cam_roi_x"),
+    ("y_px", "cam_roi_y"),
+    ("width_px", "cam_roi_width"),
+    ("height_px", "cam_roi_height"),
+)
 
 
 class InferenceTab(AbstractConfigTab):
@@ -64,10 +88,17 @@ class InferenceTab(AbstractConfigTab):
 
     TITLE_KEY = "tab_inference"
 
+    # (slot de cámara, clave del config donde va el rectángulo, clave de idioma del título),
+    # igual que la pestaña de cámaras: la clave es la del ROI de un pipeline.
+    open_roi_requested = Signal(str, str, str)
+
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
         self._model_forms: dict[str, dict] = {}
         self._pipeline_forms: dict[str, dict] = {}
+        self._roi_forms: dict[tuple[str, str], dict] = {}
+        # Pipeline que abrió el diálogo de ROI: `reload_roi()` recibe sólo la cámara.
+        self._roi_requester = ""
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -140,7 +171,47 @@ class InferenceTab(AbstractConfigTab):
         }
         add_hint_row(form, tr("inf_cycle_note"))
         self._pipeline_forms[pipeline_slot] = fields
+
+        # Las cámaras del pipeline al abrir la pestaña; sin lista, todas las declaradas.
+        camera_slots = (self._config.get(f"inference.pipelines.{pipeline_slot}.cameras", [])
+                        or list(self._config.get("cameras", {}) or {}))
+        for camera_slot in camera_slots:
+            form.addRow(self._build_roi_box(pipeline_slot, str(camera_slot)))
         return page
+
+    def _build_roi_box(self, pipeline_slot: str, camera_slot: str) -> QWidget:
+        """El ROI de un pipeline en una cámara: de la cámara, propio o el frame completo."""
+        box, form = build_group_box(f"{tr('inf_roi_box')} {camera_slot}")
+        mode = add_form_row(form, tr("inf_roi_mode"), build_value_combo_box({
+            tr("inf_roi_mode_camera"): _ROI_MODE_CAMERA,
+            tr("inf_roi_mode_own"): _ROI_MODE_OWN,
+            tr("inf_roi_mode_full"): _ROI_MODE_FULL,
+        }, _ROI_MODE_CAMERA))
+        spins = {key: add_form_row(form, tr(label_key), build_spin_box(0, _MAX_SIDE_PX, 0))
+                 for key, label_key in _ROI_FIELDS}
+        full_resolution = add_check_row(form, tr("inf_roi_full_resolution"), False)
+        output_side = add_form_row(form, tr("inf_roi_output_side"),
+                                   build_spin_box(0, _MAX_VIEW_SIDE_PX, 0))
+        draw_button = QPushButton(tr("cam_roi_tool"))
+        draw_button.clicked.connect(lambda: self._on_draw_roi(pipeline_slot, camera_slot))
+        form.addRow("", draw_button)
+        add_hint_row(form, tr("inf_roi_note"))
+
+        def apply_state():
+            is_own = mode.currentData() == _ROI_MODE_OWN
+            for widget in (*spins.values(), full_resolution, draw_button):
+                widget.setEnabled(is_own)
+            output_side.setEnabled(is_own and full_resolution.isChecked())
+
+        mode.currentIndexChanged.connect(lambda _index: apply_state())
+        full_resolution.toggled.connect(lambda _checked: apply_state())
+        apply_state()
+
+        self._roi_forms[(pipeline_slot, camera_slot)] = {
+            "mode": mode, "spins": spins, "full_resolution": full_resolution,
+            "output_short_side_px": output_side,
+        }
+        return box
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
@@ -176,6 +247,25 @@ class InferenceTab(AbstractConfigTab):
             fields["idle_cameras_between_cycles"].setChecked(
                 bool(self._config.get(f"{prefix}.idle_cameras_between_cycles", False)))
 
+        for (pipeline_slot, camera_slot), fields in self._roi_forms.items():
+            roi = self._config.get(_build_roi_key(pipeline_slot, camera_slot))
+            if not isinstance(roi, dict):
+                set_combo_data(fields["mode"], _ROI_MODE_CAMERA)
+                roi = {}
+            else:
+                set_combo_data(fields["mode"], _ROI_MODE_OWN if roi.get("enabled", False)
+                               else _ROI_MODE_FULL)
+            self._load_roi_geometry(fields, roi)
+            fields["full_resolution"].setChecked(bool(roi.get("full_resolution", False)))
+            fields["output_short_side_px"].setValue(int(roi.get("output_short_side_px", 0) or 0))
+
+    def reload_roi(self, camera_slot: str):
+        """Recarga la geometría que escribió el diálogo, en el pipeline que lo abrió."""
+        fields = self._roi_forms.get((self._roi_requester, camera_slot))
+        if fields is not None:
+            roi = self._config.get(_build_roi_key(self._roi_requester, camera_slot))
+            self._load_roi_geometry(fields, roi if isinstance(roi, dict) else {})
+
     def save(self):
         for model_slot, fields in self._model_forms.items():
             prefix = f"inference.models.{model_slot}"
@@ -200,3 +290,36 @@ class InferenceTab(AbstractConfigTab):
                              fields["capture_timeout_s"].value())
             self._config.set(f"{prefix}.idle_cameras_between_cycles",
                              fields["idle_cameras_between_cycles"].isChecked())
+
+        for (pipeline_slot, camera_slot), fields in self._roi_forms.items():
+            key = _build_roi_key(pipeline_slot, camera_slot)
+            mode = fields["mode"].currentData()
+            if mode == _ROI_MODE_CAMERA:
+                # Sin sección rige el ROI de la cámara. Un config que nunca la tuvo no
+                # gana una clave en null por abrir la pestaña y guardar.
+                if isinstance(self._config.get(key), dict):
+                    self._config.set(key, None)
+                continue
+            self._config.set(f"{key}.enabled", mode == _ROI_MODE_OWN)
+            for field_key, spin in fields["spins"].items():
+                self._config.set(f"{key}.{field_key}", spin.value())
+            self._config.set(f"{key}.full_resolution", fields["full_resolution"].isChecked())
+            self._config.set(f"{key}.output_short_side_px",
+                             fields["output_short_side_px"].value())
+
+    # ── Internos ─────────────────────────────────────────────────────────────
+
+    def _load_roi_geometry(self, fields: dict, roi: dict):
+        for field_key, spin in fields["spins"].items():
+            spin.setValue(int(roi.get(field_key, 0) or 0))
+
+    def _on_draw_roi(self, pipeline_slot: str, camera_slot: str):
+        """Pide el diálogo de ROI con la clave de este pipeline, y recuerda quién lo pidió."""
+        self._roi_requester = pipeline_slot
+        self.open_roi_requested.emit(camera_slot, _build_roi_key(pipeline_slot, camera_slot),
+                                     "inf_roi_title")
+
+
+def _build_roi_key(pipeline_slot: str, camera_slot: str) -> str:
+    """Ruta del ROI de un pipeline en una cámara."""
+    return f"inference.pipelines.{pipeline_slot}.roi.{camera_slot}"

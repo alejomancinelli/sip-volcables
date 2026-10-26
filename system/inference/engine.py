@@ -21,9 +21,14 @@ De qué se ocupa, en este orden, por cada frame:
      referencia**: el que ve el modelo, el que queda en `source_bgr`, el espacio en el que
      se expresan el ROI y las detecciones, y el lienzo del overlay. Con un solo espacio de
      coordenadas no hay nada que mapear de vuelta ni cajas que caigan corridas.
-  2. Recorta el ROI de esa cámara (`cameras.<slot>.roi`) y mide la iluminación.
-  3. Descarta lo que no vale una pasada del modelo: sin modelo cargado, o iluminación por
-     debajo de `cameras.<slot>.illumination_min`.
+  2. Recorta el ROI y mide la iluminación. El ROI es el de la cámara
+     (`cameras.<slot>.roi`) salvo que este pipeline declare el suyo para esa cámara
+     (`inference.pipelines.<pipeline>.roi.<cámara>`), que lo reemplaza entero —también
+     con `enabled: false`, que es ver el frame completo—. Con `full_resolution` la región
+     no se recorta del frame: es la vista que el decodificador cortó del video nativo y
+     llegó con el frame (ver «Vistas» más abajo).
+  3. Descarta lo que no vale una pasada del modelo: sin modelo cargado, sin la vista que
+     el pipeline pide, o iluminación por debajo de `cameras.<slot>.illumination_min`.
   4. Corre el pipeline y devuelve las detecciones al espacio del frame de referencia.
   5. Le pasa las detecciones al `classifier`, si hay uno: ya están en el espacio del frame
      de referencia, así que es donde se filtra y se etiqueta por posición absoluta —una
@@ -60,6 +65,19 @@ cámaras del pipeline; y el analyzer tampoco, porque no modifica el resultado. C
 el pipeline y el promedio de confianza, así que lo que descarta no cuenta para `min_detections` ni para la
 confianza del resultado, y la clase que deja en `class_index` es la que después colorean
 el overlay y `analysis.count_by_class`.
+
+**Vistas.** Un frame reducido por el decodificador pierde el detalle que necesita un
+modelo que mira una zona chica. Con `full_resolution` en el ROI del pipeline, el
+decodificador corta ese rectángulo del video nativo y lo entrega junto con el frame, con el
+nombre del pipeline. Todo sigue en el espacio del frame de referencia: el ROI se dibuja
+ahí, `roi_px` es el rectángulo que la vista cubre y las detecciones vuelven escaladas y
+corridas. La vista sólo cambia de dónde salen los píxeles de la región.
+
+Un pipeline que pide la vista la recibe o dice por qué no: un frame que llega sin ella
+sale inválido con `no_view`, y no se infiere sobre el recorte del frame reducido. Un modelo
+que en unos frames ve la zona nítida y en otros borrosa da números que no se pueden leer.
+Cambiar el rectángulo exige reiniciar, porque el corte lo fija el decodificador al abrir;
+mientras tanto se mide —y se dibuja— el que cubre la vista, y se avisa.
 """
 
 import threading
@@ -73,18 +91,23 @@ from PySide6.QtCore import QThread, Signal
 
 from system.config_manager import ConfigManager
 from system.logger import logger
+from tools.camera.abstract_driver import FrameView
 
 from . import analysis, overlay
 from .abstract_pipeline import AbstractPipeline
 from .result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
-                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, InferenceResult,
-                     offset_detections)
+                     REASON_LOW_CONFIDENCE, REASON_NO_MODEL, REASON_NO_VIEW,
+                     InferenceResult, offset_detections, scale_detections)
 
 _STATUS_INTERVAL_S = 2.0     # período de la telemetría de `status_updated`
 _WAIT_TICK_S = 0.2           # espera sin frames; período de reacción a la interrupción
 _WARN_PERIOD_S = 10.0        # techo de los avisos que salen del camino por frame
 _DEFAULT_INTERVAL_S = 0.0    # 0 = se infiere cada frame que llega
 _NO_REVISION = object()      # todavía no se leyó nada del config
+# Lo que la vista puede diferir del ROI pedido sin que sea otro rectángulo: el
+# decodificador corta en coordenadas pares del video nativo y eso, vuelto al frame
+# reducido, corre cada borde a lo sumo un píxel.
+_VIEW_RECT_TOLERANCE_PX = 2
 
 
 class InferenceThread(QThread):
@@ -129,9 +152,10 @@ class InferenceThread(QThread):
         # color a las máscaras y a las referencias. La medición no lo ve.
         self._canvas_adjust = canvas_adjust
 
-        # Último frame de cada cámara esperando su turno, y el turno mismo: el índice
-        # rota sobre los slots pendientes para que ninguna cámara tape a las otras.
-        self._pending: dict[str, np.ndarray] = {}
+        # Último frame de cada cámara esperando su turno —con sus vistas: viajan juntos o
+        # no viajan—, y el turno mismo: el índice rota sobre los slots pendientes para que
+        # ninguna cámara tape a las otras.
+        self._pending: dict[str, tuple[np.ndarray, dict[str, FrameView]]] = {}
         self._pending_lock = threading.Lock()
         self._frame_available = threading.Event()
         self._next_slot_index = 0
@@ -175,7 +199,8 @@ class InferenceThread(QThread):
         camera_slots = self.camera_slots
         return not camera_slots or camera_slot in camera_slots
 
-    def push_frame(self, frame_bgr: np.ndarray | None, camera_slot: str, *,
+    def push_frame(self, frame_bgr: np.ndarray | None, camera_slot: str,
+                   views: dict[str, FrameView] | None = None, *,
                    ignore_interval: bool = False):
         """
         Deja el frame de una cámara para que se infiera. Barata y thread-safe.
@@ -184,6 +209,8 @@ class InferenceThread(QThread):
         que `main.py` las conecta directo. El frame se guarda sin copiar: el driver entrega
         un array propio y nadie lo modifica después (ver `AbstractCameraDriver.get_frame`),
         y copiar 3 MP a 15 fps es memoria que se tira cada vez que el frame se reemplaza.
+        `views` son las vistas que llegaron con ese frame; de ellas este pipeline usa sólo
+        la que lleva su nombre, y sólo si su ROI pide `full_resolution`.
 
         Descarta sin avisar el frame que llega antes de que venza `interval_s`, y cuenta
         en `dropped` el que reemplaza a uno que el hilo todavía no consumió.
@@ -203,7 +230,7 @@ class InferenceThread(QThread):
                 return
             self._last_push_s[camera_slot] = now_s
             replaced = camera_slot in self._pending
-            self._pending[camera_slot] = frame_bgr
+            self._pending[camera_slot] = (frame_bgr, views or {})
         if replaced:
             self._count("dropped")
         self._frame_available.set()
@@ -270,14 +297,16 @@ class InferenceThread(QThread):
         except Exception as e:
             self._warn_throttled("timestamp", f"No se pudo dibujar la hora: {e}.")
 
-    def process(self, frame_bgr: np.ndarray, camera_slot: str) -> InferenceResult:
+    def process(self, frame_bgr: np.ndarray, camera_slot: str,
+                views: dict[str, FrameView] | None = None) -> InferenceResult:
         """
         Corre el ciclo completo sobre un frame en el hilo del que llama, sin el hilo propio.
 
         Es el mismo ciclo que corre `run()` —preprocessor, ROI, compuertas, pipeline,
         classifier, analyzer y overlay— y por eso el resultado es el que saldría en vivo:
         no hay un segundo camino de inferencia que pueda divergir del primero. Existe para
-        correr imágenes sueltas fuera de la app.
+        correr imágenes sueltas fuera de la app; `views` son las que el decodificador habría
+        cortado de esa imagen.
 
         No emite `result_ready` ni suma a los contadores de `get_status()`, que cuentan lo
         que procesó el hilo. Cargar el pipeline es de quien lo construyó: sin cargar, el
@@ -291,7 +320,7 @@ class InferenceThread(QThread):
                 f"[Inference/{self.pipeline_slot}] process() con el hilo corriendo: el "
                 f"pipeline no admite dos frames a la vez."
             )
-        return self._process(frame_bgr, camera_slot)
+        return self._process(frame_bgr, camera_slot, views or {})
 
     def get_status(self) -> dict:
         """
@@ -357,8 +386,8 @@ class InferenceThread(QThread):
                 self._emit_status_if_due()
                 continue
 
-            camera_slot, frame_bgr = job
-            result = self._process(frame_bgr, camera_slot)
+            camera_slot, (frame_bgr, views) = job
+            result = self._process(frame_bgr, camera_slot, views)
             self._publish(result)
             self.result_ready.emit(result)
             self._emit_status_if_due()
@@ -379,9 +408,10 @@ class InferenceThread(QThread):
         )
         return False
 
-    def _take_next(self) -> tuple[str, np.ndarray] | None:
+    def _take_next(self) -> tuple[str, tuple[np.ndarray, dict[str, FrameView]]] | None:
         """
-        Saca el frame de la próxima cámara por turno, o None si no hay nada pendiente.
+        Saca el frame —con sus vistas— de la próxima cámara por turno, o None si no hay
+        nada pendiente.
 
         El turno rota sobre las cámaras que tienen frame: con el modelo más lento que la
         captura, tomar siempre la primera dejaría a las demás sin inferir nunca.
@@ -398,7 +428,8 @@ class InferenceThread(QThread):
 
     # ── Inferencia de un frame ───────────────────────────────────────────────
 
-    def _process(self, frame_bgr: np.ndarray, camera_slot: str) -> InferenceResult:
+    def _process(self, frame_bgr: np.ndarray, camera_slot: str,
+                 views: dict[str, FrameView]) -> InferenceResult:
         """Corre el ciclo completo sobre un frame y devuelve el resultado ya anotado."""
         started_s = time.perf_counter()
         previous_start_s = self._last_start_s.get(camera_slot)
@@ -406,20 +437,20 @@ class InferenceThread(QThread):
         cycle_time_ms = 0.0 if previous_start_s is None else (started_s - previous_start_s) * 1000
 
         frame_bgr = self._preprocess(frame_bgr, camera_slot)
-        roi_px = self._read_roi_px(camera_slot, frame_bgr)
-        region_bgr = self._crop(frame_bgr, roi_px)
+        roi_px, region_bgr, is_view_missing = self._select_region(frame_bgr, camera_slot, views)
 
         result = InferenceResult(
             camera_slot=camera_slot,
             pipeline_slot=self.pipeline_slot,
             cycle_time_ms=cycle_time_ms,
             source_bgr=frame_bgr,
+            region_bgr=None if is_view_missing else region_bgr,
             roi_px=roi_px,
             illumination_pct=_compute_illumination_pct(region_bgr),
             is_synthetic=self._pipeline.is_synthetic,
         )
 
-        reason = self._gate_frame(result, camera_slot)
+        reason = REASON_NO_VIEW if is_view_missing else self._gate_frame(result, camera_slot)
         if not reason:
             try:
                 detections = self._pipeline.run(region_bgr, camera_slot)
@@ -430,6 +461,10 @@ class InferenceThread(QThread):
                 reason = REASON_ERROR
             else:
                 if roi_px is not None:
+                    # Una vista llega a más resolución que el rectángulo que cubre; un
+                    # recorte del frame, a la misma, y ahí la escala es 1 y no hace nada.
+                    scale_detections(detections, roi_px[2] / region_bgr.shape[1],
+                                     roi_px[3] / region_bgr.shape[0])
                     offset_detections(detections, roi_px[0], roi_px[1])
                 detections = self._classify(detections, camera_slot)
                 result.detections = detections
@@ -446,6 +481,42 @@ class InferenceThread(QThread):
             result.metrics = self._run_analyzer(result)
         result.annotated_bgr = self._annotate(result)
         return result
+
+    def _select_region(self, frame_bgr: np.ndarray, camera_slot: str,
+                       views: dict[str, FrameView]
+                       ) -> tuple[tuple[int, int, int, int] | None, np.ndarray, bool]:
+        """
+        (ROI, región que ve el pipeline, falta la vista) para este frame.
+
+        Sin `full_resolution` la región es el recorte del ROI sobre el frame de referencia.
+        Con él, es la vista que trae el nombre de este pipeline y el ROI es el rectángulo
+        que ella cubre. Si la vista no vino se devuelve el recorte del frame —sirve para
+        medir la iluminación y dibujar el ROI, no para inferir— marcado como faltante.
+        """
+        roi_px = self._read_roi_px(camera_slot, frame_bgr)
+        if roi_px is None or not self._wants_view(camera_slot):
+            return roi_px, self._crop(frame_bgr, roi_px), False
+
+        view = views.get(self.pipeline_slot)
+        if view is None:
+            self._warn_throttled(
+                f"no_view_{camera_slot}",
+                f"{camera_slot}: el ROI pide `full_resolution` y el frame llegó sin su vista. "
+                f"No se infiere. Causas: se prendió sin reiniciar, el driver de la cámara no "
+                f"corta vistas (lo hacen `rtsp` y `video_file`), el rectángulo es muy chico "
+                f"para el decodificador, la cámara tiene corrección de lente o ajuste de "
+                f"imagen, o el decodificador no la pudo aparear con el frame."
+            )
+            return roi_px, self._crop(frame_bgr, roi_px), True
+        if any(abs(view_px - roi_value_px) > _VIEW_RECT_TOLERANCE_PX
+               for view_px, roi_value_px in zip(view.rect_px, roi_px, strict=True)):
+            self._warn_throttled(
+                f"stale_view_{camera_slot}",
+                f"{camera_slot}: el ROI del config es {roi_px} y la vista cubre "
+                f"{view.rect_px}. El corte lo fija el decodificador al abrir: hasta "
+                f"reiniciar se mide —y se dibuja— el rectángulo de la vista."
+            )
+        return view.rect_px, view.image_bgr, False
 
     def _gate_frame(self, result: InferenceResult, camera_slot: str) -> str:
         """
@@ -641,16 +712,34 @@ class InferenceThread(QThread):
             f"inference.pipelines.{self.pipeline_slot}.interval_s", _DEFAULT_INTERVAL_S)
         return max(0.0, float(interval_s or 0.0))
 
+    def _read_roi(self, camera_slot: str) -> dict:
+        """
+        La sección del ROI que rige este pipeline en esa cámara: la propia del pipeline
+        (`inference.pipelines.<slot>.roi.<cámara>`) si la declara —entera, con su
+        `enabled`—, y si no la de la cámara.
+        """
+        override = self._setting(f"inference.pipelines.{self.pipeline_slot}.roi.{camera_slot}")
+        if isinstance(override, dict):
+            return override
+        roi = self._setting(f"cameras.{camera_slot}.roi", {}) or {}
+        return roi if isinstance(roi, dict) else {}
+
+    def _wants_view(self, camera_slot: str) -> bool:
+        """True si el ROI de este pipeline en esa cámara pide la vista a resolución nativa."""
+        roi = self._read_roi(camera_slot)
+        return bool(roi.get("enabled", False)) and bool(roi.get("full_resolution", False))
+
     def _read_roi_px(self, camera_slot: str,
                      frame_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
         """
-        ROI de esa cámara acotado al frame, o None si está apagado o no queda nada.
+        ROI de este pipeline en esa cámara acotado al frame, o None si está apagado o no
+        queda nada.
 
         Un ancho o alto en 0 llega hasta el borde: es lo que permite recortar sólo de un
         lado sin tener que escribir el tamaño del sensor en el config.
         """
-        roi = self._setting(f"cameras.{camera_slot}.roi", {}) or {}
-        if not isinstance(roi, dict) or not roi.get("enabled", False):
+        roi = self._read_roi(camera_slot)
+        if not roi.get("enabled", False):
             return None
 
         height_px, width_px = frame_bgr.shape[:2]

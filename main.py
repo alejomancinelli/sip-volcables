@@ -1134,23 +1134,40 @@ class Application(QObject):
             )
 
     def _send_to_dataset(self, result: InferenceResult):
-        """Le pasa la medición al recolector, por el camino de su modo."""
+        """
+        Le pasa la medición al recolector, por el camino de su modo.
+
+        Un pipeline con ROI propio en esa cámara guarda la región que vio —la vista nativa,
+        si la pidió— en un subset a su nombre: es la imagen con la que se reentrena ese
+        modelo, y el pipeline que mira el frame entero no le pisa el guardado. Un resultado
+        que se quedó sin región —llegó sin su vista— no tiene imagen que guardar.
+        """
+        subset = result.pipeline_slot if self._has_own_roi(result) else ""
+        frame_bgr = result.region_bgr if subset else result.source_bgr
+        if frame_bgr is None:
+            return
         context = self._build_dataset_context(result.camera_slot)
         if self._collector.mode == _COLLECTOR_MODE_INTERVAL:
             self._collector.push_frame(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
         elif self._scheduler.is_cycled(result.pipeline_slot):
             # En on_demand el que pide la captura es el ciclo, y es una por medición.
             # `save_now` escribe en este hilo: por frame sería un guardado sincrónico en
             # el hilo de la GUI, que es justo lo que su contrato desaconseja.
             self._collector.save_now(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
+
+    def _has_own_roi(self, result: InferenceResult) -> bool:
+        """True si el pipeline del resultado recorta su propio ROI en esa cámara."""
+        roi = self._config.get(
+            f"inference.pipelines.{result.pipeline_slot}.roi.{result.camera_slot}")
+        return isinstance(roi, dict) and bool(roi.get("enabled", False))
 
     def _annotate_cycle(self, result: InferenceResult) -> np.ndarray | None:
         """

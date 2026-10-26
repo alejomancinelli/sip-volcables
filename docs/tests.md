@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**77 archivos, 426 grupos, 2076 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 433 grupos, 2126 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,14 +14,14 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 309 |
+| [test/](#test) | 6 | 313 |
 | [test/build/](#testbuild) | 2 | 55 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 151 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
-| [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 13 | 326 |
+| [test/image_collector/](#testimage_collector) | 2 | 91 |
+| [test/inference/](#testinference) | 13 | 351 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -30,7 +30,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 6 | 147 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 8 | 53 |
+| [test/ui/](#testui) | 8 | 63 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -190,7 +190,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 101 tests
+### [test_main.py](../test/test_main.py) — 105 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -213,6 +213,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
 | `TestGatedOverlay` | El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo. | 5 |
 | `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
+| `TestDatasetSubset` | Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara. | 4 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
 | `TestLensCalibration` |  | 7 |
@@ -319,6 +320,11 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`
   - `test_the_telemetry_keeps_the_numbers_without_the_frames`
+- `TestDatasetSubset`
+  - `test_an_own_roi_saves_the_region_in_its_subset`
+  - `test_the_camera_roi_saves_the_frame_without_a_subset`
+  - `test_a_result_without_its_region_is_not_saved`
+  - `test_the_pipeline_travels_for_the_filter`
 - `TestLensInterval`
   - `test_it_takes_the_interval_from_the_config`
   - `test_without_the_key_it_falls_back_to_the_default`
@@ -1174,7 +1180,7 @@ Tests de la palabra de estado del sistema: con cualquier bit en 1 las mediciones
 
 ## test/image_collector/
 
-### [test_collector.py](../test/image_collector/test_collector.py) — 65 tests
+### [test_collector.py](../test/image_collector/test_collector.py) — 76 tests
 
 Tests del recolector de dataset: los dos modos de operación, los filtros, el buffer circular y la guardia de disco.
 
@@ -1185,6 +1191,8 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
 | `TestFreeSpace` |  | 1 |
 | `TestOnDemandMode` |  | 12 |
 | `TestCameraFilter` | `image_collector.cameras` elige qué cámaras se guardan; vacía = todas. | 8 |
+| `TestPipelineFilter` | `image_collector.pipelines` elige de qué pipelines se guardan resultados; vacía = todos. | 4 |
+| `TestSubsets` | Un subset es un dataset aparte dentro de la cámara: no se pisa con el de ella. | 7 |
 | `TestSaveConditions` |  | 4 |
 | `TestDedup` |  | 5 |
 | `TestCircularBuffer` |  | 4 |
@@ -1230,6 +1238,19 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
   - `test_a_disabled_collector_skips_every_camera`
   - `test_a_value_that_is_not_a_list_saves_every_camera`
   - `test_the_stats_report_the_list`
+- `TestPipelineFilter`
+  - `test_a_pipeline_off_the_list_is_skipped`
+  - `test_without_a_pipeline_the_list_does_not_apply`
+  - `test_an_empty_list_saves_every_pipeline`
+  - `test_push_frame_skips_a_pipeline_off_the_list`
+- `TestSubsets`
+  - `test_it_has_its_own_folder`
+  - `test_without_a_subset_the_layout_is_the_camera`
+  - `test_it_has_its_own_cap`
+  - `test_in_interval_mode_it_does_not_replace_the_camera_frame`
+  - `test_its_duplicates_are_its_own`
+  - `test_the_json_keeps_the_camera_slot`
+  - `test_a_restart_indexes_it_apart`
 - `TestSaveConditions`
   - `test_condition_not_met_skips_the_frame`
   - `test_every_condition_has_to_pass`
@@ -1463,7 +1484,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 97 tests
+### [test_engine.py](../test/inference/test_engine.py) — 115 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1473,6 +1494,8 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestQueue` |  | 10 |
 | `TestConfigCache` | El config se lee una vez, no por frame: cada `get` es un lock global y una copia. | 2 |
 | `TestRoiAndIllumination` |  | 7 |
+| `TestPipelineRoi` | El ROI propio de un pipeline reemplaza al de la cámara, sólo para ese pipeline. | 6 |
+| `TestViews` | Con `full_resolution`, la región es la vista que el decodificador cortó del nativo. | 12 |
 | `TestPreprocessor` | El frame de referencia es lo que devuelve el preprocessor: el modelo y el overlay miden y dibujan sobre la misma imagen, así que no pueden divergir. | 8 |
 | `TestClassifier` |  | 9 |
 | `TestValidity` |  | 9 |
@@ -1516,6 +1539,26 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_a_roi_outside_the_frame_falls_back_to_the_whole_frame`
   - `test_illumination_is_measured_on_the_analyzed_region`
   - `test_a_dark_frame_never_reaches_the_model`
+- `TestPipelineRoi`
+  - `test_it_wins_over_the_camera_roi`
+  - `test_disabled_it_gives_the_whole_frame`
+  - `test_without_it_the_camera_roi_applies`
+  - `test_another_camera_keeps_its_own_roi`
+  - `test_illumination_is_measured_on_its_region`
+  - `test_the_result_carries_the_region_it_ran_on`
+- `TestViews`
+  - `test_the_pipeline_receives_the_view`
+  - `test_the_roi_is_the_rectangle_the_view_covers`
+  - `test_detections_come_back_scaled_to_the_reference_frame`
+  - `test_illumination_is_measured_on_the_view`
+  - `test_the_result_carries_the_view_as_its_region`
+  - `test_the_source_frame_is_still_the_reference_frame`
+  - `test_without_its_view_the_frame_is_not_inferred`
+  - `test_without_its_view_the_roi_is_still_drawn`
+  - `test_the_view_of_another_pipeline_is_ignored`
+  - `test_without_full_resolution_the_view_is_ignored`
+  - `test_a_view_of_another_rectangle_is_measured_and_warned`
+  - `test_process_takes_the_views_too`
 - `TestPreprocessor`
   - `test_it_receives_the_frame_and_the_camera_slot`
   - `test_the_model_sees_what_it_returned`
@@ -1848,7 +1891,7 @@ Tests del preprocessor del motor: la cadena que arma el frame de referencia.
 
 </details>
 
-### [test_result.py](../test/inference/test_result.py) — 18 tests
+### [test_result.py](../test/inference/test_result.py) — 25 tests
 
 Tests de la forma del resultado: completado del área y el centroide, traslado al espacio del frame de cámara y serialización.
 
@@ -1856,7 +1899,8 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
 |---|---:|
 | `TestDetection` | 7 |
 | `TestOffsetDetections` | 3 |
-| `TestInferenceResult` | 8 |
+| `TestScaleDetections` | 6 |
+| `TestInferenceResult` | 9 |
 
 <details><summary>Tests</summary>
 
@@ -1872,10 +1916,18 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
   - `test_it_moves_the_bbox_and_the_centroid`
   - `test_the_area_does_not_change`
   - `test_a_zero_offset_changes_nothing`
+- `TestScaleDetections`
+  - `test_it_scales_the_bbox_and_the_centroid`
+  - `test_the_area_of_a_bbox_follows_the_new_size`
+  - `test_the_mask_is_resized_to_the_new_bbox`
+  - `test_the_area_of_a_mask_is_counted_again`
+  - `test_the_mask_stays_binary`
+  - `test_a_unit_scale_changes_nothing`
 - `TestInferenceResult`
   - `test_the_count_follows_the_detections`
   - `test_a_fresh_result_is_valid`
   - `test_the_dict_is_serializable_without_frames`
+  - `test_the_region_does_not_go_to_the_dict`
   - `test_a_fresh_result_has_no_labels`
   - `test_the_labels_travel_in_the_dict`
   - `test_the_labels_of_the_dict_are_a_copy`
@@ -3508,18 +3560,19 @@ Tests de los constructores del formulario: la tarjeta de una pestaña no depende
 
 </details>
 
-### [test_inference_tab.py](../test/ui/test_inference_tab.py) — 13 tests
+### [test_inference_tab.py](../test/ui/test_inference_tab.py) — 23 tests
 
 Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()` no deformen lo que hay en el config.
 
-| Grupo | Tests |
-|---|---:|
-| `TestOverlay` | 1 |
-| `TestClassNames` | 2 |
-| `TestRoundTrip` | 1 |
-| `TestPipelineType` | 4 |
-| `TestSections` | 3 |
-| `TestSlotTabs` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestOverlay` |  | 1 |
+| `TestClassNames` |  | 2 |
+| `TestRoundTrip` |  | 1 |
+| `TestPipelineType` |  | 4 |
+| `TestSections` |  | 3 |
+| `TestSlotTabs` |  | 2 |
+| `TestPipelineRoi` | El ROI de un pipeline por cámara: el de la cámara, uno propio o el frame entero. | 10 |
 
 <details><summary>Tests</summary>
 
@@ -3542,6 +3595,17 @@ Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()`
 - `TestSlotTabs`
   - `test_a_long_bar_scrolls_instead_of_eliding`
   - `test_ten_pipelines_keep_their_full_labels`
+- `TestPipelineRoi`
+  - `test_there_is_a_group_per_camera_of_the_pipeline`
+  - `test_without_a_list_every_declared_camera_has_a_group`
+  - `test_a_config_without_it_saves_nothing`
+  - `test_an_own_roi_goes_back_as_it_was`
+  - `test_a_disabled_one_is_the_whole_frame_and_stays_disabled`
+  - `test_back_to_the_camera_roi_writes_null`
+  - `test_the_geometry_is_editable_only_for_its_own_roi`
+  - `test_the_view_size_needs_full_resolution`
+  - `test_drawing_asks_for_the_dialog_with_the_pipeline_key`
+  - `test_reload_brings_the_geometry_the_dialog_wrote`
 
 </details>
 

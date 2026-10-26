@@ -1,6 +1,7 @@
 import time
 from abc import ABC, abstractmethod
 from collections import deque
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -17,6 +18,21 @@ _FPS_STALE_PERIODS = 3   # períodos sin frame tras los que el fps medido pasa a
 _FPS_STALE_MIN_S = 1.0   # piso de esa espera, para que un tirón no lo haga parpadear
 
 
+class FrameView(NamedTuple):
+    """
+    Un rectángulo del frame entregado aparte, a más resolución que el frame: el ROI de un
+    pipeline cortado del video nativo antes de reducirlo (ver `decoder.py`).
+
+    `rect_px` es (x, y, ancho, alto) en el espacio del frame que entrega el driver —ya
+    reducido y ya rotado—, y es el rectángulo que la imagen cubre de verdad: puede ser un
+    píxel más ancho que el pedido, porque el decodificador corta en coordenadas pares.
+    La imagen tiene la orientación del frame y su propio tamaño.
+    """
+
+    image_bgr: np.ndarray
+    rect_px: tuple[int, int, int, int]
+
+
 class AbstractCameraDriver(ABC):
     """
     Contrato de todo driver de cámara: ciclo de vida, entrega de frames
@@ -25,6 +41,11 @@ class AbstractCameraDriver(ABC):
     Las implementaciones devuelven cada frame por `_deliver()`, que aplica la
     rotación configurada y marca la llegada para medir el fps real. Ningún driver
     conoce el mapa de rotaciones de OpenCV ni repite el cálculo de fps.
+
+    Un driver que decodifica puede entregar, con cada frame, **vistas**: rectángulos del
+    video cortados a resolución nativa (`FrameView`). Las pasa a `_deliver()` junto con el
+    frame, que las rota igual que a él, y `get_views()` las devuelve. El que no las tiene
+    no hace nada: `get_views()` devuelve un dict vacío.
     """
 
     # Marcadores de la implementación concreta: el consumidor los lee sin saber
@@ -42,6 +63,7 @@ class AbstractCameraDriver(ABC):
         # `enabled: false` deja la cámara sin capturar sin borrarla del config.
         self._capture_enabled = bool(config.get("enabled", True))
         self._frame_stamps: deque = deque(maxlen=_FPS_WINDOW)
+        self._delivered_views: dict[str, FrameView] = {}
 
     @abstractmethod
     def connect(self) -> bool:
@@ -94,6 +116,16 @@ class AbstractCameraDriver(ABC):
         distinguirlas.
         """
 
+    def get_views(self) -> dict[str, FrameView]:
+        """
+        Las vistas del último frame que devolvió `get_frame()`, por nombre; vacío si no hay.
+
+        Se llama desde el mismo hilo que `get_frame()`, justo después: las vistas son de ese
+        frame y de ningún otro. Un frame que llegó sin una de sus vistas —el decodificador
+        no la pudo aparear— la tiene ausente, nunca reemplazada por una vieja.
+        """
+        return self._delivered_views
+
     # ── Captura habilitada ───────────────────────────────────────────────────
 
     @property
@@ -124,9 +156,18 @@ class AbstractCameraDriver(ABC):
 
     # ── Entrega de frames ────────────────────────────────────────────────────
 
-    def _deliver(self, frame: np.ndarray) -> np.ndarray:
-        """Marca el frame para el cálculo de fps y le aplica la rotación configurada."""
+    def _deliver(self, frame: np.ndarray,
+                 views: dict[str, FrameView] | None = None) -> np.ndarray:
+        """
+        Marca el frame para el cálculo de fps y le aplica la rotación configurada, a él y a
+        sus vistas. Las vistas traen el rectángulo ya en el espacio del frame rotado: lo
+        único que falta girar es la imagen.
+        """
         self._frame_stamps.append(time.monotonic())
+        self._delivered_views = {
+            name: FrameView(self._rotate_frame(view.image_bgr), view.rect_px)
+            for name, view in (views or {}).items()
+        }
         return self._rotate_frame(frame)
 
     def _measured_fps(self) -> float:
@@ -152,7 +193,15 @@ class AbstractCameraDriver(ABC):
 
     def _rotate_frame(self, frame: np.ndarray) -> np.ndarray:
         """Aplica la rotación configurada; sin `rotation` válida devuelve el frame tal cual."""
-        rotate_code = _ROTATE_MAP.get(self._rotation)
-        if rotate_code is None:
-            return frame
-        return cv2.rotate(frame, rotate_code)
+        return rotate_frame(frame, self._rotation)
+
+
+def rotate_frame(frame: np.ndarray, rotation: str | None) -> np.ndarray:
+    """
+    Gira el frame según el valor de `rotation` del config; sin uno válido lo devuelve tal
+    cual. Es la misma rotación que aplica todo driver, para quien arma frames sin uno.
+    """
+    rotate_code = _ROTATE_MAP.get(rotation)
+    if rotate_code is None:
+        return frame
+    return cv2.rotate(frame, rotate_code)

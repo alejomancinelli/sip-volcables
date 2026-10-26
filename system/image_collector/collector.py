@@ -38,6 +38,13 @@ la original — la carpeta es lo que las distingue:
 La carpeta lleva la clave del slot (`camera_1`), no el `name` de la cámara: el
 nombre es texto de UI y puede cambiar sin romper nada, el slot es la identidad.
 
+**Un subset es un dataset aparte dentro de una cámara**, y su carpeta es
+`{camera_slot}-{subset}` (`camera_3-pipeline_1`) en el mismo nivel que la de la cámara.
+Tiene su propio tope, su historial de duplicados y su último frame del modo interval, así
+que dos productores de la misma cámara —un pipeline que guarda su ROI y otro que guarda
+el frame entero— no se pisan. Sin subset todo es como siempre. El JSON no lo repite: lo
+dicen la carpeta y, para un pipeline, el `pipeline_slot` del dict de inferencia.
+
 El JSON es el contrato con quien reentrena, y va versionado —`schema_version`—:
 
     {"schema_version": "1.1", "camera_slot": ..., "timestamp_iso": ...,
@@ -50,11 +57,12 @@ puede saber con qué números se calculó lo que quedó escrito. Quién los arma
 cableado, que es el único que sabe qué mide esta instalación.
 
 Cuatro filtros deciden qué llega a disco, en este orden, en los dos modos:
-  - `image_collector.cameras`: qué cámaras se guardan. Lista vacía = todas, así que
-    una cámara que se agregue después entra sola; con una lista explícita, no entra
-    hasta sumarla. Se aplica antes de armar el job, en `push_frame()` y en
-    `save_now()`, y `should_collect()` lo expone para que el llamador no arme lo que
-    se va a descartar.
+  - `image_collector.cameras` y `image_collector.pipelines`: qué cámaras y qué
+    pipelines se guardan. Lista vacía = todos, así que uno que se agregue después entra
+    solo; con una lista explícita, no entra hasta sumarlo. El de pipelines aplica sólo
+    a lo que llega con `pipeline_slot`. Se aplican antes de armar el job, en
+    `push_frame()` y en `save_now()`, y `should_collect()` los expone para que el
+    llamador no arme lo que se va a descartar.
   - `save_conditions`: predicados sobre el dict de inferencia (ver
     conditions). Lista vacía = pasa todo.
   - dedup por hash perceptual: descarta el frame casi idéntico a uno de los últimos
@@ -74,7 +82,7 @@ Cuatro puntos del contrato que no se ven en las firmas:
     y una cámara que dejó de pushear no se guarda dos veces. El último push gana, así
     que conviene conectar un solo productor por cámara — el de la inferencia si se
     quieren el frame anotado y el JSON, el de la captura si alcanza el frame crudo.
-  - `image_collector.enabled` y `image_collector.cameras` se leen en cada guardado, así
+  - `image_collector.enabled` y los dos filtros de slots se leen en cada guardado, así
     que prender y apagar la recolección, o una cámara, no exige reiniciar. El modo, en cambio, se lee en `start()`: cambiarlo
     exige `stop()` + `start()`.
   - Las escrituras están serializadas entre sí, sin importar de qué hilo vengan, y
@@ -125,6 +133,7 @@ _TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S%f"     # ordena cronológicamente por nombre 
 
 # 1.1 agrega `context`: los parámetros con los que se produjo la medición.
 _JSON_SCHEMA_VERSION = "1.1"
+_SUBSET_SEPARATOR = "-"                   # carpeta de un subset: camera_3-pipeline_1
 # 0–9. Bajo a propósito: el PNG es sin pérdida en cualquier nivel, así que comprimir
 # más cuesta CPU del hilo que escribe y no cambia la imagen del dataset.
 _PNG_COMPRESSION = 1
@@ -234,6 +243,22 @@ class _SaveJob:
     annotated_bgr: np.ndarray | None
     inference: dict | None
     context: dict | None
+    subset: str = ""
+
+    @property
+    def key(self) -> str:
+        """Lo que separa un dataset de otro: la cámara, o la cámara y su subset."""
+        return _build_dataset_key(self.camera_slot, self.subset)
+
+
+def _build_dataset_key(camera_slot: str, subset: str = "") -> str:
+    """
+    Nombre de la carpeta —y del buffer, el historial y el último frame— de un dataset.
+
+    Sin subset es la cámara, como siempre. Con subset es `camera_3-pipeline_1`: un nivel
+    de carpeta y no dos, así que un dataset viejo y uno nuevo se indexan igual.
+    """
+    return f"{camera_slot}{_SUBSET_SEPARATOR}{subset}" if subset else camera_slot
 
 
 class ImageCollector:
@@ -306,17 +331,22 @@ class ImageCollector:
         """True si el hilo de intervalo está vivo. Siempre False en modo on_demand."""
         return self._thread is not None and self._thread.is_alive()
 
-    def should_collect(self, camera_slot: str) -> bool:
+    def should_collect(self, camera_slot: str, pipeline_slot: str = "") -> bool:
         """
-        True si la recolección está prendida y esa cámara está entre las que se guardan.
+        True si la recolección está prendida y esa cámara —y ese pipeline, si viene— está
+        entre las que se guardan.
 
         Es el mismo filtro que aplican `push_frame()` y `save_now()`: el llamador lo
-        consulta para no armar el JSON ni el contexto de lo que se va a descartar.
+        consulta para no armar el JSON ni el contexto de lo que se va a descartar. Sin
+        pipeline no se filtra por pipeline: es el frame de una cámara, de nadie más.
         """
         if not self.is_active:
             return False
-        cameras = self._get_cameras()
-        return not cameras or camera_slot in cameras
+        cameras = self._get_slots("cameras")
+        if cameras and camera_slot not in cameras:
+            return False
+        pipelines = self._get_slots("pipelines")
+        return not pipelines or not pipeline_slot or pipeline_slot in pipelines
 
     def set_active(self, active: bool) -> bool:
         """
@@ -363,19 +393,27 @@ class ImageCollector:
     def push_frame(self, camera_slot: str, frame_bgr: np.ndarray | None, *,
                    annotated_bgr: np.ndarray | None = None,
                    inference: dict | None = None,
-                   context: dict | None = None):
+                   context: dict | None = None,
+                   pipeline_slot: str = "",
+                   subset: str = ""):
         """
         Deja el último frame de esa cámara para que el hilo lo guarde. Modo interval.
 
         Thread-safe y barata: guarda la referencia a los frames y vuelve, sin copiarlos ni
-        tocar el disco. Cada llamada reemplaza a la anterior de esa cámara, así que el
-        frame anotado y el JSON son siempre los de la captura que se está guardando, nunca
-        los de una anterior — por eso conviene un solo productor por cámara.
+        tocar el disco. Cada llamada reemplaza a la anterior de esa cámara —o de ese
+        subset—, así que el frame anotado y el JSON son siempre los de la captura que se
+        está guardando, nunca los de una anterior — por eso conviene un solo productor por
+        cámara, o uno por subset.
+
+        `subset` separa un dataset aparte dentro de la cámara: su propia carpeta, su tope
+        de `max_images`, su historial de duplicados y su último frame. Es lo que usa un
+        pipeline que mira su propio ROI, para que el que mira el frame entero no le pise
+        cada guardado. `pipeline_slot` es el que filtra `image_collector.pipelines`.
 
         No guarda nada por sí sola: sin hilo de intervalo corriendo el frame se
         descarta. Para pedir un guardado puntual está `save_now()`.
         """
-        if not self.should_collect(camera_slot):
+        if not self.should_collect(camera_slot, pipeline_slot):
             return
         if not self.is_running:
             self._warn_throttled(
@@ -384,16 +422,19 @@ class ImageCollector:
                 "descarta. En modo on_demand el guardado se pide con save_now()."
             )
             return
-        job = self._build_job(camera_slot, frame_bgr, annotated_bgr, inference, context)
+        job = self._build_job(camera_slot, frame_bgr, annotated_bgr, inference, context,
+                              subset)
         if job is None:
             return
         with self._latest_lock:
-            self._latest[camera_slot] = job
+            self._latest[job.key] = job
 
     def save_now(self, camera_slot: str, frame_bgr: np.ndarray | None, *,
                  annotated_bgr: np.ndarray | None = None,
                  inference: dict | None = None,
-                 context: dict | None = None) -> bool:
+                 context: dict | None = None,
+                 pipeline_slot: str = "",
+                 subset: str = "") -> bool:
         """
         Guarda esa captura ahora y devuelve si algo llegó a disco. Modo on_demand.
 
@@ -413,14 +454,17 @@ class ImageCollector:
         porque un dataset sin ellos no se puede reanalizar: dentro de seis meses, con la
         escala cambiada, nadie puede saber con qué números se calculó lo que quedó escrito.
 
-        Devuelve False si la recolección está apagada o no incluye esa cámara, no vino
-        nada que guardar, algún filtro descartó el frame o ninguna escritura tuvo éxito.
-        Funciona en los dos modos: en interval es el guardado puntual que no espera la
-        vuelta del hilo.
+        `subset` y `pipeline_slot` son los de `push_frame()`.
+
+        Devuelve False si la recolección está apagada o no incluye esa cámara o ese
+        pipeline, no vino nada que guardar, algún filtro descartó el frame o ninguna
+        escritura tuvo éxito. Funciona en los dos modos: en interval es el guardado puntual
+        que no espera la vuelta del hilo.
         """
-        if not self.should_collect(camera_slot):
+        if not self.should_collect(camera_slot, pipeline_slot):
             return False
-        job = self._build_job(camera_slot, frame_bgr, annotated_bgr, inference, context)
+        job = self._build_job(camera_slot, frame_bgr, annotated_bgr, inference, context,
+                              subset)
         if job is None:
             return False
         return self._write(job)
@@ -432,7 +476,7 @@ class ImageCollector:
           active            : bool — `image_collector.enabled`
           cameras           : [camera_slot] que se guardan; [] = todas
           running           : bool — hilo de intervalo vivo
-          images            : {camera_slot: guardados en disco dentro del tope}
+          images            : {cámara o cámara-subset: guardados en disco dentro del tope}
           saved / skipped   : guardados y descartados por filtro desde que se creó
           last_save_iso     : timestamp del último guardado, o None si todavía no hubo
           disk_free_gb      : GiB libres en la partición del dataset; -1.0 si no se midió
@@ -452,7 +496,7 @@ class ImageCollector:
         return {
             "mode": self.mode,
             "active": self.is_active,
-            "cameras": self._get_cameras(),
+            "cameras": self._get_slots("cameras"),
             "running": self.is_running,
             "images": images,
             "saved": counters["saved"],
@@ -515,7 +559,7 @@ class ImageCollector:
                 self._write(job)
             except Exception as e:
                 # Un guardado que falla no se lleva puesto el hilo ni a las otras cámaras.
-                logger.error(f"[ImageCollector] Error guardando {job.camera_slot}: {e}")
+                logger.error(f"[ImageCollector] Error guardando {job.key}: {e}")
 
     # ── Guardado ─────────────────────────────────────────────────────────────
 
@@ -553,26 +597,25 @@ class ImageCollector:
             # El hash se calcula sobre el frame de cámara: mide el cambio de escena, no
             # el de las anotaciones dibujadas encima.
             frame_hash = self._compute_frame_hash(
-                job.camera_slot,
+                job.key,
                 job.frame_bgr if job.frame_bgr is not None else job.annotated_bgr)
-            if frame_hash is not None and self._is_duplicate(job.camera_slot, frame_hash):
+            if frame_hash is not None and self._is_duplicate(job.key, frame_hash):
                 self._count("skipped")
                 return False
 
             dataset_path = self._get_dataset_path()
-            buf = self._file_buffers.setdefault(job.camera_slot, deque())
-            if not self._make_room(job.camera_slot, buf, dataset_path):
+            buf = self._file_buffers.setdefault(job.key, deque())
+            if not self._make_room(job.key, buf, dataset_path):
                 self._count("skipped")
                 return False
 
             stamp = self._stamp_for(job)
-            filename = f"{job.camera_slot}_{stamp.strftime(_TIMESTAMP_FORMAT)}"
+            filename = f"{job.key}_{stamp.strftime(_TIMESTAMP_FORMAT)}"
             date_path = os.path.join(dataset_path, stamp.strftime(_DATE_FORMAT))
-            dir_annotated = os.path.join(date_path, _DIR_ANNOTATED, job.camera_slot)
+            dir_annotated = os.path.join(date_path, _DIR_ANNOTATED, job.key)
             # La entrada del buffer apunta siempre a la ranura de original/, exista o no
             # ese archivo: es la clave con la que _evict_oldest reconstruye las tres rutas.
-            canonical_path = os.path.join(date_path, _DIR_ORIGINAL, job.camera_slot,
-                                          f"{filename}.png")
+            canonical_path = os.path.join(date_path, _DIR_ORIGINAL, job.key, f"{filename}.png")
 
             params = [cv2.IMWRITE_PNG_COMPRESSION, _PNG_COMPRESSION]
             saved_any = False
@@ -591,7 +634,7 @@ class ImageCollector:
 
             buf.append(canonical_path)
             if frame_hash is not None:
-                self._get_hash_history(job.camera_slot).append(frame_hash)
+                self._get_hash_history(job.key).append(frame_hash)
             self._count("saved")
             self._publish_save(job.captured_at)
             logger.debug(f"[ImageCollector] Guardado: {canonical_path}")
@@ -608,10 +651,10 @@ class ImageCollector:
         un microsegundo mantiene el orden cronológico por nombre de archivo.
         """
         stamp = job.captured_at
-        last = self._last_stamps.get(job.camera_slot)
+        last = self._last_stamps.get(job.key)
         if last is not None and stamp <= last:
             stamp = last + timedelta(microseconds=1)
-        self._last_stamps[job.camera_slot] = stamp
+        self._last_stamps[job.key] = stamp
         return stamp
 
     def _ensure_buffers_ready(self):
@@ -794,7 +837,7 @@ class ImageCollector:
 
     def _build_job(self, camera_slot: str, frame_bgr: np.ndarray | None,
                    annotated_bgr: np.ndarray | None, inference: dict | None,
-                   context: dict | None) -> _SaveJob | None:
+                   context: dict | None, subset: str) -> _SaveJob | None:
         """
         Arma el job de la captura, o None si no vino nada que guardar.
 
@@ -812,18 +855,22 @@ class ImageCollector:
             annotated_bgr=annotated_bgr,
             inference=dict(inference) if inference else None,
             context=dict(context) if context else None,
+            subset=str(subset or ""),
         )
 
-    def _get_cameras(self) -> list[str]:
-        """Slots de `image_collector.cameras`. Vacía = todas, y un valor que no es lista, también."""
-        cameras = self._config.get("image_collector.cameras", []) or []
-        if not isinstance(cameras, (list, tuple)):
+    def _get_slots(self, key: str) -> list[str]:
+        """
+        Slots de `image_collector.<key>` —`cameras` o `pipelines`—. Vacía = todos, y un
+        valor que no es lista, también.
+        """
+        slots = self._config.get(f"image_collector.{key}", []) or []
+        if not isinstance(slots, (list, tuple)):
             self._warn_throttled(
-                "cameras",
-                f"'image_collector.cameras' no es una lista ({cameras!r}): se guardan todas."
+                key,
+                f"'image_collector.{key}' no es una lista ({slots!r}): se guardan todos."
             )
             return []
-        return [str(slot) for slot in cameras]
+        return [str(slot) for slot in slots]
 
     def _get_dataset_path(self) -> str:
         """Ruta absoluta del dataset; las relativas se anclan a la raíz del repo."""
