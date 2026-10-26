@@ -120,7 +120,8 @@ from system.inference.composer import FrameComposer
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
 from system.inference.pipeline_factory import create_pipeline
-from system.inference.preprocessing import build_camera_views, build_preprocessor
+from system.inference.preprocessing import (build_camera_views, build_preprocessor,
+                                           select_pipeline_roi)
 from system.inference.result import InferenceResult
 from system.license.manager import (
     PERPETUAL_DAYS_SENTINEL, RECHECK_INTERVAL_MS, LicenseManager, read_feature,
@@ -1173,9 +1174,10 @@ class Application(QObject):
 
     def _has_own_roi(self, result: InferenceResult) -> bool:
         """True si el pipeline del resultado recorta su propio ROI en esa cámara."""
-        roi = self._config.get(
-            f"inference.pipelines.{result.pipeline_slot}.roi.{result.camera_slot}")
-        return isinstance(roi, dict) and bool(roi.get("enabled", False))
+        roi = select_pipeline_roi(
+            self._config.get(f"inference.pipelines.{result.pipeline_slot}", {}),
+            result.camera_slot)
+        return roi is not None and bool(roi.get("enabled", False))
 
     def _annotate_cycle(self, result: InferenceResult) -> np.ndarray | None:
         """

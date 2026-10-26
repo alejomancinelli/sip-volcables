@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**77 archivos, 448 grupos, 2198 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**77 archivos, 449 grupos, 2199 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 13 | 362 |
+| [test/inference/](#testinference) | 13 | 363 |
 | [test/inference/models/](#testinferencemodels) | 6 | 137 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 3 | 138 |
@@ -1495,7 +1495,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 115 tests
+### [test_engine.py](../test/inference/test_engine.py) — 116 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1517,6 +1517,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestLifecycle` |  | 5 |
 | `TestCycleTime` | `cycle_time_ms`: del arranque de un frame al arranque del siguiente de la misma cámara. | 3 |
 | `TestSynchronousProcess` | `process()` corre el ciclo del hilo sobre un frame suelto, sin arrancarlo. | 6 |
+| `TestMissingKeys` |  | 1 |
 
 <details><summary>Tests</summary>
 
@@ -1651,6 +1652,8 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_does_not_add_to_the_counters_of_the_thread`
   - `test_it_does_not_load_the_pipeline`
   - `test_it_refuses_to_run_while_the_thread_is_running`
+- `TestMissingKeys`
+  - `test_a_pipeline_without_its_own_roi_never_asks_for_it`
 
 </details>
 

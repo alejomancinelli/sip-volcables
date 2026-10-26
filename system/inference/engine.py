@@ -95,6 +95,7 @@ from tools.camera.abstract_driver import FrameView
 
 from . import analysis, overlay
 from .abstract_pipeline import AbstractPipeline
+from .preprocessing import select_pipeline_roi
 from .result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
                      REASON_LOW_CONFIDENCE, REASON_NO_MODEL, REASON_NO_VIEW,
                      InferenceResult, offset_detections, scale_detections)
@@ -718,8 +719,11 @@ class InferenceThread(QThread):
         (`inference.pipelines.<slot>.roi.<cámara>`) si la declara —entera, con su
         `enabled`—, y si no la de la cámara.
         """
-        override = self._setting(f"inference.pipelines.{self.pipeline_slot}.roi.{camera_slot}")
-        if isinstance(override, dict):
+        # Desde la sección del pipeline, que siempre está: la clave del ROI propio falta en
+        # el caso normal, y pedirla directo dejaba un aviso de clave ausente por cámara.
+        pipeline = self._setting(f"inference.pipelines.{self.pipeline_slot}", {}) or {}
+        override = select_pipeline_roi(pipeline, camera_slot)
+        if override is not None:
             return override
         roi = self._setting(f"cameras.{camera_slot}.roi", {}) or {}
         return roi if isinstance(roi, dict) else {}

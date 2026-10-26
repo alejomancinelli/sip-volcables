@@ -98,41 +98,41 @@ class TestCameraViews:
     """Qué vistas corta cada cámara: los ROI con `full_resolution` de los que corren."""
 
     def test_a_full_resolution_roi_is_a_view_named_after_its_pipeline(self):
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {"camera_3": _roi()}})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {"roi": {"camera_3": _roi()}}})
         assert build_camera_views(config, ["pipeline_1"]) == {"camera_3": {"pipeline_1": {
             "x_px": 10, "y_px": 20, "width_px": 30, "height_px": 40,
             "output_short_side_px": 224}}}
 
     def test_without_full_resolution_there_is_no_view(self):
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {
-            "camera_3": _roi(full_resolution=False)}})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {"roi": {
+            "camera_3": _roi(full_resolution=False)}}})
         assert build_camera_views(config, ["pipeline_1"]) == {}
 
     def test_a_disabled_roi_has_no_view(self):
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {
-            "camera_3": _roi(enabled=False)}})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {"roi": {
+            "camera_3": _roi(enabled=False)}}})
         assert build_camera_views(config, ["pipeline_1"]) == {}
 
     def test_a_pipeline_that_does_not_run_cuts_nothing(self):
         """Una vista que nadie lee es VIC y copias de más."""
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {"camera_3": _roi()}})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {"roi": {"camera_3": _roi()}}})
         assert build_camera_views(config, ["pipeline_2"]) == {}
 
     def test_a_camera_outside_the_pipeline_cuts_nothing(self):
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {"camera_3": _roi()},
-                                "inference.pipelines.pipeline_1.cameras": ["camera_4"]})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {
+            "roi": {"camera_3": _roi()}, "cameras": ["camera_4"]}})
         assert build_camera_views(config, ["pipeline_1"]) == {}
 
     def test_two_pipelines_on_a_camera_are_two_views(self):
-        config = _MockConfig(**{"inference.pipelines.pipeline_1.roi": {"camera_3": _roi()},
-                                "inference.pipelines.pipeline_2.roi": {"camera_3": _roi()}})
+        config = _MockConfig(**{"inference.pipelines.pipeline_1": {"roi": {"camera_3": _roi()}},
+                                "inference.pipelines.pipeline_2": {"roi": {"camera_3": _roi()}}})
         views = build_camera_views(config, ["pipeline_1", "pipeline_2"])
         assert sorted(views["camera_3"]) == ["pipeline_1", "pipeline_2"]
 
     def test_a_camera_with_an_image_adjustment_cuts_nothing(self, caplog):
         """La vista no pasa por el preprocessor: mediría otra imagen que el frame."""
         config = _MockConfig(**{
-            "inference.pipelines.pipeline_1.roi": {"camera_3": _roi()},
+            "inference.pipelines.pipeline_1": {"roi": {"camera_3": _roi()}},
             "cameras.camera_3.image_adjust": {"brightness_factor": 2.0},
         })
         assert build_camera_views(config, ["pipeline_1"]) == {}

@@ -50,6 +50,7 @@ from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
 from system.inference.models.model_factory import REGISTERED_MODELS
 from system.inference.pipeline_factory import DEFAULT_PIPELINE, REGISTERED_PIPELINES
+from system.inference.preprocessing import select_pipeline_roi
 
 from system.config_manager import ConfigManager
 
@@ -248,8 +249,8 @@ class InferenceTab(AbstractConfigTab):
                 bool(self._config.get(f"{prefix}.idle_cameras_between_cycles", False)))
 
         for (pipeline_slot, camera_slot), fields in self._roi_forms.items():
-            roi = self._config.get(_build_roi_key(pipeline_slot, camera_slot))
-            if not isinstance(roi, dict):
+            roi = self._read_roi(pipeline_slot, camera_slot)
+            if roi is None:
                 set_combo_data(fields["mode"], _ROI_MODE_CAMERA)
                 roi = {}
             else:
@@ -263,8 +264,8 @@ class InferenceTab(AbstractConfigTab):
         """Recarga la geometría que escribió el diálogo, en el pipeline que lo abrió."""
         fields = self._roi_forms.get((self._roi_requester, camera_slot))
         if fields is not None:
-            roi = self._config.get(_build_roi_key(self._roi_requester, camera_slot))
-            self._load_roi_geometry(fields, roi if isinstance(roi, dict) else {})
+            self._load_roi_geometry(fields,
+                                    self._read_roi(self._roi_requester, camera_slot) or {})
 
     def save(self):
         for model_slot, fields in self._model_forms.items():
@@ -297,7 +298,7 @@ class InferenceTab(AbstractConfigTab):
             if mode == _ROI_MODE_CAMERA:
                 # Sin sección rige el ROI de la cámara. Un config que nunca la tuvo no
                 # gana una clave en null por abrir la pestaña y guardar.
-                if isinstance(self._config.get(key), dict):
+                if self._read_roi(pipeline_slot, camera_slot) is not None:
                     self._config.set(key, None)
                 continue
             self._config.set(f"{key}.enabled", mode == _ROI_MODE_OWN)
@@ -308,6 +309,11 @@ class InferenceTab(AbstractConfigTab):
                              fields["output_short_side_px"].value())
 
     # ── Internos ─────────────────────────────────────────────────────────────
+
+    def _read_roi(self, pipeline_slot: str, camera_slot: str) -> dict | None:
+        """El ROI propio de ese pipeline en esa cámara, o None si rige el de la cámara."""
+        return select_pipeline_roi(
+            self._config.get(f"inference.pipelines.{pipeline_slot}", {}), camera_slot)
 
     def _load_roi_geometry(self, fields: dict, roi: dict):
         for field_key, spin in fields["spins"].items():

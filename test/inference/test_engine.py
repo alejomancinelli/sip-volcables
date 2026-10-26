@@ -380,7 +380,7 @@ def _pipeline_roi(**overrides) -> dict:
     """La clave del ROI propio del pipeline para `_SLOT`, lista para `_MockConfig`."""
     roi = {"enabled": True, "x_px": 40, "y_px": 20, "width_px": 100, "height_px": 50}
     roi.update(overrides)
-    return {f"inference.pipelines.{_PIPELINE}.roi.{_SLOT}": roi}
+    return {f"inference.pipelines.{_PIPELINE}": {"roi": {_SLOT: roi}}}
 
 
 class TestPipelineRoi:
@@ -1084,3 +1084,24 @@ class TestSynchronousProcess:
         finally:
             engine.requestInterruption()
             assert engine.wait(_WAIT_TIMEOUT_MS)
+
+
+class _RecordingConfig(_MockConfig):
+    """Anota cada clave que se le pide."""
+
+    def __init__(self, **overrides):
+        super().__init__(**overrides)
+        self.asked: list[str] = []
+
+    def get(self, key: str, default: object = None) -> object:
+        self.asked.append(key)
+        return super().get(key, default)
+
+
+class TestMissingKeys:
+    def test_a_pipeline_without_its_own_roi_never_asks_for_it(self):
+        """El config avisa cada clave ausente: el caso normal no puede llenar el log."""
+        config = _RecordingConfig()
+        _process_one(_engine(_FakePipeline(), config), _frame())
+        assert not [key for key in config.asked if key.startswith("inference.pipelines.")
+                    and ".roi" in key]

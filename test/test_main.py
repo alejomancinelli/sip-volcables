@@ -1136,8 +1136,8 @@ class TestDatasetSubset:
                                region_bgr=source_bgr[:4, :4] if region else None)
 
     def test_an_own_roi_saves_the_region_in_its_subset(self):
-        app = self._application(**{"inference.pipelines.pipeline_1.roi.camera_3":
-                                   {"enabled": True}})
+        app = self._application(**{"inference.pipelines.pipeline_1": {
+            "roi": {"camera_3": {"enabled": True}}}})
         result = self._result()
         app._send_to_dataset(result)
         ((camera_slot, frame_bgr, kwargs),) = app._collector.pushed
@@ -1153,8 +1153,8 @@ class TestDatasetSubset:
 
     def test_a_result_without_its_region_is_not_saved(self):
         """Llegó sin su vista: no hay imagen de lo que el modelo tendría que haber visto."""
-        app = self._application(**{"inference.pipelines.pipeline_1.roi.camera_3":
-                                   {"enabled": True}})
+        app = self._application(**{"inference.pipelines.pipeline_1": {
+            "roi": {"camera_3": {"enabled": True}}}})
         app._send_to_dataset(self._result(region=False))
         assert app._collector.pushed == []
 

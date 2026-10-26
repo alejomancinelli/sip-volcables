@@ -164,6 +164,11 @@ class TestSlotTabs:
 _ROI_KEY = f"inference.pipelines.{_PIPELINE}.roi.camera_1"
 
 
+def _with_roi(roi: dict) -> dict:
+    """El ROI propio de `camera_1`, donde el config lo tiene: en la sección del pipeline."""
+    return {f"inference.pipelines.{_PIPELINE}": {"roi": {"camera_1": roi}}}
+
+
 def _roi_fields(tab: InferenceTab) -> dict:
     return tab._roi_forms[(_PIPELINE, "camera_1")]
 
@@ -189,19 +194,19 @@ class TestPipelineRoi:
     def test_an_own_roi_goes_back_as_it_was(self):
         roi = {"enabled": True, "x_px": 10, "y_px": 20, "width_px": 30, "height_px": 40,
                "full_resolution": True, "output_short_side_px": 224}
-        tab, config = _tab(**{_ROI_KEY: roi})
+        tab, config = _tab(**_with_roi(roi))
         tab.save()
         assert {key: config.written[f"{_ROI_KEY}.{key}"] for key in roi} == roi
 
     def test_a_disabled_one_is_the_whole_frame_and_stays_disabled(self):
-        tab, config = _tab(**{_ROI_KEY: {"enabled": False}})
+        tab, config = _tab(**_with_roi({"enabled": False}))
         assert _roi_fields(tab)["mode"].currentData() == "full"
         tab.save()
         assert config.written[f"{_ROI_KEY}.enabled"] is False
 
     def test_back_to_the_camera_roi_writes_null(self):
         """Sin sección rige el de la cámara: es lo que el motor lee como «no tiene propio»."""
-        tab, config = _tab(**{_ROI_KEY: {"enabled": True}})
+        tab, config = _tab(**_with_roi({"enabled": True}))
         fields = _roi_fields(tab)
         fields["mode"].setCurrentIndex(fields["mode"].findData("camera"))
         tab.save()
@@ -215,22 +220,22 @@ class TestPipelineRoi:
         assert fields["spins"]["x_px"].isEnabled()
 
     def test_the_view_size_needs_full_resolution(self):
-        tab, _ = _tab(**{_ROI_KEY: {"enabled": True}})
+        tab, _ = _tab(**_with_roi({"enabled": True}))
         fields = _roi_fields(tab)
         assert not fields["output_short_side_px"].isEnabled()
         fields["full_resolution"].setChecked(True)
         assert fields["output_short_side_px"].isEnabled()
 
     def test_drawing_asks_for_the_dialog_with_the_pipeline_key(self):
-        tab, _ = _tab(**{_ROI_KEY: {"enabled": True}})
+        tab, _ = _tab(**_with_roi({"enabled": True}))
         requests = []
         tab.open_roi_requested.connect(lambda *args: requests.append(args))
         tab._on_draw_roi(_PIPELINE, "camera_1")
         assert requests == [("camera_1", _ROI_KEY, "inf_roi_title")]
 
     def test_reload_brings_the_geometry_the_dialog_wrote(self):
-        tab, config = _tab(**{_ROI_KEY: {"enabled": True}})
+        tab, config = _tab(**_with_roi({"enabled": True}))
         tab._on_draw_roi(_PIPELINE, "camera_1")
-        config._values[_ROI_KEY] = {"enabled": True, "x_px": 7, "width_px": 9}
+        config._values.update(_with_roi({"enabled": True, "x_px": 7, "width_px": 9}))
         tab.reload_roi("camera_1")
         assert _roi_fields(tab)["spins"]["x_px"].value() == 7
