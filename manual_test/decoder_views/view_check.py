@@ -199,8 +199,23 @@ def _run_reopen(cameras: dict, cycles: int):
             state = "con vistas" if frame is not None else "SIN frame con vistas"
             print(f"{name}: vuelta {cycle}/{cycles}, {state}, descriptores {fds[-1]}")
         if fds[0] is not None:
-            print(f"{name}: {fds[0]} -> {fds[-1]} descriptores en {cycles} reaperturas "
-                  f"({'planos' if fds[-1] <= fds[1] else 'CRECEN'} después de la primera).")
+            print(f"{name}: {_judge_fds(fds[1:])}")
+
+
+def _judge_fds(fds: list[int]) -> str:
+    """
+    El veredicto sobre los descriptores después de cada reapertura.
+
+    GStreamer abre y cierra alguno de más de vez en cuando, así que comparar la última
+    vuelta con la primera da falsas alarmas. Una fuga es otra cosa: crece en cada vuelta
+    —la del probe que retenía el pipeline dejaba dos—, así que se afirma recién cuando la
+    cuenta subió al menos uno por reapertura.
+    """
+    growth = fds[-1] - fds[0]
+    span = f"{min(fds)}–{max(fds)} descriptores en {len(fds)} reaperturas"
+    if len(fds) > 1 and growth >= len(fds) - 1:
+        return f"{span}, +{growth} desde la primera: FUGA."
+    return f"{span}: planos."
 
 
 def main(argv: list) -> int:
