@@ -265,3 +265,25 @@ class TestRotation:
         clip = _write_clip(str(tmp_path / "clip.avi"), 2)
         rotated = _connected(clip, rotation="90cw").get_frame()
         assert rotated.shape[:2] == (_FRAME_SHAPE[1], _FRAME_SHAPE[0])
+
+
+class TestViews:
+    """Un video grabado entrega las vistas como una cámara RTSP: cortadas del nativo."""
+
+    _VIEWS = {"pipeline_1": {"x_px": 4, "y_px": 4, "width_px": 8, "height_px": 8}}
+
+    def test_the_view_is_cut_from_the_native_video(self, tmp_path, clock):
+        """El video es de 64x48 y sale a 32x24: el ROI de 8 px es de 16 en el nativo."""
+        clip = _write_clip(str(tmp_path / "clip.avi"), 2)
+        driver = _connected(clip, decode={"width_px": 32, "height_px": 24,
+                                          "views": self._VIEWS})
+        assert driver.get_frame().shape[:2] == (24, 32)
+        view = driver.get_views()["pipeline_1"]
+        assert view.image_bgr.shape[:2] == (16, 16)
+        assert view.rect_px == (4, 4, 8, 8)
+
+    def test_without_views_there_are_none(self, tmp_path, clock):
+        clip = _write_clip(str(tmp_path / "clip.avi"), 2)
+        driver = _connected(clip)
+        driver.get_frame()
+        assert driver.get_views() == {}

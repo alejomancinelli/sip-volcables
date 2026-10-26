@@ -86,6 +86,9 @@ entrada `replay` en `manual_test/cameras/config.yaml`.
 - **Varias cámaras sobre la misma carpeta ven lo mismo**, casi en sincronía. Sirve para
   ver la carga de N cámaras, pero no para probar nada que dependa de que vean escenas
   distintas: el ROI o la escala de una cámara se aplicarían sobre la vista de otra.
+- **Las vistas salen igual que en vivo.** Un pipeline con su ROI en `full_resolution` recibe
+  el recorte del video nativo, como de una cámara RTSP: el video tiene que estar a la
+  resolución de la cámara para que la vista tenga el detalle que va a tener en la línea.
 
 ### Qué no se prueba con video
 
@@ -165,6 +168,19 @@ El dataset guarda el frame de referencia —ya corregido de lente y ya ajustado 
 así que una imagen sacada de `data/dataset/.../original/` va con `--preprocessed`. Sin eso,
 una cámara con `image_adjust` le multiplica el brillo dos veces y una con calibración le
 corrige el lente dos veces, y el resultado no es el que dio en la línea.
+
+La carpeta `<cámara>-<pipeline>/` del dataset no es un frame: es la región que vio un
+pipeline con ROI propio. Sirve para reentrenar ese modelo, no para correrla acá como imagen
+de una cámara.
+
+### Cámaras con vistas
+
+Si algún pipeline le pide su ROI a una cámara con `full_resolution`, la imagen de esa cámara
+tiene que ser **la del video nativo, sin rotar**: la que entrega la cámara antes de que el
+decodificador la reduzca. El runner le hace lo mismo que en vivo —la reduce al tamaño de
+`decode`, le corta la vista del nativo y la rota— y el pipeline ve la misma vista que en la
+línea. Una imagen ya reducida también corre, pero la vista sale de esos píxeles y no tiene
+el detalle del video nativo. Una cámara sin vistas recibe la imagen tal cual, como siempre.
 
 ## Lo que falta
 

@@ -373,8 +373,9 @@ class _FrameSink:
     def has_camera(self, camera_slot: str) -> bool:
         return not self._cameras or camera_slot in self._cameras
 
-    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
+    def push_frame(self, frame_bgr, camera_slot, views=None, *, ignore_interval=False):
         self.pushed.append((frame_bgr, camera_slot, ignore_interval))
+        self.views = views
 
     def has_raw_clients(self, camera_slot: str) -> bool:
         return self.raw_clients
@@ -432,6 +433,25 @@ def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, conten
     app.notified = []
     app._frame_for_gui.connect(app.notified.append)
     return app
+
+
+class TestFrameViews:
+    """Las vistas viajan con su frame hasta el motor, por los dos caminos."""
+
+    def test_an_uncycled_engine_gets_the_views_in_the_capture_thread(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        assert engine.views is views
+
+    def test_a_cycled_engine_gets_the_views_of_the_frame_it_takes(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=["pipeline_1"])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        app._on_frame_for_gui("camera_1")
+        assert engine.views is views
 
 
 class TestFramePath:

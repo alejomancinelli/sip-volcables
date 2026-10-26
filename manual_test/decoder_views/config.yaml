@@ -1,0 +1,46 @@
+# Config de view_check.py, separada del config.yaml de la app. Sólo lleva cámaras: lo que
+# lee el driver RTSP, más `decode.views`, que en la app arma el cableado con los ROI de los
+# pipelines que piden `full_resolution` y acá se declara a mano.
+#
+# La clave nombra el caso a probar, no un slot físico de cámara. Las credenciales no van
+# acá: van al `.env` de la raíz, que el script carga antes de armar los drivers.
+#
+# El rectángulo de una vista está en el frame que entrega la cámara —el reducido a
+# `width_px` x `height_px` y rotado—, que es el que se ve y se dibuja en la pantalla.
+
+cameras:
+  stream_a:
+    driver: rtsp
+    address: rtsp://192.168.1.64:8554/cam_3
+    rotation: null
+    acquisition:
+      fps_limit: 0              # sin tope: se mide todo lo que entrega el stream
+    decode:
+      backend: nvdec            # cpu para comparar el mismo corte por OpenCV
+      width_px: 640
+      height_px: 360
+      views:
+        pipeline_1:
+          x_px: 210
+          y_px: 40
+          width_px: 180
+          height_px: 220
+          output_short_side_px: 224     # 0 = el recorte a tamaño nativo
+
+  stream_b:
+    driver: rtsp
+    address: rtsp://192.168.1.64:8554/cam_4
+    rotation: null
+    acquisition:
+      fps_limit: 0
+    decode:
+      backend: nvdec
+      width_px: 640
+      height_px: 360
+      views:
+        pipeline_1:
+          x_px: 210
+          y_px: 40
+          width_px: 180
+          height_px: 220
+          output_short_side_px: 224

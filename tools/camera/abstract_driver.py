@@ -7,10 +7,13 @@ import cv2
 import numpy as np
 
 # Valores que acepta la clave `rotation` de cada cámara en config.yaml.
+ROTATE_90_CW = "90cw"
+ROTATE_90_CCW = "90ccw"
+ROTATE_180 = "180"
 _ROTATE_MAP = {
-    "90cw":  cv2.ROTATE_90_CLOCKWISE,
-    "90ccw": cv2.ROTATE_90_COUNTERCLOCKWISE,
-    "180":   cv2.ROTATE_180,
+    ROTATE_90_CW:  cv2.ROTATE_90_CLOCKWISE,
+    ROTATE_90_CCW: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    ROTATE_180:    cv2.ROTATE_180,
 }
 
 _FPS_WINDOW = 30         # frames sobre los que se promedia fps_estimated

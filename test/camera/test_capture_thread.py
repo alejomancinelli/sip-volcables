@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 
 import system.camera.capture_thread as ct
 from system.camera.capture_thread import CaptureThread
-from tools.camera.abstract_driver import AbstractCameraDriver
+from tools.camera.abstract_driver import AbstractCameraDriver, FrameView
 
 _SLOT = "camera_1"
 _WAIT_TIMEOUT_MS = 3000
@@ -447,3 +447,62 @@ class TestTelemetry:
         assert _run(thread, 0.5)
         assert 2 <= collector.status_count() <= 20
         assert collector.frame_count() > collector.status_count()
+
+
+# ── Vistas ───────────────────────────────────────────────────────────────────
+
+class _ViewDriver(_FakeDriver):
+    """Un driver que entrega cada frame con una vista, como el que decodifica."""
+
+    def get_frame(self, timeout_ms: int = 500) -> np.ndarray | None:
+        frame = super().get_frame(timeout_ms)
+        if frame is None:
+            return None
+        view = FrameView(np.ones((8, 8, 3), np.uint8), (0, 0, 2, 2))
+        return self._deliver(frame, {"pipeline_1": view})
+
+
+class _ViewCollector(_Collector):
+    def on_frame(self, frame, camera_slot: str, views: dict):
+        with self._lock:
+            self.frames.append((frame, camera_slot, views))
+
+
+class TestViews:
+    def test_they_reach_the_driver_in_its_decode_section(self, monkeypatch):
+        """Son los ROI de los pipelines: el cableado los pasa, el config de la cámara no."""
+        seen = []
+        monkeypatch.setattr(ct, "create_camera",
+                            lambda config_cam: seen.append(config_cam) or _FakeDriver())
+        views = {"pipeline_1": {"x_px": 1, "y_px": 2, "width_px": 30, "height_px": 40}}
+        CaptureThread(_MockConfig(), _SLOT, views=views)
+        assert seen[0]["decode"]["views"] == views
+
+    def test_they_keep_the_rest_of_the_decode_section(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr(ct, "create_camera",
+                            lambda config_cam: seen.append(config_cam) or _FakeDriver())
+        config = _MockConfig(**{f"cameras.{_SLOT}": {"decode": {"backend": "nvdec"}}})
+        CaptureThread(config, _SLOT, views={"pipeline_1": {}})
+        assert seen[0]["decode"]["backend"] == "nvdec"
+
+    def test_the_config_is_not_modified(self, monkeypatch):
+        monkeypatch.setattr(ct, "create_camera", lambda config_cam: _FakeDriver())
+        config = _MockConfig(**{f"cameras.{_SLOT}": {"decode": {"backend": "nvdec"}}})
+        CaptureThread(config, _SLOT, views={"pipeline_1": {}})
+        assert config.get(f"cameras.{_SLOT}") == {"decode": {"backend": "nvdec"}}
+
+    def test_each_frame_travels_with_its_views(self, monkeypatch):
+        thread = _thread(monkeypatch, _ViewDriver())
+        collector = _ViewCollector()
+        thread.frame_ready.connect(collector.on_frame, Qt.ConnectionType.DirectConnection)
+        assert _run(thread)
+        _, _, views = collector.frames[-1]
+        assert list(views) == ["pipeline_1"]
+
+    def test_a_driver_without_views_sends_none(self, monkeypatch):
+        thread = _thread(monkeypatch, _FakeDriver())
+        collector = _ViewCollector()
+        thread.frame_ready.connect(collector.on_frame, Qt.ConnectionType.DirectConnection)
+        assert _run(thread)
+        assert collector.frames[-1][2] == {}
