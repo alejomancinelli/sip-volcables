@@ -224,8 +224,23 @@ inference:
       # conservando su forma —el lado corto a esos px; 0 = tamaño nativo del recorte—. Los
       # dos se aplican al reiniciar. El dataset de un pipeline con ROI propio guarda la
       # región que vio, en una carpeta `<cámara>-<pipeline>`.
-      roi: {}                   # {camera_1: {enabled: true, x_px: 0, y_px: 0, width_px: 0,
-                                #  height_px: 0, full_resolution: false, output_short_side_px: 0}}
+      roi:
+        camera_3:
+          enabled: true
+          x_px: 210               # de prueba: redibujar sobre el chorro de grano
+          y_px: 40
+          width_px: 180
+          height_px: 220
+          full_resolution: true
+          output_short_side_px: 0 # nativo mientras se junta el dataset; 224 en producción
+        camera_4:
+          enabled: true
+          x_px: 210               # de prueba: redibujar sobre el chorro de grano
+          y_px: 40
+          width_px: 180
+          height_px: 220
+          full_resolution: true
+          output_short_side_px: 0 # nativo mientras se junta el dataset; 224 en producción
       # ── El ciclo de medición ──────────────────────────────────────────────
       # El motor no lee ninguna de estas cuatro: emite un resultado por frame y no
       # promedia. Las lee `system/camera/capture_scheduler.py`, que junta los N resultados
@@ -317,14 +332,14 @@ image_collector:
   enabled: false                # se prende y se apaga en caliente
   cameras: []                   # slots que se guardan; [] = todas, también las que se agreguen
                                 # después. Con una lista, una cámara nueva no entra hasta sumarla
-  pipelines: []                 # de qué pipelines se guardan resultados; [] = todos
+  pipelines: [pipeline_1]      # de qué pipelines se guardan resultados; [] = todos
   # on_demand: cada guardado lo pide quien orquesta el ciclo de medición, una vez por
   # medición, que es lo que sirve cuando la inferencia corre cada varios minutos y la luz
   # se enciende solo para la captura; sin ningún pipeline con `frames_per_cycle` > 1 no
   # guarda nunca. interval: el recolector guarda por su cuenta un frame por cámara cada
   # tanto, para los proyectos que infieren de continuo. Cambiar el modo toma efecto al
   # reiniciar la aplicación.
-  mode: on_demand               # on_demand | interval
+  mode: interval                # on_demand | interval
   interval_min_s: 60            # solo en modo interval: ventana al azar entre guardados
   interval_max_s: 600           # iguales al mínimo = guardado periódico
   max_images: 10000             # tope por cámara; al llegar se borra el guardado más viejo
@@ -573,8 +588,8 @@ cameras:
       gain: 1.0
     decode:
       backend: auto
-      width_px: 0
-      height_px: 0
+      width_px: 640
+      height_px: 360
     roi:
       enabled: false
       x_px: 0
@@ -610,8 +625,8 @@ cameras:
       gain: 1.0
     decode:
       backend: auto
-      width_px: 0
-      height_px: 0
+      width_px: 640
+      height_px: 360
     roi:
       enabled: false
       x_px: 0
