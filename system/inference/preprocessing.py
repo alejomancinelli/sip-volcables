@@ -73,13 +73,14 @@ def build_camera_views(config: ConfigManager,
     """
     views: dict[str, dict[str, dict]] = {}
     for pipeline_slot in pipeline_slots:
-        section = f"inference.pipelines.{pipeline_slot}"
-        rois = config.get(f"{section}.roi", {}) or {}
-        cameras = config.get(f"{section}.cameras", []) or []
-        if not isinstance(rois, dict):
+        section = config.get(f"inference.pipelines.{pipeline_slot}", {}) or {}
+        if not isinstance(section, dict) or not isinstance(section.get("roi"), dict):
             continue
-        for camera_slot, roi in rois.items():
-            if (not isinstance(roi, dict) or not roi.get("enabled", False)
+        rois = section["roi"]
+        cameras = section.get("cameras", []) or []
+        for camera_slot in rois:
+            roi = select_pipeline_roi(section, camera_slot)
+            if (roi is None or not roi.get("enabled", False)
                     or not roi.get("full_resolution", False)):
                 continue
             if cameras and camera_slot not in cameras:
@@ -94,6 +95,21 @@ def build_camera_views(config: ConfigManager,
             views.setdefault(camera_slot, {})[pipeline_slot] = {
                 key: roi.get(key, 0) for key in _VIEW_KEYS}
     return views
+
+
+def select_pipeline_roi(pipeline_section: object, camera_slot: str) -> dict | None:
+    """
+    El ROI propio de un pipeline en esa cámara, desde la sección entera del pipeline, o
+    None si no declara uno —y rige el de la cámara—.
+
+    Se lee de la sección y no de la clave `…roi.<cámara>`, que falta en el caso normal: el
+    config avisa cada clave ausente, y un pipeline sin ROI propio no es una advertencia.
+    """
+    if not isinstance(pipeline_section, dict):
+        return None
+    rois = pipeline_section.get("roi")
+    roi = rois.get(camera_slot) if isinstance(rois, dict) else None
+    return roi if isinstance(roi, dict) else None
 
 
 def _is_preprocessed(config: ConfigManager, camera_slot: str) -> bool:
