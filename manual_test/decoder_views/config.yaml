@@ -1,6 +1,6 @@
 # Config de view_check.py, separada del config.yaml de la app. Sólo lleva cámaras: lo que
 # lee el driver RTSP, más `decode.views`, que en la app arma el cableado con los ROI de los
-# pipelines que piden `full_resolution` y acá se declara a mano.
+# pipelines con ROI en una cámara que decodifica video y acá se declara a mano.
 #
 # La clave nombra el caso a probar, no un slot físico de cámara. Las credenciales no van
 # acá: van al `.env` de la raíz, que el script carga antes de armar los drivers.

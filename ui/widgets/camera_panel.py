@@ -5,30 +5,33 @@ Un panel por slot de `cameras:`. Recibe frames y estado por sus slots
 —`update_frame()` y `update_status()`—, que es lo que un CaptureThread emite, y no
 sabe de dónde salieron: la grilla o la vista de monitor los conecta.
 
-El recuadro del ROI se dibuja acá porque es una referencia de la configuración de la
-cámara, no del resultado: lo que dibuja la inferencia ya viene pintado en el frame
-anotado que emite el motor.
+Las regiones de los pipelines se dibujan acá, en modo crudo, porque son una referencia de la
+configuración y no del resultado. En modo anotado no: el overlay ya las dibujó en el frame
+—con el mismo color y el mismo nombre— y redibujarlas las duplicaría.
 """
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QEvent, Qt, Signal, Slot
-from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
+from PySide6.QtCore import QEvent, QRect, Qt, Signal, Slot
+from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout,
 )
 
 from system.config_manager import ConfigManager
+from system.inference import overlay
+from system.inference.regions import PipelineRegion, clip_roi_px, list_camera_regions
+from system.video.abstract_video_server import MODE_RAW
 
-from ui import theme
 from ui.strings import tr
+from ui.widgets.region_canvas import paint_region_box
 from ui.widgets.status_chip import CHIP_ERROR, CHIP_INFO, CHIP_OK, CHIP_WARNING, StatusChip
 
 _MIN_VIDEO_WIDTH_PX = 320
 _MIN_VIDEO_HEIGHT_PX = 200
 # Ancho mínimo del panel, fijo a propósito: ver `__init__`.
 _MIN_PANEL_WIDTH_PX = 360
-_ROI_PEN_WIDTH_PX = 2
+_REGION_PEN_WIDTH_PX = 2
 
 
 class CameraPanel(QGroupBox):
@@ -55,6 +58,9 @@ class CameraPanel(QGroupBox):
         self._last_frame: np.ndarray | None = None
         self._last_raw_frame: np.ndarray | None = None
         self._is_dark = True
+        self._mode = MODE_RAW
+        self._regions: list[PipelineRegion] = []
+        self._regions_revision: object = object()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 16, 6, 6)
@@ -123,6 +129,11 @@ class CameraPanel(QGroupBox):
         self._last_raw_frame = _to_bgr(frame_bgr)
         self.frame_updated.emit(self._last_raw_frame)
 
+    def set_mode(self, mode: str):
+        """El modo de video que se está mostrando. Las regiones se dibujan sólo en crudo."""
+        self._mode = mode
+        self._repaint()
+
     def apply_theme(self, dark: bool):
         self._is_dark = dark
 
@@ -190,7 +201,7 @@ class CameraPanel(QGroupBox):
         image = QImage(shown.data, target_px[0], target_px[1], 3 * target_px[0],
                        QImage.Format_BGR888)
         pixmap = QPixmap.fromImage(image)
-        self._draw_roi(pixmap, width, height)
+        self._draw_regions(pixmap, width, height)
         self._video_label.setPixmap(pixmap)
 
     @Slot(object)
@@ -235,21 +246,35 @@ class CameraPanel(QGroupBox):
         self._video_label.clear()
         self._video_label.setText(tr("camera_no_signal"))
 
-    def _draw_roi(self, pixmap: QPixmap, frame_width_px: int, frame_height_px: int):
-        roi = self._config.get(f"cameras.{self._camera_slot}.roi", {}) or {}
-        width_px = int(roi.get("width_px", 0))
-        height_px = int(roi.get("height_px", 0))
-        if not roi.get("enabled") or width_px <= 0 or height_px <= 0:
+    def _read_regions(self) -> list[PipelineRegion]:
+        """Las regiones de los pipelines prendidos que miran esta cámara; se leen al cambiar el config."""
+        revision = getattr(self._config, "revision", None)
+        if revision != self._regions_revision:
+            self._regions_revision = revision
+            self._regions = list_camera_regions(
+                self._config.get("inference.pipelines", {}) or {}, self._camera_slot)
+        return self._regions
+
+    def _draw_regions(self, pixmap: QPixmap, frame_width_px: int, frame_height_px: int):
+        if self._mode != MODE_RAW:
             return
-        scale_x = pixmap.width() / frame_width_px
-        scale_y = pixmap.height() / frame_height_px
-        painter = QPainter(pixmap)
-        painter.setPen(QPen(theme.get_color("roi_outline", self._is_dark), _ROI_PEN_WIDTH_PX))
-        painter.drawRect(
-            int(int(roi.get("x_px", 0)) * scale_x), int(int(roi.get("y_px", 0)) * scale_y),
-            int(width_px * scale_x), int(height_px * scale_y),
-        )
-        painter.end()
+        scale = pixmap.width() / frame_width_px
+        painter = None
+        for region in self._read_regions():
+            rect_px = clip_roi_px(region.roi, frame_width_px, frame_height_px)
+            if rect_px is None:
+                continue
+            if painter is None:
+                painter = QPainter(pixmap)
+            style = overlay.get_pipeline_style(region.index)
+            x_px, y_px, width_px, height_px = rect_px
+            paint_region_box(
+                painter,
+                QRect(int(x_px * scale), int(y_px * scale),
+                      int(width_px * scale), int(height_px * scale)),
+                region.name, style.color_bgr, style.is_dashed, _REGION_PEN_WIDTH_PX)
+        if painter is not None:
+            painter.end()
 
 
 def _to_bgr(frame: np.ndarray) -> np.ndarray:

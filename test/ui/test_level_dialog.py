@@ -6,6 +6,7 @@ Construye widgets, así que usa un `QApplication` sin pantalla —plataforma `of
 
 import os
 
+import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -13,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication                              # noqa: E402
 
 from ui.dialogs.level_dialog import LevelDialog                         # noqa: E402
+from ui.widgets.pause_button import PauseButton                         # noqa: E402
 
 _KEY = "process.stopper_check.raised_y_px.camera_1"
 
@@ -68,3 +70,12 @@ class TestLevelDialog:
         dialog._on_save_clicked()
         assert config.written == {_KEY: 395}
         assert config.saved
+
+
+class TestPause:
+    def test_a_paused_dialog_keeps_the_frame_it_had(self):
+        dialog, _ = _dialog()
+        dialog.update_frame(np.full((240, 320, 3), 10, np.uint8))
+        dialog.findChild(PauseButton).click()
+        dialog.update_frame(np.full((240, 320, 3), 200, np.uint8))
+        assert dialog._last_frame[0, 0, 0] == 10

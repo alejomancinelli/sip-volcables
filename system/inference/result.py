@@ -27,6 +27,12 @@ Puntos del contrato que no se ven en los campos:
     fuera de rango»). Van aparte de `detections` porque no tienen forma ni posición, y
     aparte de `metrics` porque son texto: quien necesite publicarlos al PLC los traduce
     a un número o a un bit en el analyzer, que es el que sabe a qué equivalen.
+  - **`roi_state` es el veredicto del recuadro del ROI**: con qué estado se pinta la región
+    que mira el pipeline —`ROI_STATE_OK`, `ROI_STATE_NOK` o `ROI_STATE_WARNING`—, o
+    `ROI_STATE_NONE` si no dice nada. Lo declara el pipeline junto a sus `labels`, porque
+    sólo el código del proyecto sabe qué veredicto equivale a «bien» o «mal». Un resultado
+    con `is_valid` en False no se pinta aunque traiga un estado: sus números no son una
+    medición, y un recuadro verde sobre algo que no se midió es peor que ninguno.
   - **`signals` es la foto de las variables de la planta** —hoy, las que escribe el PLC por
     Modbus, por nombre de fila— **del instante en que el frame entró al motor**, no del
     instante en que salió. Es lo que lee el analyzer para calcular con un dato de afuera —la
@@ -57,6 +63,14 @@ REASON_LOW_CONFIDENCE = "low_confidence"    # confianza media por debajo del mí
 REASON_FEW_DETECTIONS = "few_detections"    # menos detecciones que el mínimo del pipeline
 REASON_ERROR = "error"                      # excepción en alguna etapa
 REASON_NO_VIEW = "no_view"                  # el pipeline pide la vista nativa y no llegó
+
+# Vocabulario de `roi_state`. Es el único lugar donde están los textos: el pipeline los
+# declara, el overlay los pinta y el JSON del dataset los guarda.
+ROI_STATE_NONE = ""
+ROI_STATE_OK = "ok"
+ROI_STATE_NOK = "nok"
+ROI_STATE_WARNING = "warning"
+ROI_STATES = (ROI_STATE_OK, ROI_STATE_NOK, ROI_STATE_WARNING)
 
 
 @dataclass
@@ -113,6 +127,7 @@ class InferenceResult:
     timestamp_s: float = field(default_factory=time.time)
     detections: list[Detection] = field(default_factory=list)
     labels: dict = field(default_factory=dict)           # veredictos de frame: {nombre: valor}
+    roi_state: str = ROI_STATE_NONE          # cómo se pinta el recuadro del ROI: ROI_STATE_*
     metrics: dict = field(default_factory=dict)
     confidence_pct: float = 0.0              # media de las detecciones que sobrevivieron
     inference_time_ms: float = 0.0           # frame completo: recorte, etapas y filtros
@@ -155,6 +170,7 @@ class InferenceResult:
             "stage_times_ms": dict(self.stage_times_ms),
             "roi_px": None if self.roi_px is None else list(self.roi_px),
             "labels": dict(self.labels),
+            "roi_state": self.roi_state,
             "metrics": dict(self.metrics),
             "signals": dict(self.signals),
             "detections": [detection.to_dict() for detection in self.detections],

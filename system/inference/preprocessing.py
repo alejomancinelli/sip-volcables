@@ -11,26 +11,41 @@ el que queda en `source_bgr` —y con él en el dataset—, el espacio del ROI y
 overlay. Lo usan la app y la corrida de imágenes sueltas, y por eso vive acá y no en
 `main.py`: dos lugares que arman el preprocessor son dos lugares que pueden discrepar.
 
-Acá se decide también qué **vistas** corta cada cámara (`build_camera_views()`): los ROI con
-`full_resolution` de los pipelines que corren. Es la otra mitad de la misma pregunta —qué
-imagen ve el modelo—, y tiene la misma restricción del otro lado: la vista sale del
-decodificador y no pasa por el preprocessor, así que en una cámara con corrección de lente
-o ajuste de imagen mediría otra imagen que el frame de referencia, y no se corta.
+Acá se decide también qué **vistas** corta cada cámara (`build_camera_views()`): el ROI de
+cada pipeline que corre, cortado del video nativo en vez del frame reducido. Es la otra mitad
+de la misma pregunta —qué imagen ve el modelo—, y lo decide la cámara y no un tilde del ROI:
+un driver que decodifica video (`rtsp`, `video_file`) corta siempre la vista, y uno de cámara
+GigE entrega el frame del sensor, así que su recorte ya es nativo. La excepción es la cámara
+con corrección de lente o ajuste de imagen: la vista sale del decodificador y no pasa por el
+preprocessor, así que mediría otra imagen que el frame de referencia. En esa cámara **todos**
+los ROI se cortan del frame de referencia —se avisa al arrancar—: la decisión es de la
+cámara y del config, no de cada frame, para que un pipeline no mida a veces una imagen y a
+veces otra.
+
+El tamaño al que sale cada vista es el que el modelo que la lee usaría igual
+(`AbstractPipeline.peek_view_input()`): así el VIC entrega la región ya a su entrada y el
+modelo no la reescala. No hay clave que lo pise: un tamaño elegido a mano es uno que puede
+quedar distinto del modelo que se instale después. Un modelo que no informa su entrada recibe
+la vista a tamaño nativo.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Mapping
 
 import numpy as np
 
 from system.config_manager import ConfigManager
 from system.logger import logger
+from tools.camera.camera_factory import can_cut_views
 from tools.image.enhance import build_image_adjust
 from tools.image.undistort import build_undistorter
 
+from .abstract_pipeline import AbstractPipeline
+from .regions import select_pipeline_roi
+
 Preprocessor = Callable[[np.ndarray, str], np.ndarray]
 
-# Lo que una vista copia del ROI del pipeline: la geometría y su tamaño de salida.
-_VIEW_KEYS = ("x_px", "y_px", "width_px", "height_px", "output_short_side_px")
+# Lo que una vista copia del ROI del pipeline: la geometría.
+_VIEW_KEYS = ("x_px", "y_px", "width_px", "height_px")
 
 
 def build_preprocessor(config: ConfigManager) -> Preprocessor | None:
@@ -60,59 +75,92 @@ def build_preprocessor(config: ConfigManager) -> Preprocessor | None:
     return _chain_preprocessors(undistorter, image_adjust)
 
 
-def build_camera_views(config: ConfigManager,
-                       pipeline_slots: Iterable[str]) -> dict[str, dict[str, dict]]:
+def can_cut_native(config: ConfigManager, camera_slot: str) -> bool:
     """
-    {cámara: {pipeline: vista}} para `decode.views`: el ROI de cada pipeline que lo pide
-    con `full_resolution`, en cada cámara que ese pipeline mira. La vista lleva el nombre
-    del pipeline, que es como el motor la busca.
+    True si el ROI de un pipeline en esa cámara se corta del video nativo.
 
-    Sólo los pipelines de `pipeline_slots` —los que corren—: cortar la vista de uno que no
-    arrancó sería VIC y copias que nadie lee. Una cámara con corrección de lente o ajuste
-    de imagen no corta ninguna, con un error en el log: su pipeline sale `no_view`.
+    Hace falta un driver que decodifique video y una cámara sin corrección de lente ni ajuste
+    de imagen. Lo demás —GigE, o una cámara con preprocessor— recorta el frame que ya hay.
+    """
+    return (can_cut_views(config.get(f"cameras.{camera_slot}", {}) or {})
+            and not is_preprocessed(config, camera_slot))
+
+
+def loses_native_cut(config: ConfigManager, camera_slot: str) -> bool:
+    """True si la cámara decodifica video pero su preprocessor impide cortar del nativo."""
+    return (can_cut_views(config.get(f"cameras.{camera_slot}", {}) or {})
+            and is_preprocessed(config, camera_slot))
+
+
+def list_view_cameras(config: ConfigManager, pipeline_slot: str) -> list[str]:
+    """
+    Las cámaras en las que el ROI de ese pipeline se corta del video nativo.
+
+    Es una función del config, y la usan los dos lados que tienen que coincidir: quien pide
+    las vistas al decodificador y el motor que las espera. Si cada uno lo decidiera por su
+    cuenta, un pipeline podría esperar una vista que nadie cortó.
+    """
+    section = config.get(f"inference.pipelines.{pipeline_slot}", {}) or {}
+    if not isinstance(section, dict):
+        return []
+    cameras = section.get("cameras") or []
+    return [camera_slot for camera_slot in (section.get("roi") or {})
+            if (not cameras or camera_slot in cameras)
+            and (select_pipeline_roi(section, camera_slot) or {}).get("enabled", False)
+            and can_cut_native(config, camera_slot)]
+
+
+def build_camera_views(config: ConfigManager,
+                       pipelines: Mapping[str, AbstractPipeline]) -> dict[str, dict[str, dict]]:
+    """
+    {cámara: {pipeline: vista}} para `decode.views`: el ROI de cada pipeline, en cada cámara
+    donde se corta del nativo (`list_view_cameras()`). La vista lleva el nombre del
+    pipeline, que es como el motor la busca.
+
+    Sólo los pipelines de `pipelines` —los que corren—: cortar la vista de uno que no
+    arrancó sería VIC y copias que nadie lee. El tamaño de salida sale de la entrada del
+    modelo que lee la región.
     """
     views: dict[str, dict[str, dict]] = {}
-    for pipeline_slot in pipeline_slots:
+    for pipeline_slot, pipeline in pipelines.items():
         section = config.get(f"inference.pipelines.{pipeline_slot}", {}) or {}
-        if not isinstance(section, dict) or not isinstance(section.get("roi"), dict):
+        _warn_if_not_native(config, pipeline_slot, section)
+        camera_slots = list_view_cameras(config, pipeline_slot)
+        if not camera_slots:
             continue
-        rois = section["roi"]
-        cameras = section.get("cameras", []) or []
-        for camera_slot in rois:
+        spec = pipeline.peek_view_input()
+        for camera_slot in camera_slots:
             roi = select_pipeline_roi(section, camera_slot)
-            if (roi is None or not roi.get("enabled", False)
-                    or not roi.get("full_resolution", False)):
-                continue
-            if cameras and camera_slot not in cameras:
-                continue
-            if _is_preprocessed(config, camera_slot):
-                logger.error(
-                    f"[Inference] {pipeline_slot} pide `full_resolution` en {camera_slot}, que "
-                    f"tiene corrección de lente o ajuste de imagen: la vista no pasa por ese "
-                    f"preprocessor, así que no se corta y el pipeline no infiere esa cámara."
-                )
-                continue
-            views.setdefault(camera_slot, {})[pipeline_slot] = {
-                key: roi.get(key, 0) for key in _VIEW_KEYS}
+            view: dict = {key: roi.get(key, 0) for key in _VIEW_KEYS}
+            if spec is not None:
+                view["output_box_px"] = [spec.width_px, spec.height_px]
+                view["output_covers"] = spec.crops_center
+            views.setdefault(camera_slot, {})[pipeline_slot] = view
+            logger.info(
+                f"[Inference] {pipeline_slot} en {camera_slot}: la región se corta del video "
+                f"nativo, " + (f"a la entrada del modelo ({spec.width_px}x{spec.height_px})."
+                               if spec is not None else
+                               "a tamaño nativo: el modelo no informa su entrada."))
     return views
 
 
-def select_pipeline_roi(pipeline_section: object, camera_slot: str) -> dict | None:
-    """
-    El ROI propio de un pipeline en esa cámara, desde la sección entera del pipeline, o
-    None si no declara uno —y rige el de la cámara—.
+def _warn_if_not_native(config: ConfigManager, pipeline_slot: str, section: object):
+    """Avisa de la cámara con driver de video donde el preprocessor impide el corte nativo."""
+    if not isinstance(section, dict):
+        return
+    cameras = section.get("cameras") or []
+    for camera_slot in (section.get("roi") or {}):
+        if cameras and camera_slot not in cameras:
+            continue
+        roi = select_pipeline_roi(section, camera_slot) or {}
+        if roi.get("enabled", False) and loses_native_cut(config, camera_slot):
+            logger.warning(
+                f"[Inference] {pipeline_slot} en {camera_slot}: la cámara tiene corrección de "
+                f"lente o ajuste de imagen, así que la región se corta del frame de "
+                f"referencia y no del video nativo: la vista no pasa por ese preprocessor.")
 
-    Se lee de la sección y no de la clave `…roi.<cámara>`, que falta en el caso normal: el
-    config avisa cada clave ausente, y un pipeline sin ROI propio no es una advertencia.
-    """
-    if not isinstance(pipeline_section, dict):
-        return None
-    rois = pipeline_section.get("roi")
-    roi = rois.get(camera_slot) if isinstance(rois, dict) else None
-    return roi if isinstance(roi, dict) else None
 
-
-def _is_preprocessed(config: ConfigManager, camera_slot: str) -> bool:
+def is_preprocessed(config: ConfigManager, camera_slot: str) -> bool:
     """True si el preprocessor le cambia algo al frame de esa cámara."""
     calibration = config.get(f"cameras.{camera_slot}.calibration", {}) or {}
     image_adjust = config.get(f"cameras.{camera_slot}.image_adjust", {}) or {}

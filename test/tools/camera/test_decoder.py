@@ -365,6 +365,56 @@ class TestComputeViewSize:
         assert compute_view_size(660, 540, 224) == (274, 224)
 
 
+class TestViewSizeFromABox:
+    """Sin un lado corto, la vista sale a lo que el modelo que la lee haría igual con ella."""
+
+    def test_a_classifier_covers_its_input_and_the_center_crop_is_all_it_does_after(self):
+        """Un recorte de 654x660 hacia una entrada de 224: el lado corto en 224 y el otro, redondeado
+        para arriba, como lo reduce el clasificador."""
+        assert compute_view_size(654, 660, 0, (224, 224), True) == (224, 227)
+
+    def test_a_square_crop_covers_a_square_input_exactly(self):
+        assert compute_view_size(540, 540, 0, (224, 224), True) == (224, 224)
+
+    def test_a_detector_fits_inside_its_input_keeping_the_shape(self):
+        """Un recorte 1495x1270 hacia 384x640: manda el lado que antes se llena."""
+        assert compute_view_size(1495, 1270, 0, (640, 384), False) == (452, 384)
+
+    def test_a_wide_crop_is_limited_by_the_width_of_the_input(self):
+        assert compute_view_size(1920, 540, 0, (640, 384), False) == (640, 180)
+
+    def test_it_never_enlarges_a_crop_that_is_smaller_than_the_input(self):
+        """Lo que falta lo pone el modelo: agrandar en el VIC sólo gasta ancho de banda."""
+        assert compute_view_size(100, 80, 0, (640, 384), False) == (100, 80)
+        assert compute_view_size(100, 80, 0, (224, 224), True) == (100, 80)
+
+    def test_an_explicit_short_side_wins_over_the_box(self):
+        assert compute_view_size(660, 540, 300, (224, 224), True) == (367, 300)
+
+    def test_without_a_box_or_a_short_side_it_is_the_native_crop(self):
+        assert compute_view_size(540, 660, 0, (0, 0), False) == (540, 660)
+
+    def test_a_box_with_a_zero_side_is_no_box(self):
+        assert compute_view_size(540, 660, 0, (224, 0), True) == (540, 660)
+
+    def test_the_view_is_planned_with_the_box(self):
+        view = ViewSettings("pipeline_1", _ROI, 0, (224, 224), True)
+        crop = plan_view(view, native_size=(1920, 1080), output_size=(640, 360), rotation=None)
+        assert crop.output_size == (224, 274)
+
+    def test_the_box_is_read_from_the_decode_section(self):
+        settings = read_decode_settings({"decode": {"backend": "cpu", "views": {
+            "pipeline_1": {"x_px": 1, "y_px": 2, "width_px": 30, "height_px": 40,
+                           "output_box_px": [224, 224], "output_covers": True}}}}, "camera_1")
+        assert settings.views == (ViewSettings("pipeline_1", (1, 2, 30, 40), 0, (224, 224), True),)
+
+    def test_a_malformed_box_is_ignored(self):
+        settings = read_decode_settings({"decode": {"backend": "cpu", "views": {
+            "pipeline_1": {"x_px": 1, "y_px": 2, "width_px": 30, "height_px": 40,
+                           "output_box_px": "big"}}}}, "camera_1")
+        assert settings.views[0].output_box_px == (0, 0)
+
+
 class TestPlanViews:
     def test_rejected_views_are_named(self):
         settings = DecodeSettings(BACKEND_CPU, 640, 360, (

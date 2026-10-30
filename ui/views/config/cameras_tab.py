@@ -13,8 +13,7 @@ El ajuste de imagen sí se edita, con una nota que dice qué cambia: es lo que m
 cámara y lo que guarda el dataset, no cómo se ve en pantalla.
 """
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from system.config_manager import ConfigManager
 from tools.camera.camera_catalog import CAMERA_CATALOG
@@ -25,7 +24,7 @@ from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
     add_check_row, add_form_row, add_hint_row, build_combo_box, build_double_spin_box,
     build_group_box, build_line_edit, build_readonly_line_edit, build_slot_tabs,
-    build_spin_box, build_value_combo_box, set_combo_data, wire_enable_toggle,
+    build_spin_box, build_value_combo_box, set_combo_data,
 )
 
 # Clave de idioma -> valor de `rotation` en el config. El valor es el que entiende el
@@ -39,7 +38,6 @@ _ROTATIONS = {
     "rotation_180":   "180",
 }
 
-_MAX_FRAME_SIDE_PX = 8192      # tope de los spin de ROI; cubre cualquier sensor del catálogo
 _MAX_EXPOSURE_US = 1000000
 _MAX_GAIN = 48.0
 _MAX_FPS = 240
@@ -50,11 +48,6 @@ class CamerasTab(AbstractConfigTab):
     """Sub-pestañas de cámara. Ver el contrato en `abstract_tab.py`."""
 
     TITLE_KEY = "tab_cameras"
-
-    # (slot de cámara, clave del config donde va el rectángulo, clave de idioma del título).
-    # La pestaña manda la clave porque es la dueña de su sección: quien abre el diálogo no
-    # tiene por qué saber dónde guarda sus cosas cada una.
-    open_roi_requested = Signal(str, str, str)
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
@@ -67,7 +60,6 @@ class CamerasTab(AbstractConfigTab):
 
         for camera_slot in (self._config.get("cameras", {}) or {}):
             form = _CameraForm(self._config, camera_slot)
-            form.open_roi_requested.connect(self.open_roi_requested)
             self._forms[camera_slot] = form
             tabs.addTab(form, form.camera_name)
 
@@ -79,17 +71,9 @@ class CamerasTab(AbstractConfigTab):
         for form in self._forms.values():
             form.save()
 
-    def reload_roi(self, camera_slot: str):
-        """Recarga los campos de ROI de una cámara tras guardar el diálogo interactivo."""
-        form = self._forms.get(camera_slot)
-        if form is not None:
-            form.load_roi()
-
 
 class _CameraForm(QWidget):
-    """Formulario de una sola cámara: conexión, adquisición, ROI, ajuste y calibración."""
-
-    open_roi_requested = Signal(str, str, str)
+    """Formulario de una sola cámara: conexión, adquisición, ajuste y calibración."""
 
     def __init__(self, config_manager: ConfigManager, camera_slot: str, parent=None):
         super().__init__(parent)
@@ -101,7 +85,6 @@ class _CameraForm(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self._build_connection_box())
         layout.addWidget(self._build_acquisition_box())
-        layout.addWidget(self._build_roi_box())
         layout.addWidget(self._build_image_adjust_box())
         layout.addWidget(self._build_calibration_box())
         layout.addStretch()
@@ -150,24 +133,6 @@ class _CameraForm(QWidget):
         self._illumination_spin = add_form_row(
             form, tr("cam_illumination_min"), build_spin_box(0, 100, 50)
         )
-        return box
-
-    def _build_roi_box(self) -> QWidget:
-        box, form = build_group_box(tr("cam_box_roi"))
-        self._roi_check = add_check_row(form, tr("cam_roi_enabled"), False)
-        self._roi_spins = {}
-        for key, label_key in (("x_px", "cam_roi_x"), ("y_px", "cam_roi_y"),
-                               ("width_px", "cam_roi_width"), ("height_px", "cam_roi_height")):
-            self._roi_spins[key] = add_form_row(
-                form, tr(label_key), build_spin_box(0, _MAX_FRAME_SIDE_PX, 0)
-            )
-        roi_button = QPushButton(tr("cam_roi_tool"))
-        roi_button.clicked.connect(
-            lambda: self.open_roi_requested.emit(
-                self._camera_slot, f"{self._prefix}.roi", "roi_title")
-        )
-        form.addRow("", roi_button)
-        wire_enable_toggle(self._roi_check, list(self._roi_spins.values()) + [roi_button])
         return box
 
     def _build_image_adjust_box(self) -> QWidget:
@@ -220,34 +185,11 @@ class _CameraForm(QWidget):
         self._brightness_spin.setValue(float(image_adjust.get("brightness_factor", 1.0) or 1.0))
         self._clahe_spin.setValue(float(image_adjust.get("clahe_clip", 0.0) or 0.0))
 
-        # La casilla se lee acá y no en `load_roi()`: son dos llamadores que quieren
-        # cosas distintas. Esto es la carga completa desde el archivo; `load_roi()` es el
-        # callback del diálogo, que sólo escribe geometría y no tiene que pisar lo que el
-        # operador acaba de tildar. Leerla en el lugar equivocado la dejó sin leer en
-        # ninguno, y como `save()` la escribe de vuelta, abrir la pestaña y guardar apagaba
-        # un ROI que estaba prendido.
-        roi_enabled = (self._config.get(f"{self._prefix}.roi", {}) or {}).get("enabled", False)
-        self._roi_check.setChecked(bool(roi_enabled))
-        self.load_roi()
-
         calibration = self._config.get(f"{self._prefix}.calibration", {}) or {}
         has_matrix = bool(calibration.get("camera_matrix"))
         self._calibration_field.setText(
             tr("cam_calibration_set") if has_matrix else tr("cam_calibration_unset")
         )
-
-    def load_roi(self):
-        """
-        Recarga sólo la geometría del ROI: es lo único que cambia el diálogo interactivo.
-
-        **El `enabled` no se toca a propósito.** El diálogo escribe las cuatro coordenadas
-        y nada más, así que releer la casilla desde el archivo pisaría lo que el operador
-        acaba de marcar y todavía no guardó — y como los campos y el botón cuelgan de esa
-        casilla, se apagan solos justo después de definir el ROI.
-        """
-        roi = self._config.get(f"{self._prefix}.roi", {}) or {}
-        for key, spin in self._roi_spins.items():
-            spin.setValue(int(roi.get(key, 0)))
 
     def save(self):
         brand_key = self._brand_combo.currentData()
@@ -273,10 +215,6 @@ class _CameraForm(QWidget):
         self._config.set(f"{self._prefix}.image_adjust.brightness_factor",
                          self._brightness_spin.value())
         self._config.set(f"{self._prefix}.image_adjust.clahe_clip", self._clahe_spin.value())
-
-        self._config.set(f"{self._prefix}.roi.enabled", self._roi_check.isChecked())
-        for key, spin in self._roi_spins.items():
-            self._config.set(f"{self._prefix}.roi.{key}", spin.value())
 
     # ── Internos ─────────────────────────────────────────────────────────────
 

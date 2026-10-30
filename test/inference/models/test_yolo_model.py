@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from system.inference.models import yolo_model
-from system.inference.models.abstract_model import STATUS_ERROR, STATUS_UNLOADED
+from system.inference.models.abstract_model import STATUS_ERROR, STATUS_UNLOADED, InputSpec
 from system.inference.models.yolo_model import (YoloClassificationModel, YoloDetectionModel,
                                                 YoloSegmentationModel, build_mask,
                                                 compute_letterbox, decode_candidates,
@@ -367,3 +367,42 @@ class TestClassificationModel:
         model.load()
         model.predict(np.zeros((360, 640, 3), np.uint8))
         assert model._runner.inputs[0].shape == (1, 3, 224, 224)
+
+
+class TestPeekInput:
+    """El tamaño de entrada se lee de la metadata del engine, antes de cargarlo."""
+
+    def test_a_square_size_is_read_as_height_and_width(self, tmp_path):
+        model = _model(YoloClassificationModel, tmp_path, metadata={"task": "classify", "imgsz": 224})
+        assert model.peek_input() == InputSpec(224, 224, True)
+
+    def test_a_rectangular_size_is_height_then_width(self, tmp_path):
+        model = _model(YoloDetectionModel, tmp_path, metadata={"task": "detect", "imgsz": [384, 640]})
+        assert model.peek_input() == InputSpec(384, 640, False)
+
+    def test_only_a_classifier_crops_the_center(self, tmp_path):
+        for model_class, crops in ((YoloClassificationModel, True), (YoloDetectionModel, False),
+                                   (YoloSegmentationModel, False)):
+            model = _model(model_class, tmp_path, metadata={"imgsz": 320})
+            assert model.peek_input().crops_center is crops
+
+    def test_it_does_not_load_the_model(self, runner, tmp_path):
+        model = _model(YoloDetectionModel, tmp_path, metadata={"imgsz": [384, 640]})
+        model.peek_input()
+        assert not model.is_loaded and model.status == "unloaded"
+
+    def test_an_engine_without_that_metadata_does_not_say(self, tmp_path):
+        assert _model(YoloDetectionModel, tmp_path).peek_input() is None
+        assert _model(YoloDetectionModel, tmp_path, metadata={"task": "detect"}).peek_input() is None
+
+    @pytest.mark.parametrize("imgsz", ["big", [1], [0, 640], [-3, 640], None, [1, 2, 3]])
+    def test_a_size_that_makes_no_sense_is_none(self, tmp_path, imgsz):
+        assert _model(YoloDetectionModel, tmp_path, metadata={"imgsz": imgsz}).peek_input() is None
+
+    def test_a_missing_file_is_none_and_does_not_raise(self, tmp_path):
+        model = _model(YoloDetectionModel, tmp_path, path=str(tmp_path / "nope.engine"))
+        assert model.peek_input() is None
+        assert model.error is None          # el motivo lo da load(), no esta pregunta
+
+    def test_a_section_without_a_path_is_none(self, tmp_path):
+        assert _model(YoloDetectionModel, tmp_path, path="").peek_input() is None

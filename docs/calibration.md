@@ -25,7 +25,7 @@ Depende del fork: el template no trae ninguno, y cada proyecto agrega los suyos.
 ## Antes de empezar
 
 - **La instalación tiene que arrancar.** El calibrador lee el mismo `config.yaml` que la
-  app —el de `installation/`—, así que las cámaras, el ROI y lo que dependa de la planta
+  app —el de `installation/`—, así que las cámaras, las regiones de los pipelines y lo que dependa de la planta
   tienen que estar configurados antes.
 - **Si el calibrador mira el video en vivo, la app tiene que estar cerrada.** Una cámara
   GigE la controla un solo programa por vez: con la app abierta, el calibrador no consigue

@@ -162,6 +162,8 @@ class RtspDriver(AbstractCameraDriver):
     va siempre por TCP.
     """
 
+    provides_views = True
+
     def __init__(self, config_cam: dict):
         super().__init__(config_cam)
         self._address = config_cam.get("address", "")

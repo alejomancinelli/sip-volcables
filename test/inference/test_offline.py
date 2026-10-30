@@ -201,10 +201,10 @@ class TestViews:
 
     def _config(self, **camera) -> _MockConfig:
         return _config(
-            cameras={"camera_1": {"decode": {"width_px": 80, "height_px": 60}, **camera}},
+            cameras={"camera_1": {"driver": "rtsp",
+                                  "decode": {"width_px": 80, "height_px": 60}, **camera}},
             pipelines={"pipeline_1": {"enabled": True, "cameras": [], "roi": {"camera_1": {
-                "enabled": True, "full_resolution": True,
-                "x_px": 10, "y_px": 10, "width_px": 20, "height_px": 20}}}})
+                "enabled": True, "x_px": 10, "y_px": 10, "width_px": 20, "height_px": 20}}}})
 
     def test_the_image_is_reduced_like_the_camera_does(self):
         [result] = _loaded(self._config()).run_image(_frame(), "camera_1")
@@ -224,3 +224,22 @@ class TestViews:
         frame = _frame()
         [result] = _loaded(_config()).run_image(frame, "camera_1")
         assert result.source_bgr is frame
+
+
+class TestViewsDependOnTheCamera:
+    def _config(self, driver: str) -> _MockConfig:
+        return _config(
+            cameras={"camera_1": {"driver": driver,
+                                  "decode": {"width_px": 80, "height_px": 60}}},
+            pipelines={"pipeline_1": {"enabled": True, "cameras": [], "roi": {"camera_1": {
+                "enabled": True, "x_px": 10, "y_px": 10, "width_px": 20, "height_px": 20}}}})
+
+    def test_a_gige_camera_gets_the_image_as_it_is_and_its_crop_is_native(self):
+        frame = _frame()
+        [result] = _loaded(self._config("basler_gige")).run_image(frame, "camera_1")
+        assert result.source_bgr.shape == frame.shape
+        assert result.is_valid and result.region_bgr.shape[:2] == (20, 20)
+
+    def test_a_video_camera_gets_the_view(self):
+        [result] = _loaded(self._config("rtsp")).run_image(_frame(), "camera_1")
+        assert result.region_bgr.shape[:2] == (40, 40)

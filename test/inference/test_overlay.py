@@ -5,10 +5,14 @@ Se verifica que el dibujado modifique los píxeles que corresponden, no cómo qu
 aspecto no es afirmable, la mutación sí.
 """
 
+import colorsys
+
 import numpy as np
 
 from system.inference import overlay
-from system.inference.result import Detection, InferenceResult
+from system.inference.result import (
+    ROI_STATE_NOK, ROI_STATE_OK, ROI_STATE_WARNING, Detection, InferenceResult,
+)
 
 _NO_EXTRAS = {"draw_timestamp": False, "draw_roi": False}
 
@@ -128,44 +132,6 @@ class TestDrawLine:
 
     def test_an_empty_frame_is_ignored(self):
         overlay.draw_line(np.zeros((0, 0, 3), np.uint8), (0, 0), (1, 1), (0, 0, 255))
-
-
-class TestCropToRoi:
-    """`crop_to_roi`: lo que se muestra es lo que se analizó, y nada se mapea de vuelta."""
-
-    _ROI = (40, 30, 100, 60)
-
-    def test_it_returns_only_the_roi(self):
-        annotated = overlay.annotate(
-            _result(roi_px=self._ROI),
-            overlay.OverlayOptions(crop_to_roi=True, **_NO_EXTRAS))
-        assert annotated.shape[:2] == (60, 100)
-
-    def test_without_a_roi_it_returns_the_whole_frame(self):
-        annotated = overlay.annotate(
-            _result(roi_px=None),
-            overlay.OverlayOptions(crop_to_roi=True, **_NO_EXTRAS))
-        assert annotated.shape[:2] == _frame().shape[:2]
-
-    def test_it_does_not_frame_its_own_border(self):
-        """Recuadrar el recorte marca el borde de la imagen: no dice nada."""
-        options = overlay.OverlayOptions(crop_to_roi=True, draw_roi=True,
-                                         draw_timestamp=False)
-        annotated = overlay.annotate(_result(roi_px=self._ROI, detections=[]), options)
-        assert _changed_pixels(annotated, np.full_like(annotated, 128)) == 0
-
-    def test_the_detections_move_with_the_crop(self):
-        """Se dibujan con el origen del ROI restado, sin tocar la detección."""
-        detection = _detection(bbox_px=(50, 40, 70, 60))
-        result = _result(roi_px=self._ROI, detections=[detection])
-        annotated = overlay.annotate(
-            result, overlay.OverlayOptions(crop_to_roi=True, draw_boxes=True,
-                                           draw_labels=False, **_NO_EXTRAS))
-        # La caja arranca en (50-40, 40-30) dentro del recorte.
-        assert _changed_pixels(annotated[:5, :5], np.full((5, 5, 3), 128, np.uint8)) == 0
-        assert _changed_pixels(annotated[10:30, 10:30],
-                               np.full((20, 20, 3), 128, np.uint8)) > 0
-        assert detection.bbox_px == (50, 40, 70, 60)   # el que va al dataset y al PLC
 
 
 class TestMaskStyle:
@@ -405,3 +371,206 @@ class TestOverlappingFill:
             draw_boxes=False, draw_labels=False,
             mask_style=overlay.MASK_STYLE_OUTLINE))
         assert _changed_pixels(_frame(), frame) > 0
+
+
+def _hue_deg(color_bgr: tuple) -> float:
+    blue, green, red = (channel / 255 for channel in color_bgr)
+    hue, _saturation, _value = colorsys.rgb_to_hsv(red, green, blue)
+    return hue * 360
+
+
+def _saturation(color_bgr: tuple) -> float:
+    blue, green, red = (channel / 255 for channel in color_bgr)
+    return colorsys.rgb_to_hsv(red, green, blue)[1]
+
+
+class TestPipelineStyle:
+    def test_no_color_is_green_red_or_yellow(self):
+        """Esos tres son del estado: un pipeline que los usara de identidad se confundiría con un veredicto."""
+        for color in overlay.PIPELINE_COLORS_BGR:
+            if _saturation(color) < 0.2:       # el blanco no tiene tono
+                continue
+            hue = _hue_deg(color)
+            assert 165 < hue < 335, f"{color} cae en el rango de rojo, amarillo o verde"
+
+    def test_the_colors_are_different(self):
+        assert len(set(overlay.PIPELINE_COLORS_BGR)) == len(overlay.PIPELINE_COLORS_BGR)
+
+    def test_the_first_lap_is_solid(self):
+        for index, color in enumerate(overlay.PIPELINE_COLORS_BGR):
+            assert overlay.get_pipeline_style(index) == overlay.PipelineStyle(color, False)
+
+    def test_the_second_lap_repeats_the_colors_dashed(self):
+        count = len(overlay.PIPELINE_COLORS_BGR)
+        for index in range(count):
+            first = overlay.get_pipeline_style(index)
+            second = overlay.get_pipeline_style(index + count)
+            assert second == overlay.PipelineStyle(first.color_bgr, True)
+
+    def test_two_pipelines_never_look_the_same(self):
+        styles = {overlay.get_pipeline_style(index)
+                  for index in range(2 * len(overlay.PIPELINE_COLORS_BGR))}
+        assert len(styles) == 2 * len(overlay.PIPELINE_COLORS_BGR)
+
+    def test_a_negative_index_is_the_first(self):
+        assert overlay.get_pipeline_style(-3) == overlay.get_pipeline_style(0)
+
+
+class TestDrawRoi:
+    _BLUE = overlay.PIPELINE_COLORS_BGR[0]
+    _ROI = (40, 30, 100, 60)
+
+    def _draw(self, **option_fields) -> np.ndarray:
+        frame = _frame()
+        overlay.draw_roi(frame, self._ROI, options=overlay.OverlayOptions(
+            roi_color_bgr=self._BLUE, **option_fields))
+        return frame
+
+    def _has_color_near(self, frame: np.ndarray, x_px: int, y_px: int) -> bool:
+        window = frame[y_px - 2:y_px + 3, x_px]
+        return bool(np.any(np.all(window == self._BLUE, axis=1)))
+
+    def test_it_draws_the_border_in_the_pipeline_color(self):
+        frame = self._draw()
+        assert self._has_color_near(frame, 100, 90)       # borde de abajo
+        assert self._has_color_near(frame, 100, 30)       # borde de arriba
+
+    def test_it_leaves_the_inside_alone(self):
+        frame = self._draw()
+        assert not np.any(np.all(frame[40:80, 50:130] == self._BLUE, axis=2))
+
+    def test_a_label_names_the_pipeline_on_the_corner(self):
+        with_label = self._draw(roi_label="pipeline_1")
+        without = self._draw()
+        assert _changed_pixels(with_label, without) > 0
+
+    def test_an_accented_name_is_drawn_without_its_accents(self, monkeypatch):
+        """La fuente de OpenCV sólo dibuja ASCII: «ó» saldría como «??»."""
+        texts = []
+        real_put_text = overlay.cv2.putText
+        monkeypatch.setattr(overlay.cv2, "putText",
+                            lambda frame, text, *args: texts.append(text)
+                            or real_put_text(frame, text, *args))
+        self._draw(roi_label="Verificación de calza ñ")
+        assert texts == ["Verificacion de calza n"]
+
+    def test_without_options_it_is_the_old_grey_box_without_a_name(self):
+        frame = _frame()
+        overlay.draw_roi(frame, self._ROI)
+        assert not np.any(np.all(frame == self._BLUE, axis=2))
+        assert _changed_pixels(frame, _frame()) > 0
+
+    def test_a_dashed_border_leaves_gaps_a_solid_one_does_not(self):
+        solid = self._draw()
+        dashed = self._draw(roi_is_dashed=True)
+        row_solid = int(np.count_nonzero(np.all(solid[90, 40:140] == self._BLUE, axis=1)))
+        row_dashed = int(np.count_nonzero(np.all(dashed[90, 40:140] == self._BLUE, axis=1)))
+        assert 0 < row_dashed < row_solid
+
+    def test_an_empty_frame_is_ignored(self):
+        overlay.draw_roi(np.zeros((0, 0, 3), np.uint8), self._ROI)
+
+    def test_annotate_draws_it_with_the_options_of_its_pipeline(self):
+        options = overlay.OverlayOptions(draw_timestamp=False, roi_color_bgr=self._BLUE)
+        annotated = overlay.annotate(_result(roi_px=self._ROI, detections=[]), options)
+        assert self._has_color_near(annotated, 100, 90)
+
+    def test_annotate_draws_nothing_without_a_roi(self):
+        options = overlay.OverlayOptions(draw_timestamp=False, roi_color_bgr=self._BLUE)
+        annotated = overlay.annotate(_result(roi_px=None, detections=[]), options)
+        assert _changed_pixels(annotated, _frame()) == 0
+
+
+class TestRoiState:
+    """El borde del ROI se pinta por el veredicto, y un resultado inválido nunca de estado."""
+
+    _BLUE = overlay.PIPELINE_COLORS_BGR[0]
+    _ROI = (40, 30, 100, 60)
+
+    def _annotate(self, **result_fields) -> np.ndarray:
+        options = overlay.OverlayOptions(draw_timestamp=False, roi_color_bgr=self._BLUE,
+                                         roi_label="p1")
+        return overlay.annotate(
+            _result(roi_px=self._ROI, detections=[], **result_fields), options)
+
+    def _bottom_edge(self, frame: np.ndarray) -> list:
+        """Los píxeles de la mitad del borde de abajo, lejos de la etiqueta."""
+        return [tuple(pixel) for pixel in frame[88:94, 100]]
+
+    def _has(self, frame: np.ndarray, color: tuple) -> bool:
+        return color in self._bottom_edge(frame)
+
+    def test_the_state_colors_are_green_red_and_yellow_and_none_of_a_pipeline(self):
+        assert set(overlay.ROI_STATE_COLORS_BGR) == {ROI_STATE_OK, ROI_STATE_NOK, ROI_STATE_WARNING}
+        assert not set(overlay.ROI_STATE_COLORS_BGR.values()) & set(overlay.PIPELINE_COLORS_BGR)
+
+    def test_the_state_colors_are_in_the_ranges_the_pipelines_avoid(self):
+        for state, expected in ((ROI_STATE_OK, (75, 165)), (ROI_STATE_WARNING, (25, 75))):
+            hue = _hue_deg(overlay.ROI_STATE_COLORS_BGR[state])
+            assert expected[0] < hue < expected[1], state
+        red_hue = _hue_deg(overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK])
+        assert red_hue < 25 or red_hue > 335
+
+    def test_without_a_state_the_border_is_the_pipeline_color(self):
+        assert self._has(self._annotate(), self._BLUE)
+
+    def test_each_state_paints_its_color_and_not_the_pipeline_one(self):
+        for state, color in overlay.ROI_STATE_COLORS_BGR.items():
+            frame = self._annotate(roi_state=state)
+            assert self._has(frame, color), state
+            assert not self._has(frame, self._BLUE), state
+
+    def test_the_label_keeps_the_pipeline_color_and_says_the_verdict(self):
+        """Quien no distingue el verde del rojo igual lee «NOK»."""
+        painted = self._annotate(roi_state=ROI_STATE_NOK)
+        plain = self._annotate()
+        label_area = (slice(10, 32), slice(40, 100))
+        assert not np.array_equal(painted[label_area], plain[label_area])
+        assert np.any(np.all(painted[label_area] == self._BLUE, axis=2))
+
+    def test_nok_is_thicker_than_ok(self):
+        nok = self._annotate(roi_state=ROI_STATE_NOK)
+        ok = self._annotate(roi_state=ROI_STATE_OK)
+        count_nok = np.count_nonzero(np.all(nok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK], axis=1))
+        count_ok = np.count_nonzero(np.all(ok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK], axis=1))
+        assert count_nok > count_ok
+
+    def test_an_invalid_result_is_never_painted_with_a_state(self):
+        for state in overlay.ROI_STATE_COLORS_BGR:
+            frame = self._annotate(roi_state=state, is_valid=False, invalid_reason="dark_frame")
+            assert not any(self._has(frame, color)
+                           for color in overlay.ROI_STATE_COLORS_BGR.values()), state
+
+    def test_an_invalid_result_has_a_dashed_grey_border_and_its_reason(self):
+        invalid = self._annotate(roi_state=ROI_STATE_OK, is_valid=False,
+                                 invalid_reason="dark_frame")
+        solid = self._annotate()
+        row = invalid[90, 40:140]
+        grey = np.all(row == overlay._INVALID_ROI_BGR, axis=1)
+        assert 0 < np.count_nonzero(grey) < 100          # punteado: con huecos
+        assert not np.array_equal(invalid[10:32, 40:200], solid[10:32, 40:200])
+
+    def test_an_invalid_result_without_a_reason_still_says_it_is_invalid(self):
+        frame = self._annotate(is_valid=False, invalid_reason="")
+        assert not self._has(frame, self._BLUE)
+
+    def test_without_a_roi_there_is_nothing_to_paint(self):
+        options = overlay.OverlayOptions(draw_timestamp=False)
+        annotated = overlay.annotate(
+            _result(roi_px=None, detections=[], roi_state=ROI_STATE_NOK), options)
+        assert _changed_pixels(annotated, _frame()) == 0
+
+    def test_with_draw_roi_off_the_state_is_not_drawn_either(self):
+        options = overlay.OverlayOptions(draw_timestamp=False, draw_roi=False)
+        annotated = overlay.annotate(
+            _result(roi_px=self._ROI, detections=[], roi_state=ROI_STATE_NOK), options)
+        assert _changed_pixels(annotated, _frame()) == 0
+
+    def test_the_options_of_a_result_without_state_paint_as_before(self):
+        frame = _frame()
+        overlay.draw_roi(frame, self._ROI, options=overlay.OverlayOptions(
+            roi_color_bgr=self._BLUE))
+        assert self._has(frame, self._BLUE)
+
+    def test_a_state_outside_the_vocabulary_is_drawn_as_none(self):
+        assert self._has(self._annotate(roi_state="purple"), self._BLUE)

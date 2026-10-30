@@ -64,6 +64,7 @@ class VideoFileDriver(AbstractCameraDriver):
     """
 
     is_synthetic = True
+    provides_views = True
 
     def __init__(self, config_cam: dict):
         super().__init__(config_cam)
