@@ -7,12 +7,14 @@ Los modelos son dobles: acá se verifica el andamio de las etapas, no un framewo
 import numpy as np
 import pytest
 
-from system.inference.models.abstract_model import AbstractModel
+from system.inference.models.abstract_model import AbstractModel, InputSpec
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.pipeline import (
     GrainFlowPipeline, PersonPipeline, Pipeline, StopperPipeline,
 )
-from system.inference.result import Detection
+from system.inference.result import (
+    ROI_STATE_NOK, ROI_STATE_NONE, ROI_STATE_OK, Detection,
+)
 
 _PIPELINE = "pipeline_1"
 _SLOT = "camera_1"
@@ -301,6 +303,29 @@ class TestProjectPipelines:
         pipeline.run(_frame(), _SLOT)
         assert pipeline.labels == {"grain_flow": "none"}
 
+    def test_grain_flow_paints_the_roi_ok_when_grain_flows(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls",
+                                [_detection("no_flow", 30.0), _detection("flow", 80.0)])
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_OK
+
+    def test_grain_flow_paints_the_roi_nok_when_it_does_not(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls",
+                                [_detection("no_flow", 80.0), _detection("flow", 30.0)])
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NOK
+
+    def test_grain_flow_without_a_verdict_leaves_the_roi_alone(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls", [])
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+    def test_grain_flow_with_an_unknown_class_leaves_the_roi_alone(self, monkeypatch):
+        pipeline = self._loaded(monkeypatch, GrainFlowPipeline, "grain_cls",
+                                [_detection("dust", 90.0)])
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
     @pytest.mark.parametrize("pipeline_class, model_slot", [
         (StopperPipeline, "stopper_seg"),
     ])
@@ -316,3 +341,169 @@ class TestProjectPipelines:
                  _detection("class_7", 90.0)]
         pipeline = self._loaded(monkeypatch, PersonPipeline, "person_det", found)
         assert [d.class_name for d in pipeline.run(_frame(), _SLOT)] == ["person"]
+
+
+class _VerdictPipeline(AbstractPipeline):
+    """Declara el estado del recuadro según lo que encontró."""
+
+    model_slots = ("model_1",)
+
+    def __init__(self, config, pipeline_slot, state=ROI_STATE_NOK):
+        super().__init__(config, pipeline_slot)
+        self._state = state
+
+    def _run(self, frame_bgr, camera_slot):
+        detections = self._run_stage("model_1", frame_bgr)
+        self._set_roi_state(self._state if detections else ROI_STATE_NONE)
+        return detections
+
+
+def _verdict_pipeline(monkeypatch, state=ROI_STATE_NOK) -> _VerdictPipeline:
+    config = _MockConfig(model_1={"type": "mock"})
+    _install_models(monkeypatch, {"model_1": _FakeModel(config, "model_1")})
+    pipeline = _VerdictPipeline(config, _PIPELINE, state)
+    pipeline.load()
+    return pipeline
+
+
+class TestRoiState:
+    def test_a_pipeline_that_says_nothing_leaves_the_roi_without_a_state(self, monkeypatch):
+        config = _MockConfig(classifier={"type": "mock"}, segmenter={"type": "mock"})
+        _install_models(monkeypatch, {"classifier": _FakeModel(config, "classifier"),
+                                      "segmenter": _FakeModel(config, "segmenter")})
+        pipeline = _LabellingPipeline(config, _PIPELINE)
+        pipeline.load()
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+    def test_the_pipeline_declares_it_next_to_its_labels(self, monkeypatch):
+        pipeline = _verdict_pipeline(monkeypatch)
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NOK
+
+    def test_a_state_does_not_survive_the_next_frame(self, monkeypatch):
+        pipeline = _verdict_pipeline(monkeypatch)
+        pipeline.run(_frame(), _SLOT)
+        pipeline._models["model_1"].predict = lambda frame_bgr, previous=None: []
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+    def test_a_value_outside_the_vocabulary_is_ignored(self, monkeypatch):
+        pipeline = _verdict_pipeline(monkeypatch, state="purple")
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+    def test_unloading_clears_it(self, monkeypatch):
+        pipeline = _verdict_pipeline(monkeypatch)
+        pipeline.run(_frame(), _SLOT)
+        pipeline.unload()
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+
+class TestTemplateDemo:
+    """El pipeline del template pinta el recuadro por el veredicto sólo con un modelo sintético."""
+
+    def _pipeline(self, monkeypatch, *, synthetic: bool, detects: bool = True) -> Pipeline:
+        config = _MockConfig(model_1={"type": "mock"})
+        model = _FakeModel(config, "model_1")
+        model.is_synthetic = synthetic
+        if not detects:
+            model.predict = lambda frame_bgr, previous=None: []
+        _install_models(monkeypatch, {"model_1": model})
+        pipeline = Pipeline(config, _PIPELINE)
+        pipeline.load()
+        return pipeline
+
+    def test_a_synthetic_model_with_detections_is_ok(self, monkeypatch):
+        pipeline = self._pipeline(monkeypatch, synthetic=True)
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_OK
+
+    def test_a_synthetic_model_without_detections_is_nok(self, monkeypatch):
+        pipeline = self._pipeline(monkeypatch, synthetic=True, detects=False)
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NOK
+
+    def test_a_real_model_never_sets_a_state(self, monkeypatch):
+        """Con uno real el estado lo decide la lógica del proceso, no esta demostración."""
+        pipeline = self._pipeline(monkeypatch, synthetic=False)
+        pipeline.run(_frame(), _SLOT)
+        assert pipeline.roi_state == ROI_STATE_NONE
+
+
+class _PeekingModel(AbstractModel):
+    """Un modelo que sabe su entrada antes de cargarse."""
+
+    def __init__(self, config_manager, model_slot: str, spec):
+        super().__init__(config_manager, model_slot)
+        self._spec = spec
+
+    def load(self):
+        raise AssertionError("preguntar por la entrada no carga el modelo")
+
+    def predict(self, frame_bgr, previous=None):
+        return []
+
+    def unload(self):
+        pass
+
+    def peek_input(self):
+        return self._spec
+
+
+class TestViewInput:
+    """El primer modelo del pipeline dice de qué tamaño quiere la región, sin cargarse."""
+
+    def _pipeline(self, monkeypatch, pipeline_class, specs: dict):
+        import system.inference.abstract_pipeline as ap
+        config = _MockConfig()
+        monkeypatch.setattr(ap, "create_model", lambda config, model_slot:
+                            _PeekingModel(config, model_slot, specs.get(model_slot)))
+        return pipeline_class(config, _PIPELINE)
+
+    def test_it_is_the_input_of_the_first_stage(self, monkeypatch):
+        spec = InputSpec(224, 224, True)
+        pipeline = self._pipeline(monkeypatch, _TwoStagePipeline,
+                                  {"detector": spec, "classifier": InputSpec(64, 64, True)})
+        assert pipeline.view_model_slot == "detector"
+        assert pipeline.peek_view_input() == spec
+
+    def test_a_pipeline_can_name_another_stage(self, monkeypatch):
+        class _Second(_TwoStagePipeline):
+            @property
+            def view_model_slot(self):
+                return "classifier"
+
+        spec = InputSpec(64, 64, True)
+        pipeline = self._pipeline(monkeypatch, _Second, {"classifier": spec})
+        assert pipeline.peek_view_input() == spec
+
+    def test_a_model_that_does_not_say_gives_none(self, monkeypatch):
+        assert self._pipeline(monkeypatch, _TwoStagePipeline, {}).peek_view_input() is None
+
+    def test_it_does_not_load_any_stage(self, monkeypatch):
+        pipeline = self._pipeline(monkeypatch, _TwoStagePipeline,
+                                  {"detector": InputSpec(224, 224, True)})
+        pipeline.peek_view_input()
+        assert not pipeline.is_loaded
+
+    def test_a_pipeline_without_stages_has_none(self):
+        class _Empty(AbstractPipeline):
+            def _run(self, frame_bgr, camera_slot):
+                return []
+
+        pipeline = _Empty(_MockConfig(), _PIPELINE)
+        assert pipeline.view_model_slot == "" and pipeline.peek_view_input() is None
+
+    def test_a_model_that_knows_nothing_says_none_by_default(self):
+        class _Plain(AbstractModel):
+            def load(self):
+                pass
+
+            def predict(self, frame_bgr, previous=None):
+                return []
+
+            def unload(self):
+                pass
+
+        assert _Plain(_MockConfig(), "model_1").peek_input() is None

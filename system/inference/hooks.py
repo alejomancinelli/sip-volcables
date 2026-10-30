@@ -25,6 +25,7 @@ from system.config_manager import ConfigManager
 
 from . import annotations
 from .metrics import compute_metrics
+from .pipeline import FLOW_CLASS
 from .result import Detection, InferenceResult
 
 Classifier = Callable[[list[Detection], str], list[Detection]]
@@ -33,7 +34,6 @@ Analyzer = Callable[[InferenceResult], dict]
 PERSON_PIPELINE_TYPE = "person_safety"
 STOPPER_PIPELINE_TYPE = "stopper_check"
 
-_FLOW_CLASS = "flow"   # la clase de `grain_cls` que dice que cae grano
 # Las clases de `stopper_seg`.
 _STOPPER_CLASS = "stopper"
 _WHEEL_CLASS = "wheel"
@@ -86,7 +86,7 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     if has_grain_flow:
         person_pipelines, person_cameras = read_pipelines(config, PERSON_PIPELINE_TYPE)
         selected.append(annotations.unload_status_annotator(
-            flow_class=_FLOW_CLASS,
+            flow_class=FLOW_CLASS,
             person_pipelines=person_pipelines,
             person_cameras=set(person_cameras),
             exclusion_zone_px_by_camera=config.get(
