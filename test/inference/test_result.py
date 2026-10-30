@@ -4,8 +4,10 @@ espacio del frame de cámara y serialización.
 
 import numpy as np
 
-from system.inference.result import (Detection, InferenceResult, offset_detections,
-                                     scale_detections)
+from system.inference.result import (
+    ROI_STATE_NONE, ROI_STATE_NOK, ROI_STATES, Detection, InferenceResult, offset_detections,
+    scale_detections,
+)
 
 
 def _detection(**overrides) -> Detection:
@@ -143,3 +145,18 @@ class TestInferenceResult:
     def test_the_confidence_key_is_the_one_the_save_conditions_read(self):
         """`image_collector.conditions` filtra por 'confidence_pct': el nombre es contrato."""
         assert "confidence_pct" in InferenceResult(camera_slot="camera_1").to_dict()
+
+
+class TestRoiState:
+    def test_a_fresh_result_says_nothing_about_its_roi(self):
+        assert InferenceResult(camera_slot="camera_1").roi_state == ROI_STATE_NONE
+
+    def test_the_state_travels_in_the_dict(self):
+        """Lo guardado con el frame dice con qué estado se pintó el recuadro."""
+        result = InferenceResult(camera_slot="camera_1", roi_state=ROI_STATE_NOK)
+        assert result.to_dict()["roi_state"] == "nok"
+
+    def test_the_vocabulary_has_no_repeats_and_none_is_empty(self):
+        assert ROI_STATE_NONE == ""
+        assert len(set(ROI_STATES)) == len(ROI_STATES) == 3
+        assert ROI_STATE_NONE not in ROI_STATES

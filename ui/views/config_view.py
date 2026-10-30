@@ -54,6 +54,9 @@ class ConfigView(QWidget):
     # (slot de cámara, clave del config donde va el rectángulo, clave de idioma del título).
     # Lo manda la pestaña que lo pide: esta vista lo reenvía sin leerlo.
     open_roi_requested = Signal(str, str, str)
+    # (slot de cámara, slot del pipeline elegido): editar las regiones de los pipelines de esa
+    # cámara. Lo manda la pestaña que lo pide y esta vista lo reenvía sin leerlo.
+    open_regions_requested = Signal(str, str)
     # (slot de cámara, clave del config donde va la altura, clave de idioma del título). Igual
     # que el rectángulo: lo manda la pestaña que lo pide y esta vista lo reenvía sin leerlo.
     open_level_requested = Signal(str, str, str)
@@ -91,6 +94,11 @@ class ConfigView(QWidget):
             signal = getattr(tab, "open_roi_requested", None)
             if signal is not None:
                 signal.connect(partial(self._on_roi_requested, tab))
+        self._regions_requester = None
+        for tab in self._tabs:
+            signal = getattr(tab, "open_regions_requested", None)
+            if signal is not None:
+                signal.connect(partial(self._on_regions_requested, tab))
         self._level_requester = None
         for tab in self._tabs:
             signal = getattr(tab, "open_level_requested", None)
@@ -140,6 +148,11 @@ class ConfigView(QWidget):
         if self._roi_requester is not None:
             self._roi_requester.reload_roi(camera_slot)
 
+    def refresh_region_fields(self):
+        """Recarga las filas de región tras cerrarse el diálogo, sólo en la pestaña que lo pidió."""
+        if self._regions_requester is not None:
+            self._regions_requester.reload_regions()
+
     def refresh_level_fields(self, camera_slot: str):
         """Recarga la altura tras cerrarse su diálogo, sólo en la pestaña que la pidió."""
         if self._level_requester is not None:
@@ -179,6 +192,11 @@ class ConfigView(QWidget):
         """Recuerda quién pidió el rectángulo y reenvía el pedido tal cual."""
         self._roi_requester = tab
         self.open_roi_requested.emit(camera_slot, config_prefix, title_key)
+
+    def _on_regions_requested(self, tab, camera_slot: str, pipeline_slot: str):
+        """Recuerda quién pidió las regiones y reenvía el pedido tal cual."""
+        self._regions_requester = tab
+        self.open_regions_requested.emit(camera_slot, pipeline_slot)
 
     def _on_level_requested(self, tab, camera_slot: str, config_key: str, title_key: str):
         """Recuerda quién pidió la altura y reenvía el pedido tal cual."""

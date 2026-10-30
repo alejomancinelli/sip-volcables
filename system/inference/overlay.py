@@ -32,12 +32,15 @@ Dos restricciones que no se ven en las firmas:
 """
 
 import datetime
+import unicodedata
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import cv2
 import numpy as np
 
-from .result import Detection, InferenceResult
+from .result import (ROI_STATE_NOK, ROI_STATE_OK, ROI_STATE_WARNING, Detection,
+                     InferenceResult)
 
 # Paleta por índice de clase, en BGR. Se recorre en círculo, así que sirve para
 # cualquier cantidad de clases; el config la puede reemplazar entera.
@@ -49,6 +52,30 @@ DEFAULT_CLASS_COLORS_BGR = (
     (200, 120, 220),   # violeta
     (60, 60, 230),     # rojo
 )
+
+# Un color por pipeline para su ROI, en BGR. **Sin verde, rojo ni amarillo**: son los
+# colores del estado —un ROI que se pinta por su veredicto— y un pipeline que los usara de
+# identidad se confundiría con un resultado. Con más pipelines que colores se repiten, y
+# la segunda vuelta va punteada.
+PIPELINE_COLORS_BGR = (
+    (230, 130, 40),    # azul
+    (225, 215, 40),    # cian
+    (200, 60, 225),    # magenta
+    (215, 95, 135),    # violeta
+    (245, 245, 245),   # blanco
+)
+
+# Con qué se pinta el borde del ROI según el veredicto del pipeline (`roi_state`). Son los
+# tres colores que la paleta de pipelines no usa, para que un estado nunca se confunda con
+# una identidad. El texto va en la etiqueta además del color: no se puede perder la alarma
+# en un stream en blanco y negro ni para un operador daltónico.
+ROI_STATE_COLORS_BGR = {
+    ROI_STATE_OK: (80, 190, 70),        # verde
+    ROI_STATE_NOK: (50, 50, 225),       # rojo
+    ROI_STATE_WARNING: (30, 205, 250),  # amarillo
+}
+_ROI_STATE_TEXT = {ROI_STATE_OK: "OK", ROI_STATE_NOK: "NOK", ROI_STATE_WARNING: "WARN"}
+_INVALID_ROI_BGR = (150, 150, 150)      # un resultado que no es una medición no se pinta de estado
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _PANEL_BG_BGR = (0, 0, 0)
@@ -72,6 +99,9 @@ _LINE_PAD_RATIO = 0.4     # ídem, en fracción del alto del texto: crece con la
 _COLUMN_GAP = "  "        # aire entre la etiqueta y el valor, medido con la fuente del panel
 _TIMESTAMP_RATIO = 0.8    # el timestamp va más chico que el panel: es referencia, no dato
 _LABEL_SCALE = 0.55       # etiqueta de una referencia dibujada con draw_line()
+_ROI_THICKNESS_PX = 2
+_ROI_NOK_THICKNESS_PX = 4  # el rojo además engorda: es el que no se puede pasar por alto
+_DASH_LENGTH_PX = 10      # largo de un trazo y de su hueco en un ROI punteado
 
 # Escala automática (`font_scale: 0`). El texto se calcula para que la línea más larga
 # ocupe esta fracción del ancho del frame, con topes para que no quede ilegible en un
@@ -88,6 +118,13 @@ _TEXT_THICKNESS_STEP = 0.5
 _AUTO_LABEL_LINE = "M" * 44
 
 
+class PipelineStyle(NamedTuple):
+    """Cómo se dibuja el ROI de un pipeline: su color y si va punteado."""
+
+    color_bgr: tuple[int, int, int]
+    is_dashed: bool
+
+
 @dataclass
 class OverlayOptions:
     """
@@ -98,9 +135,10 @@ class OverlayOptions:
     `mask_style` elige entre relleno translúcido, contorno o los dos; `mask_alpha` es
     cuánto tiñe el relleno, y con cientos de instancias conviene bajarlo.
 
-    `crop_to_roi` devuelve anotado sólo el recorte que se analizó, en vez del frame
-    entero con el ROI marcado: es lo que quiere ver el operador cuando el ROI es una
-    fracción chica del sensor.
+    `roi_color_bgr`, `roi_is_dashed` y `roi_label` dicen cómo se dibuja el ROI de **este**
+    pipeline: su color, si va punteado y el nombre que lleva en el borde. Los arma el motor
+    desde el lugar del pipeline en el config; con los valores por defecto el ROI sale gris
+    y sin nombre, que es lo que corresponde a quien dibuja un resultado suelto.
 
     `font_scale` en 0 calcula el tamaño del texto a partir del ancho del frame. Es lo que
     hace falta cuando el lienzo cambia de tamaño —un recorte de 130 px y un frame de
@@ -114,10 +152,12 @@ class OverlayOptions:
     draw_labels: bool = True
     draw_roi: bool = True
     draw_timestamp: bool = True
-    crop_to_roi: bool = False
     font_scale: float = 0.6   # 0 = automática, según el ancho del frame
     thickness: int = 2
     class_colors_bgr: tuple = field(default_factory=tuple)
+    roi_color_bgr: tuple = _ROI_BGR
+    roi_is_dashed: bool = False
+    roi_label: str = ""
 
 
 def get_class_color_bgr(class_index: int, colors_bgr: tuple = ()) -> tuple[int, int, int]:
@@ -127,18 +167,25 @@ def get_class_color_bgr(class_index: int, colors_bgr: tuple = ()) -> tuple[int, 
     return (int(color[0]), int(color[1]), int(color[2]))
 
 
+def get_pipeline_style(index: int) -> PipelineStyle:
+    """
+    Color y trazo del ROI del pipeline que está en esa posición de `inference.pipelines`.
+
+    Recorre `PIPELINE_COLORS_BGR` en círculo y la segunda vuelta va punteada, así que dos
+    pipelines nunca se ven iguales aunque haya más que colores.
+    """
+    laps, color_index = divmod(max(0, int(index)), len(PIPELINE_COLORS_BGR))
+    return PipelineStyle(PIPELINE_COLORS_BGR[color_index], laps % 2 == 1)
+
+
 def annotate(result: InferenceResult, options: OverlayOptions | None = None, *,
              canvas_adjust=None) -> np.ndarray | None:
     """
     Devuelve una copia anotada de `result.source_bgr`, o None si no hay frame.
 
-    Dibuja, en este orden: el recuadro del ROI, las máscaras, las cajas con su etiqueta,
-    el panel de información y el timestamp. Un frame en escala de grises se convierte a
+    Dibuja, en este orden: el recuadro del ROI con el nombre del pipeline, las máscaras, las
+    cajas con su etiqueta, el panel de información y el timestamp. Un frame en escala de grises se convierte a
     BGR para que el color de cada clase se distinga.
-
-    Con `crop_to_roi` lo que vuelve es sólo el recorte analizado. Las detecciones están en
-    coordenadas del frame de referencia, así que se dibujan con el origen del ROI restado;
-    no se las modifica, porque el mismo resultado viaja al dataset y al PLC.
 
     `canvas_adjust` es `(frame) -> frame` y se aplica al lienzo **antes** de dibujar. Es
     para que el anotado se vea como el stream crudo, que sale ajustado para una persona: un
@@ -156,46 +203,27 @@ def annotate(result: InferenceResult, options: OverlayOptions | None = None, *,
     if canvas_adjust is not None:
         annotated = canvas_adjust(annotated)
 
-    offset_px = (0, 0)
-    cropped = opts.crop_to_roi and result.roi_px is not None
-    if cropped:
-        x_px, y_px, width_px, height_px = result.roi_px
-        annotated = np.ascontiguousarray(
-            annotated[y_px:y_px + height_px, x_px:x_px + width_px])
-        offset_px = (-x_px, -y_px)
-
-    # Recuadrar un recorte es marcar su propio borde: no dice nada.
-    if opts.draw_roi and result.roi_px is not None and not cropped:
-        draw_roi(annotated, result.roi_px)
-    draw_detections(annotated, result.detections, options=opts, offset_px=offset_px)
+    draw_result_roi(annotated, result, opts)
+    draw_detections(annotated, result.detections, options=opts)
     if opts.draw_timestamp:
         draw_timestamp(annotated, result.timestamp_s, options=opts)
     return annotated
 
 
 def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
-                    options: OverlayOptions | None = None,
-                    offset_px: tuple[int, int] = (0, 0)):
-    """
-    Dibuja in-place las máscaras, las cajas y las etiquetas, con el color de cada clase.
-
-    `offset_px` se suma a cada coordenada antes de dibujar, para pintar sobre un recorte
-    sin tocar las detecciones: son las mismas que van al dataset y al PLC.
-    """
+                    options: OverlayOptions | None = None):
+    """Dibuja in-place las máscaras, las cajas y las etiquetas, con el color de cada clase."""
     if frame_bgr is None or frame_bgr.size == 0:
         return
     opts = options or OverlayOptions()
     height_px, width_px = frame_bgr.shape[:2]
-    offset_x_px, offset_y_px = offset_px
 
     # Relleno por clase, acumulado y teñido una sola vez al final: ver `_stack_fill`.
     fill_by_color: dict = {}
 
     for detection in detections:
         color = get_class_color_bgr(detection.class_index, opts.class_colors_bgr)
-        raw_x1, raw_y1, raw_x2, raw_y2 = (int(value) for value in detection.bbox_px)
-        x1, y1 = raw_x1 + offset_x_px, raw_y1 + offset_y_px
-        x2, y2 = raw_x2 + offset_x_px, raw_y2 + offset_y_px
+        x1, y1, x2, y2 = (int(value) for value in detection.bbox_px)
         # Una detección que no toca el frame no se dibuja: acotarla contra el borde
         # dejaría una marca en la esquina que no corresponde a nada.
         if x2 <= 0 or y2 <= 0 or x1 >= width_px or y1 >= height_px:
@@ -223,13 +251,59 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
         _blend_fill(frame_bgr, fill, color, opts.mask_alpha)
 
 
-def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int]):
-    """Marca in-place el recorte que se analizó, para que se vea qué quedó afuera."""
+def draw_result_roi(frame_bgr: np.ndarray, result: InferenceResult, options: OverlayOptions):
+    """
+    Dibuja in-place el ROI de un resultado con el estado que le corresponde.
+
+    Es lo que dibujan el anotado propio de cada pipeline y el que se superpone al de otro
+    (`draw_onto`): los dos tienen que pintar igual. No dibuja con `draw_roi` apagado ni
+    sobre un resultado sin ROI —el frame entero no lleva recuadro—.
+    """
+    if not options.draw_roi or result.roi_px is None:
+        return
+    draw_roi(frame_bgr, result.roi_px, options=options, state=result.roi_state,
+             invalid_reason="" if result.is_valid else (result.invalid_reason or "invalid"))
+
+
+def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int], *,
+             options: OverlayOptions | None = None, state: str = "",
+             invalid_reason: str = ""):
+    """
+    Marca in-place el recorte que se analizó, para que se vea qué quedó afuera.
+
+    El color, el trazo y el nombre salen de las opciones: cada pipeline dibuja el suyo y
+    en una cámara con varios se distinguen. Encima va el estado:
+      - `state` (un `ROI_STATE_*`) pinta el borde del color del veredicto y lo escribe en
+        la etiqueta, y el `nok` además va más grueso;
+      - `invalid_reason` no vacío gana sobre `state`: el resultado no es una medición, así
+        que el borde va gris y punteado con el motivo, nunca de un color de estado.
+    La etiqueta conserva siempre el color del pipeline.
+    """
     if frame_bgr is None or frame_bgr.size == 0:
         return
-    x_px, y_px, width_px, height_px = roi_px
-    cv2.rectangle(frame_bgr, (int(x_px), int(y_px)),
-                  (int(x_px + width_px), int(y_px + height_px)), _ROI_BGR, 1)
+    opts = options or OverlayOptions()
+    color = opts.roi_color_bgr
+    is_dashed = opts.roi_is_dashed
+    thickness = _ROI_THICKNESS_PX
+    label = opts.roi_label
+    if invalid_reason:
+        color, is_dashed = _INVALID_ROI_BGR, True
+        label = f"{label} ({invalid_reason})".strip()
+    elif state in ROI_STATE_COLORS_BGR:
+        color, is_dashed = ROI_STATE_COLORS_BGR[state], False
+        if state == ROI_STATE_NOK:
+            thickness = _ROI_NOK_THICKNESS_PX
+        label = f"{label} {_ROI_STATE_TEXT[state]}".strip()
+
+    x_px, y_px, width_px, height_px = (int(value) for value in roi_px)
+    top_left = (x_px, y_px)
+    bottom_right = (x_px + width_px, y_px + height_px)
+    if is_dashed:
+        _draw_dashed_rectangle(frame_bgr, top_left, bottom_right, color, thickness)
+    else:
+        cv2.rectangle(frame_bgr, top_left, bottom_right, color, thickness)
+    if label:
+        _draw_label(frame_bgr, label, top_left, opts.roi_color_bgr, opts)
 
 
 def draw_line(frame_bgr: np.ndarray, start_px: tuple[int, int], end_px: tuple[int, int],
@@ -440,10 +514,41 @@ def _outline_mask(frame_bgr: np.ndarray, mask: np.ndarray,
         cv2.drawContours(frame_bgr, contours, -1, color, 1, offset=(x1, y1))
 
 
+def _draw_dashed_rectangle(frame_bgr: np.ndarray, top_left_px: tuple[int, int],
+                           bottom_right_px: tuple[int, int], color: tuple[int, int, int],
+                           thickness: int = _ROI_THICKNESS_PX):
+    """Rectángulo punteado in-place: trazos y huecos de `_DASH_LENGTH_PX`."""
+    x1, y1 = top_left_px
+    x2, y2 = bottom_right_px
+    sides = (((x1, y1), (x2, y1)), ((x2, y1), (x2, y2)),
+             ((x2, y2), (x1, y2)), ((x1, y2), (x1, y1)))
+    for (start_x, start_y), (end_x, end_y) in sides:
+        length_px = max(abs(end_x - start_x), abs(end_y - start_y))
+        for offset_px in range(0, length_px, 2 * _DASH_LENGTH_PX):
+            stop_px = min(offset_px + _DASH_LENGTH_PX, length_px)
+            ratio_start = offset_px / length_px
+            ratio_stop = stop_px / length_px
+            cv2.line(frame_bgr,
+                     (round(start_x + (end_x - start_x) * ratio_start),
+                      round(start_y + (end_y - start_y) * ratio_start)),
+                     (round(start_x + (end_x - start_x) * ratio_stop),
+                      round(start_y + (end_y - start_y) * ratio_stop)),
+                     color, thickness)
+
+
+def _to_drawable_text(text: str) -> str:
+    """
+    El texto sin tildes ni eñes: la fuente Hershey de OpenCV sólo dibuja ASCII, y el nombre
+    de un pipeline que pone el operador («Verificación de calza») saldría con «??».
+    """
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
 def _draw_label(frame_bgr: np.ndarray, text: str, origin_px: tuple[int, int],
                 color: tuple[int, int, int], options: OverlayOptions):
     """Etiqueta con fondo del color de la clase, pegada arriba de la caja."""
     x_px, y_px = origin_px
+    text = _to_drawable_text(text)
     # Con la escala en automático la etiqueta también se adapta: leer `font_scale` crudo
     # la dibujaba en cero, o sea invisible.
     font_scale = resolve_font_scale(frame_bgr, [_AUTO_LABEL_LINE], options)

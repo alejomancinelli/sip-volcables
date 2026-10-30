@@ -33,16 +33,19 @@ sin que nadie se entere.
 **Vistas.** Reducir el frame le quita detalle a un modelo que mira una zona chica. Una
 vista es un rectángulo del frame que se corta del video **nativo**, antes de reducirlo, y
 se entrega aparte con cada frame (`FrameView`). Se piden en `decode.views` —el cableado las
-arma con los ROI de los pipelines que piden `full_resolution`—:
+arma con el ROI de cada pipeline que corre en esa cámara—:
 
     views:
       pipeline_1: {x_px: 210, y_px: 40, width_px: 180, height_px: 220,
-                   output_short_side_px: 224}
+                   output_short_side_px: 224}      # 0 = el que pida `output_box_px`
 
 El rectángulo está en el frame que entrega la cámara —reducido y rotado—, que es el que se
 ve y se dibuja; el corte se calcula contra el tamaño nativo cuando se conoce, al abrir.
-`output_short_side_px` reduce la vista conservando su forma: el lado corto a esos px, 0 =
-el tamaño nativo del recorte. La imagen sale sin rotar, como el frame: rotar es del driver.
+`output_short_side_px` reduce la vista conservando su forma: el lado corto a esos px. Sin él,
+`output_box_px` —la entrada del modelo que la lee— dice a qué tamaño llevarla para que el
+modelo no tenga que reescalarla (`output_covers` si después recorta el centro, como un
+clasificador, y no si rellena, como un detector); sin ninguno de los dos, el tamaño nativo del
+recorte. La imagen sale sin rotar, como el frame: rotar es del driver.
 
     NVDEC → tee ─┬─ VIC: reduce ───────────────► frame
                  └─ VIC: corta en nativo (5-tap) ► vista, apareada con el frame por PTS
@@ -129,7 +132,13 @@ class ViewSettings(NamedTuple):
 
     name: str
     rect_px: tuple[int, int, int, int]   # x, y, ancho, alto en el frame que entrega la cámara
-    output_short_side_px: int            # lado corto de la vista; 0 = el del recorte nativo
+    output_short_side_px: int            # lado corto de la vista; 0 = ver `output_box_px`
+    # Caja a la que llevar la vista cuando no se pide un lado corto —la entrada del modelo
+    # que la va a leer—: (ancho, alto), (0, 0) = el tamaño del recorte nativo. Con
+    # `output_covers` la vista cubre la caja (el modelo recorta el centro); sin él entra
+    # en la caja (el modelo rellena). Nunca agranda: lo que falta lo pone el modelo.
+    output_box_px: tuple[int, int] = (0, 0)
+    output_covers: bool = False
 
 
 class DecodeSettings(NamedTuple):
@@ -226,8 +235,12 @@ def _read_views(section: object, label: str) -> tuple[ViewSettings, ...]:
             continue
         rect_px = tuple(max(0, int(view.get(key, 0) or 0))
                         for key in ("x_px", "y_px", "width_px", "height_px"))
+        box = view.get("output_box_px") or (0, 0)
+        output_box_px = (max(0, int(box[0])), max(0, int(box[1]))) \
+            if isinstance(box, (list, tuple)) and len(box) == 2 else (0, 0)
         views.append(ViewSettings(str(name), rect_px,
-                                  max(0, int(view.get("output_short_side_px", 0) or 0))))
+                                  max(0, int(view.get("output_short_side_px", 0) or 0)),
+                                  output_box_px, bool(view.get("output_covers", False))))
     return tuple(views)
 
 
@@ -267,7 +280,8 @@ def plan_view(view: ViewSettings, *, native_size: tuple[int, int],
                            rotation, out_w, out_h)
     cx1, cy1, cx2, cy2 = (round(value) for value in covered)
     return ViewCrop(left, top, right, bottom,
-                    compute_view_size(right - left, bottom - top, view.output_short_side_px),
+                    compute_view_size(right - left, bottom - top, view.output_short_side_px,
+                                      view.output_box_px, view.output_covers),
                     (cx1, cy1, cx2 - cx1, cy2 - cy1))
 
 
@@ -287,12 +301,30 @@ def plan_views(settings: DecodeSettings,
     return plan, rejected
 
 
-def compute_view_size(crop_width_px: int, crop_height_px: int,
-                      output_short_side_px: int) -> tuple[int, int]:
-    """(ancho, alto) de la vista: el recorte con su lado corto en `output_short_side_px`."""
-    if output_short_side_px <= 0:
+def compute_view_size(crop_width_px: int, crop_height_px: int, output_short_side_px: int,
+                      output_box_px: tuple[int, int] = (0, 0),
+                      output_covers: bool = False) -> tuple[int, int]:
+    """
+    (ancho, alto) de la vista, conservando la forma del recorte.
+
+    Un `output_short_side_px` explícito manda: el lado corto a esos px. Sin él, si hay una
+    caja, la vista es la que el modelo que la lee dejaría igual al llevarla a su entrada:
+    `output_covers` la cubre (como el clasificador, que después recorta el centro) y sin él
+    entra en la caja (como el detector, que después rellena). **Nunca agranda**: un recorte
+    más chico que la caja sale a su tamaño y lo que falta lo pone el modelo. Sin nada de
+    eso, el tamaño del recorte nativo.
+    """
+    if output_short_side_px > 0:
+        scale = output_short_side_px / min(crop_width_px, crop_height_px)
+    elif output_box_px[0] > 0 and output_box_px[1] > 0:
+        box_width_px, box_height_px = output_box_px
+        ratios = (box_width_px / crop_width_px, box_height_px / crop_height_px)
+        scale = min(1.0, max(ratios) if output_covers else min(ratios))
+        if output_covers:
+            return (max(1, min(crop_width_px, math.ceil(crop_width_px * scale))),
+                    max(1, min(crop_height_px, math.ceil(crop_height_px * scale))))
+    else:
         return crop_width_px, crop_height_px
-    scale = output_short_side_px / min(crop_width_px, crop_height_px)
     return max(1, round(crop_width_px * scale)), max(1, round(crop_height_px * scale))
 
 

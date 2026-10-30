@@ -295,7 +295,10 @@ class CameraGrid(QWidget):
             self._grid.setColumnStretch(column, 1 if column in visible_columns else 0)
 
     def _on_mode_index_changed(self, index: int):
-        self.mode_changed.emit(str(self._mode_combo.itemData(index)))
+        mode = str(self._mode_combo.itemData(index))
+        for panel in self._panels.values():
+            panel.set_mode(mode)
+        self.mode_changed.emit(mode)
 
     def _on_focus_index_changed(self, index: int):
         self.set_focus(str(self._focus_combo.itemData(index) or _NO_FOCUS))

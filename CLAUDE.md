@@ -74,6 +74,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         null_pipeline.py      lo que devuelve la fábrica ante un `type` no registrado
         result.py             nivel 1 — Detection e InferenceResult, el dato que cruza
         overlay.py            nivel 1 — dibujado del resultado; también lo lee la UI
+        regions.py            nivel 1 — qué región ve cada pipeline en cada cámara, y qué se le avisa
         composer.py           nivel 1 — un anotado por cámara con los overlays de sus pipelines
         annotations.py        nivel 1 — dibujos propios de la planta; se reescribe en cada fork
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
@@ -144,8 +145,10 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         config/               una pestaña por sección del config; +1 línea para agregar otra
         diagnostics/          hardware, Modbus, video, licencia y logs
       widgets/                form, status_chip, log_table, realtime_chart,
-                              camera_panel (una cámara), camera_grid (N, con foco)
-      dialogs/                roi_dialog, level_dialog, gpio_dialog
+                              camera_panel (una cámara), camera_grid (N, con foco),
+                              region_canvas (el frame con las regiones de los pipelines),
+                              pause_button (congela el video de un diálogo de dibujo)
+      dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog, gpio_dialog
       styles/                 dark.qss y light.qss, espejados regla por regla
 
     test/                     espeja el árbol de arriba; conftest.py en la raíz
@@ -180,7 +183,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               calibration.md (cómo se calibra un equipo en la puesta en
                               marcha, con los calibradores del fork),
                               jetson.md (los aceleradores: qué parámetros los controlan, qué
-                              le hacen a la imagen y cómo exportar los engines) y
+                              le hacen a la imagen y cómo exportar los engines),
+                              image_sizes.md (qué tamaño tiene la imagen en cada paso,
+                              del video al modelo, y cómo vuelve el ROI al frame) y
                               tests.md (el índice de la suite, generado)
     recordings/               videos que el driver `video_file` reproduce; no se versionan
     data/                     logs y dataset en runtime
@@ -337,10 +342,11 @@ Lo que no se deduce leyendo un archivo suelto:
   el log dice por qué, porque una planta que cuenta con el VIC no puede pasar a gastar CPU
   sin que se note. El default es `cpu`.
 - **Un pipeline que mira una zona chica la recibe a resolución nativa, sin agrandar el frame
-  de toda la app.** Con `full_resolution` en su ROI, el decodificador corta ese rectángulo
-  del video nativo —un segundo `nvvidconv` en paralelo al que reduce, apareado por PTS; o
-  OpenCV antes del resize— y lo entrega con el frame como una *vista* con el nombre del
-  pipeline. Todo sigue en el espacio del frame de referencia: el ROI se dibuja ahí,
+  de toda la app.** En una cámara que decodifica video (`rtsp`, `video_file`) el decodificador
+  corta siempre el ROI de cada pipeline del video nativo —un segundo `nvvidconv` en paralelo
+  al que reduce, apareado por PTS; o OpenCV antes del resize— y lo entrega con el frame como
+  una *vista* con el nombre del pipeline. No se pide: lo decide la cámara, y una GigE no lo
+  necesita porque su frame ya es el del sensor. Todo sigue en el espacio del frame de referencia: el ROI se dibuja ahí,
   `roi_px` es lo que la vista cubre y las detecciones vuelven escaladas, así que el overlay,
   el composer y el PLC no se enteran. Agrandar el frame de toda la app costaría CPU en cada
   copia —es lo que la reducción ahorra—, y una segunda sesión RTSP como otra cámara movería
@@ -348,8 +354,12 @@ Lo que no se deduce leyendo un archivo suelto:
   cámara. Un frame que llega sin su vista sale `no_view`: inferir el recorte reducido daría,
   en unos frames sí y en otros no, números de otra imagen. El corte se fija al abrir, así
   que cambiar el rectángulo exige reiniciar, como todo lo de la cámara. La vista no pasa por
-  el preprocessor, y por eso una cámara con corrección de lente o ajuste de imagen no la
-  corta.
+  el preprocessor, y por eso en una cámara con corrección de lente o ajuste de imagen todos
+  los ROI se recortan del frame de referencia —decidido por cámara al arrancar, nunca por
+  frame—. **El tamaño de la vista lo fija el modelo que la lee**: su entrada se lee de la
+  metadata del `.engine` antes de abrir las cámaras (`AbstractModel.peek_input()`), y el VIC la
+  entrega ya a ese tamaño. No hay clave que lo pise: un número tipeado que tenía que coincidir
+  con el engine era un error silencioso esperando, que aparecía al instalar otro modelo.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
@@ -403,6 +413,27 @@ Lo que no se deduce leyendo un archivo suelto:
   inferencia lo dibuja `overlay`, que es genérico; las referencias de la planta —un
   límite de carga, una zona— son annotators de `annotations.py` que el motor corre
   después, y su geometría va al config porque cambia con cada montaje.
+- **La región de un pipeline se edita en un solo lugar, y se ve en todos con el mismo color.**
+  El diálogo de regiones (`pipeline_regions_dialog.py`) se abre sólo desde la sección «Regiones
+  (ROI)» de la pestaña Inferencia —una sub-pestaña por cámara— y edita todos los pipelines de
+  una cámara juntos, sobre el frame en vivo: la
+  de la pestaña activa se mueve y se estira, las demás son referencia. Qué rectángulo rige
+  para un par (pipeline, cámara) lo decide `regions.py` y nadie más —el motor mide sobre él, el
+  overlay y el panel lo dibujan, el diálogo lo edita—, porque un recuadro dibujado y uno medido
+  que salieran de dos reglas serían cosas distintas. El monitor muestra siempre el frame
+  completo con los recuadros encima: en anotado los dibuja el overlay, en crudo el panel, nunca
+  los dos. Los recuadros llevan el nombre del operador (`inference.pipelines.<slot>.name`, y el
+  slot si no tiene) en el diálogo, en el panel y en el anotado —éste sin tildes, porque la
+  fuente de OpenCV sólo dibuja ASCII—. El color de cada pipeline sale de `overlay.get_pipeline_style()`, por su lugar en
+  `inference.pipelines`, y **no usa verde, rojo ni amarillo**: son del estado, y un pipeline que
+  los usara de identidad se confundiría con un veredicto, y por eso pueden pintar el borde: el
+  pipeline declara `roi_state` (`ok`/`nok`/`warning`, de `result.py`) junto a sus `labels`, porque
+  sólo su código sabe qué es «bien» o «mal», y el overlay lo pinta con el texto del veredicto en
+  la etiqueta —el color solo no alcanza— y el `nok` más grueso. Un resultado no confiable nunca
+  se pinta de estado: va gris y punteado con el motivo. Una región propia guarda el tamaño
+  del frame sobre el que se dibujó, para avisar cuando el que llega es otro. El recorte de
+  la interfaz de la cámara no es de la app: lo hace quien instala con la herramienta del
+  fabricante, antes de dibujar nada (`docs/jetson.md` §4.4.1).
 - **Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas.**
   Mostrar cada anotado tal como llega hace parpadear el overlay de cada uno —personas cada
   100 ms y grano cada 500 ms dan cinco frames de uno por cada uno del otro—. Lo decide
@@ -415,8 +446,6 @@ Lo que no se deduce leyendo un archivo suelto:
   Una cámara sin ningún resultado vigente —todos sus pipelines cortados o caídos— se ve en
   vivo en vez de congelada en el último anotado; la vigencia mira también el tiempo real
   entre resultados, así que un modelo lento no la hace parpadear entre anotado y vivo.
-  Con `crop_to_roi` no se combina: el lienzo es el recorte de uno y el ROI de los otros no
-  tiene por qué caer adentro.
 - **Una señal de la planta corta los frames de una cámara a un pipeline, no el pipeline.**
   Es la compuerta de frames: la declara el fork en `_build_frame_gates()` de `main.py`
   —`gate(camera_slot, signals) -> bool`— y el template no declara ninguna. Es por cámara
@@ -452,20 +481,25 @@ Lo que no se deduce leyendo un archivo suelto:
   nitidez es una tendencia y va por telemetría, donde sirve para ver el vidrio ensuciarse
   semanas antes de que el bit se prenda. Sin calibrar, el estado es «no disponible» y
   nunca alarma: un vidrio limpio que nadie midió no se afirma.
-- El ROI y el mínimo de iluminación son de la cámara y viven en su sección del config:
-  se recorta y se mide el brillo antes de gastar una pasada del modelo, y las
-  detecciones vuelven al espacio del frame de referencia antes de salir. **Un pipeline
-  puede declarar su propio ROI por cámara** (`inference.pipelines.<slot>.roi.<cámara>`), que
-  reemplaza al de la cámara sólo para él —`enabled: false` es el frame entero—: un
-  clasificador del chorro de grano quiere un recorte justo y el detector de personas de la
-  misma cámara, la escena entera. El mínimo de iluminación sigue siendo de la cámara, y se
-  mide sobre la región que ve cada pipeline.
+- **La cámara no tiene ROI: la región es de cada pipeline.** Se recorta y se mide el brillo
+  antes de gastar una pasada del modelo, y las detecciones vuelven al espacio del frame de
+  referencia antes de salir. El ROI de un pipeline en una cámara es
+  `inference.pipelines.<slot>.roi.<cámara>`; sin él, o con `enabled: false`, ve el frame
+  entero: un clasificador del chorro de grano quiere un recorte justo y el detector de
+  personas de la misma cámara, la escena entera, y un recorte compartido por cámara obligaba a
+  uno a ver lo que no le toca. El mínimo de iluminación sigue siendo de la cámara, y se mide
+  sobre la región que ve cada pipeline. **El recorte de la propia cámara es de su interfaz**
+  —pylon, StCamera— y no de la app. Un config viejo, con `cameras.<slot>.roi`, se migra solo
+  al arrancar (`roi_migration.py`): se copia a los pipelines que lo heredaban y a la óptica, y
+  la clave se borra; migrar y no borrar, porque si no el pipeline que heredaba el recorte
+  pasaría a medir el frame entero sin ningún error. Tampoco existe `crop_to_roi`: el monitor
+  muestra siempre el frame completo.
 - **El dataset de un pipeline con ROI propio es la región que vio, aparte del de la
   cámara.** Se guarda en `<cámara>-<pipeline>/`, con su tope, su historial de duplicados y
   su último frame del modo interval: es la imagen con la que se reentrena ese modelo, y el
-  pipeline que mira el frame entero a 15 fps no le pisa cada guardado. Con
-  `full_resolution` es la vista nativa, así que se junta un dataset a resolución completa
-  sin pasar la app entera al tamaño nativo. `image_collector.pipelines` elige de qué
+  pipeline que mira el frame entero a 15 fps no le pisa cada guardado. En una cámara que
+  decodifica video es la vista nativa, a la entrada del modelo, sin pasar la app entera al
+  tamaño nativo. `image_collector.pipelines` elige de qué
   pipelines se guarda. El JSON no cambia: la carpeta y el `pipeline_slot` de la inferencia
   ya dicen de quién es.
 - **La geometría se corrige siempre en el frame de referencia; el brillo, sólo si la

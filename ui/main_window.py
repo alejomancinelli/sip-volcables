@@ -447,6 +447,7 @@ class MainWindow(QMainWindow):
         self._config_view = ConfigView(self._config)
         self._config_view.config_saved.connect(self._on_config_saved)
         self._config_view.open_roi_requested.connect(self._on_open_roi_requested)
+        self._config_view.open_regions_requested.connect(self._on_open_regions_requested)
         self._config_view.open_level_requested.connect(self._on_open_level_requested)
         self._config_view.calibrate_lens_requested.connect(
             self._on_calibrate_lens_requested)
@@ -487,7 +488,7 @@ class MainWindow(QMainWindow):
 
         **Qué rectángulo se dibuja lo dice quien lo pide.** La pestaña manda bajo qué clave
         guardarlo y cómo titular la ventana, así que esta ventana no conoce ninguna sección
-        del config: sirve igual al ROI de análisis de una cámara que al rectángulo que un
+        del config: sirve igual a la región de óptica de una cámara que al rectángulo que un
         proyecto mida aparte, sin enterarse de cuál es cuál.
         """
         from ui.dialogs.roi_dialog import RoiDialog
@@ -497,6 +498,22 @@ class MainWindow(QMainWindow):
         self._exec_on_live_frame(dialog, camera_slot)
         if self._config_view is not None:
             self._config_view.refresh_roi_fields(camera_slot)
+
+    def _on_open_regions_requested(self, camera_slot: str, pipeline_slot: str):
+        """
+        Abre el diálogo de regiones de esa cámara, con el pipeline pedido elegido.
+
+        El diálogo escribe en el config las regiones que el operador tocó, así que esta
+        ventana sólo le pasa el frame en vivo y, al cerrarse, le dice a la pestaña que
+        vuelva a leer sus filas.
+        """
+        from ui.dialogs.pipeline_regions_dialog import PipelineRegionsDialog
+
+        dialog = PipelineRegionsDialog(self._config, camera_slot, self,
+                                       initial_pipeline=pipeline_slot)
+        self._exec_on_live_frame(dialog, camera_slot)
+        if self._config_view is not None:
+            self._config_view.refresh_region_fields()
 
     def _on_open_level_requested(self, camera_slot: str, config_key: str, title_key: str):
         """

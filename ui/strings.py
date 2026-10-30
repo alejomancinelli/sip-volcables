@@ -140,9 +140,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     # ── Cámaras (configuración) ──────────────────────────────────────────────
     "cam_box_connection":     {"es": "Conexión",       "en": "Connection",    "pt": "Conexão"},
     "cam_box_acquisition":    {"es": "Adquisición",    "en": "Acquisition",   "pt": "Aquisição"},
-    "cam_box_roi":            {"es": "Región de interés (ROI)",
-                               "en": "Region of interest (ROI)",
-                               "pt": "Região de interesse (ROI)"},
     "cam_box_calibration":    {"es": "Calibración de lente",
                                "en": "Lens calibration",
                                "pt": "Calibração da lente"},
@@ -269,6 +266,20 @@ _TEXTS: dict[str, dict[str, str]] = {
     "lens_calibrate":         {"es": "Calibrar con el lente limpio",
                                "en": "Calibrate with a clean lens",
                                "pt": "Calibrar com a lente limpa"},
+    "lens_box_region":        {"es": "Región de medición", "en": "Measurement region",
+                               "pt": "Região de medição"},
+    "lens_roi_title":         {"es": "Región de la óptica", "en": "Lens region",
+                               "pt": "Região da óptica"},
+    "lens_region_note":       {"es": "Dónde se mide la nitidez: elegí una zona con textura "
+                                     "fija y nítida. Sin región se mide el frame entero. No "
+                                     "tiene que ver con lo que mira cada modelo.",
+                               "en": "Where sharpness is measured: pick an area with fixed, "
+                                     "sharp texture. Without a region the whole frame is "
+                                     "measured. It has nothing to do with what each model "
+                                     "looks at.",
+                               "pt": "Onde a nitidez é medida: escolha uma zona com textura "
+                                     "fixa e nítida. Sem região mede-se o frame inteiro. Não "
+                                     "tem relação com o que cada modelo olha."},
     "lens_calibrate_note":    {"es": "Limpiar el vidrio antes de calibrar: lo que se guarda "
                                      "es el techo de nitidez de ese montaje. La referencia "
                                      "se puede editar a mano para copiar la de un equipo "
@@ -387,30 +398,85 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "vídeo ao vivo sem imagem até a medição seguinte."},
     "inf_roi_box":            {"es": "ROI en",         "en": "ROI on",        "pt": "ROI em"},
     "inf_roi_mode":           {"es": "Región:",        "en": "Region:",       "pt": "Região:"},
-    "inf_roi_mode_camera":    {"es": "La de la cámara",
-                               "en": "The camera's",
-                               "pt": "A da câmera"},
     "inf_roi_mode_own":       {"es": "Propia de este pipeline",
                                "en": "This pipeline's own",
                                "pt": "Própria deste pipeline"},
     "inf_roi_mode_full":      {"es": "Frame completo", "en": "Whole frame",   "pt": "Frame completo"},
-    "inf_roi_full_resolution": {"es": "Cortarla del video nativo",
-                                "en": "Cut it from the native video",
-                                "pt": "Cortá-la do vídeo nativo"},
-    "inf_roi_output_side":    {"es": "Lado corto de la vista (px, 0 = nativo):",
-                               "en": "View short side (px, 0 = native):",
-                               "pt": "Lado curto da vista (px, 0 = nativo):"},
-    "inf_roi_title":          {"es": "ROI del pipeline", "en": "Pipeline ROI",
-                               "pt": "ROI do pipeline"},
-    "inf_roi_note":           {"es": "Cortada del video nativo, la región no pierde la "
-                                     "resolución que el decodificador le quita al frame. "
-                                     "Ese corte y su tamaño se aplican al reiniciar.",
-                               "en": "Cut from the native video, the region keeps the "
-                                     "resolution the decoder takes away from the frame. "
-                                     "That cut and its size apply on restart.",
-                               "pt": "Cortada do vídeo nativo, a região não perde a "
-                                     "resolução que o decodificador tira do frame. "
-                                     "Esse corte e seu tamanho se aplicam ao reiniciar."},
+    "inf_box_regions":        {"es": "Regiones (ROI)", "en": "Regions (ROI)",
+                               "pt": "Regiões (ROI)"},
+    "inf_pipeline_name":      {"es": "Nombre:",        "en": "Name:",         "pt": "Nome:"},
+    "inf_roi_note":           {"es": "En una cámara que decodifica video la región se corta del "
+                                     "video nativo, no del frame reducido, y el VIC la entrega "
+                                     "a la entrada del modelo. Se aplica al reiniciar.",
+                               "en": "On a camera that decodes video the region is cut from the "
+                                     "native video, not the reduced frame, and the VIC hands it "
+                                     "over at the model's input size. It applies on restart.",
+                               "pt": "Em uma câmera que decodifica vídeo a região é cortada do "
+                                     "vídeo nativo, não do frame reduzido, e o VIC a entrega no "
+                                     "tamanho de entrada do modelo. Vale ao reiniciar."},
+    "inf_region_view_auto":   {"es": "salida según el modelo", "en": "output per the model",
+                               "pt": "saída conforme o modelo"},
+    "regions_problem_native_preprocessed": {
+        "es": "Esta cámara tiene corrección de lente o ajuste de imagen: la región se corta del "
+              "frame de referencia y no del video nativo.",
+        "en": "This camera has lens correction or image adjustment: the region is cut from the "
+              "reference frame, not from the native video.",
+        "pt": "Esta câmera tem correção de lente ou ajuste de imagem: a região é cortada do "
+              "frame de referência e não do vídeo nativo."},
+    "regions_problem_too_small": {
+        "es": "La región mide menos de 16 px por lado: el decodificador no puede cortarla del "
+              "video nativo y el pipeline no infiere.",
+        "en": "The region is under 16 px per side: the decoder cannot cut it from the native "
+              "video and the pipeline does not infer.",
+        "pt": "A região mede menos de 16 px por lado: o decodificador não pode cortá-la do "
+              "vídeo nativo e o pipeline não infere."},
+    "inf_regions_edit":       {"es": "Editar regiones…", "en": "Edit regions…",
+                               "pt": "Editar regiões…"},
+    "inf_region_native":      {"es": "nativo",         "en": "native",        "pt": "nativo"},
+    "regions_title":          {"es": "Regiones de los pipelines",
+                               "en": "Pipeline regions",
+                               "pt": "Regiões dos pipelines"},
+    "regions_hint":           {"es": "Elegí un pipeline y arrastrá sobre la imagen: dentro del "
+                                     "recuadro lo mueve, en el borde lo estira, afuera dibuja "
+                                     "uno nuevo. Los demás se ven finos, para comparar.",
+                               "en": "Pick a pipeline and drag on the image: inside the box "
+                                     "moves it, on the edge resizes it, outside draws a new "
+                                     "one. The others show thin, for reference.",
+                               "pt": "Escolha um pipeline e arraste sobre a imagem: dentro da "
+                                     "caixa move, na borda estica, fora desenha uma nova. As "
+                                     "outras aparecem finas, para comparar."},
+    "regions_no_pipelines":   {"es": "Ningún pipeline mira esta cámara.",
+                               "en": "No pipeline looks at this camera.",
+                               "pt": "Nenhum pipeline olha esta câmera."},
+    "regions_waiting_frame":  {"es": "Esperando un frame de la cámara…",
+                               "en": "Waiting for a camera frame…",
+                               "pt": "Aguardando um frame da câmera…"},
+    "regions_save":           {"es": "Guardar regiones", "en": "Save regions",
+                               "pt": "Salvar regiões"},
+    "regions_preview_box":    {"es": "Lo que recibe el modelo", "en": "What the model gets",
+                               "pt": "O que o modelo recebe"},
+    "regions_preview_whole":  {"es": "Frame completo.", "en": "Whole frame.",
+                               "pt": "Frame completo."},
+    "regions_preview_approx": {"es": "Aproximada: sale del frame reducido; con la vista nativa "
+                                     "el modelo tiene más detalle.",
+                               "en": "Approximate: taken from the reduced frame; with the "
+                                     "native view the model gets more detail.",
+                               "pt": "Aproximada: sai do frame reduzido; com a vista nativa o "
+                                     "modelo tem mais detalhe."},
+    "regions_overlap":        {"es": "Se pisa con {pipeline}: {pct} %",
+                               "en": "Overlaps {pipeline}: {pct} %",
+                               "pt": "Sobrepõe {pipeline}: {pct} %"},
+    "regions_problem_outside_frame": {
+        "es": "El recuadro se sale del frame.",
+        "en": "The box goes outside the frame.",
+        "pt": "A caixa sai do frame."},
+    "regions_problem_frame_size_changed": {
+        "es": "Se dibujó sobre un frame de {drawn} y ahora llega uno de {now}: el recuadro "
+              "puede estar corrido.",
+        "en": "It was drawn on a {drawn} frame and now a {now} one arrives: the box may be "
+              "shifted.",
+        "pt": "Foi desenhada sobre um frame de {drawn} e agora chega um de {now}: a caixa "
+              "pode estar deslocada."},
 
     # ── Proceso (configuración) ──────────────────────────────────────────────
     "process_stopper_box":    {"es": "Calza",          "en": "Stopper",       "pt": "Calço"},
@@ -826,6 +892,8 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "linha; é horizontal e cobre toda a largura."},
     "level_save":             {"es": "Guardar altura", "en": "Save height",   "pt": "Salvar altura"},
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
+    "dialog_pause":           {"es": "Pausar video",   "en": "Pause video",   "pt": "Pausar vídeo"},
+    "dialog_resume":          {"es": "Reanudar video", "en": "Resume video",  "pt": "Retomar vídeo"},
     "dialog_close":           {"es": "Cerrar",         "en": "Close",         "pt": "Fechar"},
     "gpio_title":             {"es": "Entradas y salidas digitales",
                                "en": "Digital inputs and outputs",

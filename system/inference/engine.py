@@ -21,12 +21,11 @@ De qué se ocupa, en este orden, por cada frame:
      referencia**: el que ve el modelo, el que queda en `source_bgr`, el espacio en el que
      se expresan el ROI y las detecciones, y el lienzo del overlay. Con un solo espacio de
      coordenadas no hay nada que mapear de vuelta ni cajas que caigan corridas.
-  2. Recorta el ROI y mide la iluminación. El ROI es el de la cámara
-     (`cameras.<slot>.roi`) salvo que este pipeline declare el suyo para esa cámara
-     (`inference.pipelines.<pipeline>.roi.<cámara>`), que lo reemplaza entero —también
-     con `enabled: false`, que es ver el frame completo—. Con `full_resolution` la región
-     no se recorta del frame: es la vista que el decodificador cortó del video nativo y
-     llegó con el frame (ver «Vistas» más abajo).
+  2. Recorta el ROI y mide la iluminación. El ROI es el que este pipeline declara para esa
+     cámara (`inference.pipelines.<pipeline>.roi.<cámara>`); sin él, o con `enabled: false`,
+     ve el frame completo. En una cámara que decodifica video la región no se recorta
+     del frame: es la vista que el decodificador cortó del video nativo y llegó con el
+     frame (ver «Vistas» más abajo).
   3. Descarta lo que no vale una pasada del modelo: sin modelo cargado, sin la vista que
      el pipeline pide, o iluminación por debajo de `cameras.<slot>.illumination_min`.
   4. Corre el pipeline y devuelve las detecciones al espacio del frame de referencia.
@@ -67,9 +66,11 @@ confianza del resultado, y la clase que deja en `class_index` es la que después
 el overlay y `analysis.count_by_class`.
 
 **Vistas.** Un frame reducido por el decodificador pierde el detalle que necesita un
-modelo que mira una zona chica. Con `full_resolution` en el ROI del pipeline, el
-decodificador corta ese rectángulo del video nativo y lo entrega junto con el frame, con el
-nombre del pipeline. Todo sigue en el espacio del frame de referencia: el ROI se dibuja
+modelo que mira una zona chica. Con un ROI en una cámara que decodifica video (`rtsp`,
+`video_file`) y sin preprocessor, el decodificador corta ese rectángulo del video nativo y
+lo entrega junto con el frame, con el nombre del pipeline, ya al tamaño de entrada del
+modelo. Una cámara GigE entrega el frame del sensor, así que su recorte ya es nativo y no
+lleva vista. Todo sigue en el espacio del frame de referencia: el ROI se dibuja
 ahí, `roi_px` es el rectángulo que la vista cubre y las detecciones vuelven escaladas y
 corridas. La vista sólo cambia de dónde salen los píxeles de la región.
 
@@ -95,7 +96,9 @@ from tools.camera.abstract_driver import FrameView
 
 from . import analysis, overlay
 from .abstract_pipeline import AbstractPipeline
-from .preprocessing import select_pipeline_roi
+from .preprocessing import list_view_cameras
+from .regions import (PROBLEM_FRAME_SIZE_CHANGED, clip_roi_px, find_region_problems,
+                      get_pipeline_index, get_pipeline_name, resolve_pipeline_roi)
 from .result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
                      REASON_LOW_CONFIDENCE, REASON_NO_MODEL, REASON_NO_VIEW,
                      InferenceResult, offset_detections, scale_detections)
@@ -183,6 +186,11 @@ class InferenceThread(QThread):
         return bool(self._setting(f"inference.pipelines.{self.pipeline_slot}.enabled", True))
 
     @property
+    def pipeline(self) -> AbstractPipeline:
+        """El pipeline que corre este hilo: el cableado le pregunta por las vistas que necesita."""
+        return self._pipeline
+
+    @property
     def camera_slots(self) -> tuple[str, ...]:
         """Cámaras que entran a este pipeline; vacío = todas las que le pusheen."""
         key = f"inference.pipelines.{self.pipeline_slot}.cameras"
@@ -211,7 +219,7 @@ class InferenceThread(QThread):
         un array propio y nadie lo modifica después (ver `AbstractCameraDriver.get_frame`),
         y copiar 3 MP a 15 fps es memoria que se tira cada vez que el frame se reemplaza.
         `views` son las vistas que llegaron con ese frame; de ellas este pipeline usa sólo
-        la que lleva su nombre, y sólo si su ROI pide `full_resolution`.
+        la que lleva su nombre, y sólo si su ROI se corta del nativo en esa cámara.
 
         Descarta sin avisar el frame que llega antes de que venza `interval_s`, y cuenta
         en `dropped` el que reemplaza a uno que el hilo todavía no consumió. La excepción
@@ -273,22 +281,17 @@ class InferenceThread(QThread):
         su propio anotado. Corre en el hilo del que llama y no pasa por el gate: quien la
         llama ya tiene un anotado, así que alguien está mirando.
 
-        Tres cosas que `annotate()` hace y esto no:
+        Dos cosas que `annotate()` hace y esto no:
           - **No ajusta el lienzo.** Ya viene ajustado para mirar por el motor que lo
             dibujó; otra pasada lo aclararía dos veces.
           - **No dibuja la hora.** Es del frame, no de cada resultado: la pone una vez quien
             arma el frame, al final, con `draw_timestamp()`.
-          - **No dibuja nada con `crop_to_roi`.** El lienzo es el recorte de otro pipeline y
-            las coordenadas de éste no tienen por qué caer adentro.
         """
         if not self._setting("inference.overlay.enabled", True):
             return
         options = self._cached("overlay_options", self._read_overlay_options)
-        if options.crop_to_roi:
-            return
         try:
-            if options.draw_roi and result.roi_px is not None:
-                overlay.draw_roi(canvas_bgr, result.roi_px)
+            overlay.draw_result_roi(canvas_bgr, result, options)
             overlay.draw_detections(canvas_bgr, result.detections, options=options)
         except Exception as e:
             self._warn_throttled("overlay", f"No se pudo anotar el frame: {e}.")
@@ -477,6 +480,7 @@ class InferenceThread(QThread):
                 detections = self._classify(detections, camera_slot)
                 result.detections = detections
                 result.labels = self._pipeline.labels
+                result.roi_state = self._pipeline.roi_state
                 result.stage_times_ms = self._pipeline.stage_times_ms
                 result.confidence_pct = analysis.average_confidence_pct(detections)
                 reason = self._gate_result(result)
@@ -496,8 +500,8 @@ class InferenceThread(QThread):
         """
         (ROI, región que ve el pipeline, falta la vista) para este frame.
 
-        Sin `full_resolution` la región es el recorte del ROI sobre el frame de referencia.
-        Con él, es la vista que trae el nombre de este pipeline y el ROI es el rectángulo
+        En una cámara donde el ROI no se corta del nativo la región es el recorte del ROI
+        sobre el frame de referencia. En una donde sí, es la vista que trae el nombre de este pipeline y el ROI es el rectángulo
         que ella cubre. Si la vista no vino se devuelve el recorte del frame —sirve para
         medir la iluminación y dibujar el ROI, no para inferir— marcado como faltante.
         """
@@ -509,11 +513,10 @@ class InferenceThread(QThread):
         if view is None:
             self._warn_throttled(
                 f"no_view_{camera_slot}",
-                f"{camera_slot}: el ROI pide `full_resolution` y el frame llegó sin su vista. "
+                f"{camera_slot}: el ROI se corta del video nativo y el frame llegó sin su vista. "
                 f"No se infiere. Causas: se prendió sin reiniciar, el driver de la cámara no "
                 f"corta vistas (lo hacen `rtsp` y `video_file`), el rectángulo es muy chico "
-                f"para el decodificador, la cámara tiene corrección de lente o ajuste de "
-                f"imagen, o el decodificador no la pudo aparear con el frame."
+                f"para el decodificador, o el decodificador no la pudo aparear con el frame."
             )
             return roi_px, self._crop(frame_bgr, roi_px), True
         if any(abs(view_px - roi_value_px) > _VIEW_RECT_TOLERANCE_PX
@@ -722,23 +725,19 @@ class InferenceThread(QThread):
 
     def _read_roi(self, camera_slot: str) -> dict:
         """
-        La sección del ROI que rige este pipeline en esa cámara: la propia del pipeline
-        (`inference.pipelines.<slot>.roi.<cámara>`) si la declara —entera, con su
-        `enabled`—, y si no la de la cámara.
+        La sección del ROI de este pipeline en esa cámara
+        (`inference.pipelines.<slot>.roi.<cámara>`), o {} si no declara una: el frame completo.
         """
         # Desde la sección del pipeline, que siempre está: la clave del ROI propio falta en
         # el caso normal, y pedirla directo dejaba un aviso de clave ausente por cámara.
         pipeline = self._setting(f"inference.pipelines.{self.pipeline_slot}", {}) or {}
-        override = select_pipeline_roi(pipeline, camera_slot)
-        if override is not None:
-            return override
-        roi = self._setting(f"cameras.{camera_slot}.roi", {}) or {}
-        return roi if isinstance(roi, dict) else {}
+        return resolve_pipeline_roi(pipeline, camera_slot)
 
     def _wants_view(self, camera_slot: str) -> bool:
-        """True si el ROI de este pipeline en esa cámara pide la vista a resolución nativa."""
-        roi = self._read_roi(camera_slot)
-        return bool(roi.get("enabled", False)) and bool(roi.get("full_resolution", False))
+        """True si el ROI de este pipeline en esa cámara se corta del video nativo."""
+        view_cameras = self._cached(
+            "view_cameras", lambda: frozenset(list_view_cameras(self._config, self.pipeline_slot)))
+        return camera_slot in view_cameras
 
     def _read_roi_px(self, camera_slot: str,
                      frame_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
@@ -754,26 +753,30 @@ class InferenceThread(QThread):
             return None
 
         height_px, width_px = frame_bgr.shape[:2]
-        x_px = max(0, min(width_px - 1, int(roi.get("x_px", 0) or 0)))
-        y_px = max(0, min(height_px - 1, int(roi.get("y_px", 0) or 0)))
-        roi_width_px = int(roi.get("width_px", 0) or 0) or (width_px - x_px)
-        roi_height_px = int(roi.get("height_px", 0) or 0) or (height_px - y_px)
-        roi_width_px = min(roi_width_px, width_px - x_px)
-        roi_height_px = min(roi_height_px, height_px - y_px)
-
-        if roi_width_px <= 0 or roi_height_px <= 0:
+        if PROBLEM_FRAME_SIZE_CHANGED in find_region_problems(
+                roi, frame_size_px=(width_px, height_px)):
+            self._warn_throttled(
+                f"roi_size_{camera_slot}",
+                f"El ROI de {camera_slot} se dibujó sobre un frame de "
+                f"{roi.get('frame_width_px')}x{roi.get('frame_height_px')} y ahora llega "
+                f"uno de {width_px}x{height_px}: el rectángulo puede haber quedado corrido. "
+                f"Revisar el recorte de la cámara, `decode` y la rotación."
+            )
+        roi_px = clip_roi_px(roi, width_px, height_px)
+        if roi_px is None:
             self._warn_throttled(
                 f"roi_{camera_slot}",
                 f"El ROI de {camera_slot} queda vacío contra un frame de "
                 f"{width_px}x{height_px}: se infiere el frame completo."
             )
-            return None
-        return (x_px, y_px, roi_width_px, roi_height_px)
+        return roi_px
 
     def _read_overlay_options(self) -> overlay.OverlayOptions:
         """Opciones de dibujado desde `inference.overlay`."""
         defaults = overlay.OverlayOptions()
         colors = self._config.get("inference.overlay.class_colors_bgr", []) or []
+        pipeline_style = overlay.get_pipeline_style(get_pipeline_index(
+            self._config.get("inference.pipelines", {}), self.pipeline_slot))
         return overlay.OverlayOptions(
             draw_boxes=bool(self._config.get("inference.overlay.draw_boxes", defaults.draw_boxes)),
             draw_masks=bool(self._config.get("inference.overlay.draw_masks", defaults.draw_masks)),
@@ -786,12 +789,15 @@ class InferenceThread(QThread):
             draw_roi=bool(self._config.get("inference.overlay.draw_roi", defaults.draw_roi)),
             draw_timestamp=bool(self._config.get("inference.overlay.draw_timestamp",
                                                  defaults.draw_timestamp)),
-            crop_to_roi=bool(self._config.get("inference.overlay.crop_to_roi",
-                                              defaults.crop_to_roi)),
             font_scale=float(self._config.get("inference.overlay.font_scale",
                                               defaults.font_scale)),
             thickness=int(self._config.get("inference.overlay.thickness", defaults.thickness)),
             class_colors_bgr=tuple(tuple(color) for color in colors),
+            roi_color_bgr=pipeline_style.color_bgr,
+            roi_is_dashed=pipeline_style.is_dashed,
+            roi_label=get_pipeline_name(
+                self._config.get(f"inference.pipelines.{self.pipeline_slot}", {}),
+                self.pipeline_slot),
         )
 
     # ── Internos ─────────────────────────────────────────────────────────────

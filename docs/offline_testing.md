@@ -86,8 +86,8 @@ entrada `replay` en `manual_test/cameras/config.yaml`.
 - **Varias cámaras sobre la misma carpeta ven lo mismo**, casi en sincronía. Sirve para
   ver la carga de N cámaras, pero no para probar nada que dependa de que vean escenas
   distintas: el ROI o la escala de una cámara se aplicarían sobre la vista de otra.
-- **Las vistas salen igual que en vivo.** Un pipeline con su ROI en `full_resolution` recibe
-  el recorte del video nativo, como de una cámara RTSP: el video tiene que estar a la
+- **Las vistas salen igual que en vivo.** Un pipeline con ROI recibe el recorte del video
+  nativo, como de una cámara RTSP: el video tiene que estar a la
   resolución de la cámara para que la vista tenga el detalle que va a tener en la línea.
 
 ### Qué no se prueba con video
@@ -175,7 +175,7 @@ de una cámara.
 
 ### Cámaras con vistas
 
-Si algún pipeline le pide su ROI a una cámara con `full_resolution`, la imagen de esa cámara
+Si la cámara decodifica video (`rtsp`, `video_file`) y algún pipeline tiene ROI en ella, la imagen de esa cámara
 tiene que ser **la del video nativo, sin rotar**: la que entrega la cámara antes de que el
 decodificador la reduzca. El runner le hace lo mismo que en vivo —la reduce al tamaño de
 `decode`, le corta la vista del nativo y la rota— y el pipeline ve la misma vista que en la

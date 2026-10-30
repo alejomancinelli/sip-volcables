@@ -1,6 +1,6 @@
 # Config del visor de prueba camera_live_view.py, separada del config.yaml de la app.
 # Solo lleva lo que leen los drivers: `driver`, `address`, `credentials_env`, `rotation` y
-# `acquisition`. `brand`, `model`, `roi` e `illumination_min` no aparecen porque ningún
+# `acquisition`. `brand`, `model` e `illumination_min` no aparecen porque ningún
 # driver los usa.
 #
 # Acá la clave nombra el caso a probar, no un slot físico de cámara.

@@ -5,7 +5,7 @@ import pytest
 
 
 from tools.camera.abstract_driver import AbstractCameraDriver
-from tools.camera.camera_factory import REGISTERED_DRIVERS, create_camera
+from tools.camera.camera_factory import REGISTERED_DRIVERS, can_cut_views, create_camera
 from tools.camera.mock_driver import MockDriver
 from tools.camera.null_driver import NullDriver
 
@@ -74,3 +74,28 @@ class TestStatusContract:
         assert AbstractCameraDriver.is_config_error is False
         assert MockDriver.is_synthetic is True
         assert NullDriver.is_config_error is True
+
+
+class TestCanCutViews:
+    """Qué driver decodifica video y puede cortar vistas: se contesta desde el config, sin abrir nada."""
+
+    @pytest.mark.parametrize("driver", ["rtsp", "video_file", "RTSP", " video_file "])
+    def test_the_video_drivers_cut_views(self, driver):
+        assert can_cut_views({"driver": driver}) is True
+
+    @pytest.mark.parametrize("driver", ["basler_gige", "st_gige", "mock"])
+    def test_the_gige_and_mock_drivers_do_not(self, driver):
+        assert can_cut_views({"driver": driver}) is False
+
+    @pytest.mark.parametrize("config_cam", [{}, {"driver": ""}, {"driver": "nope"},
+                                            {"driver": None}])
+    def test_a_missing_or_unknown_driver_does_not(self, config_cam):
+        assert can_cut_views(config_cam) is False
+
+    def test_it_agrees_with_the_flag_of_every_registered_driver(self):
+        for name in REGISTERED_DRIVERS:
+            assert can_cut_views({"driver": name}) is create_camera(
+                {"driver": name, "address": "rtsp://x"}).provides_views
+
+    def test_the_abstraction_declares_the_marker_off_by_default(self):
+        assert AbstractCameraDriver.provides_views is False

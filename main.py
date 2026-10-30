@@ -120,8 +120,9 @@ from system.inference.composer import FrameComposer
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
 from system.inference.pipeline_factory import create_pipeline
-from system.inference.preprocessing import (build_camera_views, build_preprocessor,
-                                           select_pipeline_roi)
+from system.inference.preprocessing import build_camera_views, build_preprocessor
+from system.inference.regions import select_pipeline_roi
+from system.inference.roi_migration import migrate_roi_config
 from system.inference.result import InferenceResult
 from system.license.manager import (
     PERPETUAL_DAYS_SENTINEL, RECHECK_INTERVAL_MS, LicenseManager, read_feature,
@@ -601,10 +602,10 @@ class Application(QObject):
         # manda al operador a revisar un cable que está bien.
         declared_cameras = tuple(config.get("cameras", {}) or {})
         licensed_cameras = self._license.allowed_camera_slots(declared_cameras)
-        # Las vistas a resolución nativa que corta cada cámara: los ROI de los pipelines
-        # que corren y las piden. Por eso se arman después de los motores.
+        # Las vistas a resolución nativa que corta cada cámara: los ROI de los pipelines que
+        # corren, a la entrada de su modelo. Por eso se arman después de los motores.
         camera_views = build_camera_views(
-            config, [engine.pipeline_slot for engine in self._engines])
+            config, {engine.pipeline_slot: engine.pipeline for engine in self._engines})
         self._capture_threads: dict[str, CaptureThread] = {}
         for camera_slot in declared_cameras:
             if camera_slot not in licensed_cameras:
@@ -622,7 +623,6 @@ class Application(QObject):
             thread.status_updated.connect(self._on_camera_status)
             self._forward_status_to_content(thread)
             self._capture_threads[camera_slot] = thread
-        self._warn_if_crop_hides_overlays(declared_cameras)
 
         # ── Salud de la óptica ───────────────────────────────────────────────
         # Una ventana y una referencia por cámara: el veredicto es un máximo, así que
@@ -1123,25 +1123,6 @@ class Application(QObject):
             intervals[engine.pipeline_slot] = interval_s
         return intervals
 
-    def _warn_if_crop_hides_overlays(self, camera_slots: tuple[str, ...]):
-        """
-        Avisa una vez si `crop_to_roi` deja sin combinar el anotado de alguna cámara.
-
-        Con el recorte prendido el lienzo es el recorte del pipeline que pone el frame, y el
-        ROI de los demás no tiene por qué caer adentro: la imagen la sigue poniendo el más
-        nuevo, pero sin los overlays de los otros.
-        """
-        if not self._config.get("inference.overlay.crop_to_roi", False):
-            return
-        shared = [camera_slot for camera_slot in camera_slots
-                  if sum(1 for engine in self._engines if engine.has_camera(camera_slot)) > 1]
-        if shared:
-            logger.info(
-                f"[Main] Con inference.overlay.crop_to_roi el anotado de "
-                f"{', '.join(shared)} muestra un pipeline por vez: varios pipelines miran "
-                f"esa cámara y sus ROI no tienen por qué caer en el mismo recorte."
-            )
-
     def _send_to_dataset(self, result: InferenceResult):
         """
         Le pasa la medición al recolector, por el camino de su modo.
@@ -1412,7 +1393,7 @@ class Application(QObject):
             return
 
         for camera_slot in (self._config.get("cameras", {}) or {}):
-            roi = self._config.get(f"cameras.{camera_slot}.roi", {}) or {}
+            roi = self._read_lens_roi(camera_slot)
             try:
                 # Con la cámara caída el frame es None: el monitor envejece la ventana
                 # igual y esa cámara pasa a «no disponible» sola.
@@ -1425,6 +1406,17 @@ class Application(QObject):
                 continue
             if measurement is not None and camera_slot in self._lens_calibrations:
                 self._collect_lens_calibration(camera_slot, measurement)
+
+    def _read_lens_roi(self, camera_slot: str) -> dict:
+        """
+        La región donde se mide la nitidez de esa cámara: `cameras.<slot>.lens_health.roi`.
+
+        Se lee de la sección de óptica, que siempre está, y no de la clave `roi`: una cámara
+        que nunca tuvo región no es una advertencia de clave ausente.
+        """
+        section = self._config.get(f"cameras.{camera_slot}.lens_health", {}) or {}
+        roi = section.get("roi") if isinstance(section, dict) else None
+        return roi if isinstance(roi, dict) else {}
 
     def _is_lens_dirty(self, camera_slot: str) -> bool:
         """True sólo con el veredicto de alarma: «no disponible» no es un vidrio sucio."""
@@ -1465,7 +1457,7 @@ class Application(QObject):
         reference["conditions"] = lens_health.get_current_conditions(
             self._config.get(f"cameras.{camera_slot}.acquisition", {}) or {},
             self._config.get(f"cameras.{camera_slot}.rotation", None),
-            self._config.get(f"cameras.{camera_slot}.roi", {}) or {},
+            self._read_lens_roi(camera_slot),
         )
         prefix = f"cameras.{camera_slot}.lens_health.reference"
         for key, value in reference.items():
@@ -2098,6 +2090,10 @@ def main(argv: list | None = None) -> int:
     # Después del log y antes de cualquier subsistema: los que usan un secreto lo leen
     # del entorno cuando arrancan, y de qué se cargó tiene que quedar constancia.
     load_env_file()
+
+    # Antes de cualquier subsistema: ninguno lee ya las claves que migra, y los pipelines
+    # tienen que arrancar con el recorte que antes heredaban de la cámara.
+    migrate_roi_config(config)
 
     # Un calibrador es otro programa que comparte este ejecutable: arma su propia ventana si
     # la necesita, así que se despacha antes de que este archivo arme la suya. Y antes de la

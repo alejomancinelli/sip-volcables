@@ -107,6 +107,18 @@ class TestOthers:
         composer.set_intervals({_GRAIN: 10.0})
         assert composer.others(_CAMERA, _PERSON, 20.0) != []
 
+    def test_the_stored_result_keeps_the_roi_state(self):
+        """El estado viaja con el resultado: lo que se superpone se pinta como se midió."""
+        composer = FrameComposer()
+        composer.add(_result(_GRAIN, 10.0, roi_state="nok"), now_s=0.0)
+        assert [r.roi_state for r in composer.others(_CAMERA, _PERSON, 0.0)] == ["nok"]
+
+    def test_a_state_goes_away_with_its_result_when_it_expires(self):
+        """No hay memoria de «el último NOK»: pasada su vigencia el recuadro desaparece."""
+        composer = FrameComposer({_GRAIN: 0.5})
+        composer.add(_result(_GRAIN, 10.0, roi_state="nok"), now_s=0.0)
+        assert composer.others(_CAMERA, _PERSON, 60.0) == []
+
     def test_the_stored_result_has_no_frames(self):
         """Para dibujarlo encima alcanzan sus detecciones: dos frames por par sobran."""
         composer = FrameComposer()

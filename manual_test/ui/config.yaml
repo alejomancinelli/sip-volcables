@@ -79,6 +79,8 @@ inference:
       enabled: true
       cameras: [camera_1, camera_2]
       interval_s: 0.5           # una inferencia cada medio segundo por cámara
+      roi:
+        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500}
       min_detections: 0
       min_result_confidence_pct: 0
       frames_per_cycle: 1
@@ -98,6 +100,8 @@ inference:
       enabled: true
       type: demo_person
       cameras: [camera_1]
+      roi:
+        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500}
       interval_s: 0.1           # cinco veces más seguido que pipeline_1
       min_detections: 0
       min_result_confidence_pct: 0
@@ -204,12 +208,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    roi:
-      enabled: true
-      x_px: 700
-      y_px: 300
-      width_px: 600
-      height_px: 500
     illumination_min: 10
     calibration:
       camera_matrix: []
@@ -226,12 +224,6 @@ cameras:
       fps_limit: 6
       exposure_time_us: 25000
       gain: 1.0
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
     illumination_min: 10
     calibration:
       camera_matrix: []
@@ -250,12 +242,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
     illumination_min: 10
     calibration:
       camera_matrix: []
@@ -280,12 +266,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
     illumination_min: 10
     calibration:
       camera_matrix: []

@@ -1,5 +1,6 @@
 """
-Detección de lente sucio — varianza del Laplaciano sobre el ROI de la cámara.
+Detección de lente sucio — varianza del Laplaciano sobre la región de óptica de la cámara
+(`cameras.<slot>.lens_health.roi`).
 
 El polvo sobre el vidrio suaviza la escena. La varianza del Laplaciano mide cuánto
 detalle de alta frecuencia tiene la imagen, así que un lente sucio la hace caer.

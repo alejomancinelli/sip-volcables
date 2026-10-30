@@ -173,7 +173,7 @@ trae:
    `.env.example` como `.env` y completar los secretos del equipo —token de InfluxDB,
    password del broker, credenciales de las cámaras RTSP—: el `.env` no se versiona.
 2. **`config.yaml`**: `project`, `system`, y una entrada en `cameras` por cámara física
-   —marca, modelo, driver, IP, adquisición, ROI, mínimo de iluminación—. Verificar con
+   —marca, modelo, driver, IP, adquisición, mínimo de iluminación—; la región de cada pipeline se dibuja después, en la pestaña Inferencia. Verificar con
    `manual_test/cameras/camera_live_view.py`.
 3. **El modelo**: implementar `AbstractModel` en un archivo nuevo de `system/inference/models/` y
    registrarlo con una línea en `model_factory.py`. Una clase por tarea —clasificación,

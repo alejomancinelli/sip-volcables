@@ -55,6 +55,9 @@ class AbstractCameraDriver(ABC):
     # qué driver le tocó. Cada driver al que apliquen los pisa en True.
     is_synthetic = False
     is_config_error = False
+    # True en el driver que decodifica video y puede cortar vistas del nativo (`get_views()`).
+    # Los de cámara GigE entregan el frame del sensor tal cual: su recorte ya es nativo.
+    provides_views = False
 
     def __init__(self, config_cam: dict | None = None):
         # Sesión abierta con el hardware. Lo sostiene cada implementación; quien

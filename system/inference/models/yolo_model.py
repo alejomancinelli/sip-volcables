@@ -41,7 +41,7 @@ from system.logger import logger
 
 from ..result import Detection
 from .abstract_model import (STATUS_UNLOADED, TASK_CLASSIFICATION, TASK_DETECTION,
-                             TASK_SEGMENTATION, AbstractModel)
+                             TASK_SEGMENTATION, AbstractModel, InputSpec)
 from .tensorrt_runtime import TensorRtRunner, split_ultralytics_engine
 
 _LETTERBOX_FILL = 114
@@ -251,6 +251,27 @@ class _YoloModel(AbstractModel):
         input_h, input_w = runner.input_hw
         logger.info(f"[Inference] Modelo '{self.model_slot}': {self.task} TensorRT, entrada "
                     f"{input_w}x{input_h}.")
+
+    def peek_input(self) -> InputSpec | None:
+        """
+        El tamaño de entrada del engine, leído de la metadata que ultralytics le pone al
+        exportarlo —`imgsz`—, sin deserializarlo ni tocar la GPU. Un engine pelado, sin esa
+        metadata, no lo dice: None.
+        """
+        peeked = self._peek_weights(self._get_model_path())
+        if peeked is None:
+            return None
+        _, weights = peeked
+        size = split_ultralytics_engine(weights)[0].get("imgsz")
+        if isinstance(size, int):
+            size = [size, size]
+        try:
+            height_px, width_px = (int(side) for side in size)
+        except (TypeError, ValueError):
+            return None
+        if height_px <= 0 or width_px <= 0:
+            return None
+        return InputSpec(height_px, width_px, self.task == TASK_CLASSIFICATION)
 
     def unload(self):
         if self._runner is not None:

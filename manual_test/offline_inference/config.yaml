@@ -12,12 +12,6 @@ cameras:
   # imágenes sueltas de `images/` son de la primera cámara o de la que diga `--camera`, y
   # las de `images/camera_2/` son de camera_2.
   camera_1:
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
     illumination_min: 5         # brillo medio mínimo del ROI 0–100; por debajo, `dark_frame`
     calibration:
       camera_matrix: []         # 3x3; [] = sin corrección de lente

@@ -59,6 +59,7 @@ Ningún otro archivo se toca.
 """
 
 from abc import ABC, abstractmethod
+from typing import NamedTuple
 
 import numpy as np
 
@@ -97,6 +98,21 @@ _DEFAULT_MIN_CONFIDENCE_PCT = 50.0
 # dónde salen los pesos y con qué clase se cargan, y hacerlas venir de adentro del propio
 # archivo sería pedirle al archivo que declare cómo abrirse.
 _METADATA_IGNORED_OPTIONS = ("path", "type")
+
+
+class InputSpec(NamedTuple):
+    """
+    Con qué forma espera un modelo recibir la imagen, para que quien se la prepara —el
+    decodificador, que corta y reduce la región— la entregue ya al tamaño que el modelo
+    usaría, y el modelo no tenga que reescalarla.
+
+    `crops_center` dice cómo la lleva a su entrada: True la cubre y recorta el centro (un
+    clasificador); False la deja entrar entera y rellena lo que sobra (un detector).
+    """
+
+    height_px: int
+    width_px: int
+    crops_center: bool
 
 
 def normalize_task(name: str) -> str:
@@ -195,6 +211,19 @@ class AbstractModel(ABC):
         `previous` son las detecciones de la etapa anterior del pipeline, o None si es
         la primera: la implementación decide si recorta por ahí o las ignora.
         """
+
+    def peek_input(self) -> InputSpec | None:
+        """
+        El tamaño de entrada que espera este modelo, sin cargarlo, o None si no se sabe.
+
+        Se llama **antes** de arrancar las cámaras, cuando todavía no hay ningún modelo
+        cargado: el tamaño de la vista que se le corta a cada pipeline se fija al abrir la
+        cámara y no se puede cambiar después. Por eso la implementación lo lee de los pesos
+        —o de lo que los acompañe— y no del framework en marcha. No cambia el estado del
+        modelo y no propaga errores: un modelo que no lo sabe dice None y la vista sale al
+        tamaño nativo.
+        """
+        return None
 
     @abstractmethod
     def unload(self):
@@ -311,6 +340,24 @@ class AbstractModel(ABC):
         if not self._verify_task(str(self._weights_metadata.get("task", ""))):
             return b""
         return bundle.weights
+
+    def _peek_weights(self, path: str) -> tuple[dict, bytes] | None:
+        """
+        (metadata protegida, pesos) del archivo, o None si no se pueden leer.
+
+        Lo mismo que `_read_weights()` hasta descifrar, pero sin tocar el estado del modelo
+        ni verificar la tarea: es para mirar un dato antes de cargar. Los fallos no se
+        avisan acá —`load()` los va a avisar con su motivo—.
+        """
+        if not path:
+            return None
+        try:
+            with open(path, "rb") as weights_file:
+                raw = weights_file.read()
+            bundle = encrypted_weights.unpack(raw, model_key.get_model_key())
+        except (OSError, encrypted_weights.WeightsError):
+            return None
+        return (dict(bundle.metadata), bundle.weights) if bundle.weights else None
 
     def _fail_weights(self, reason: str) -> bytes:
         """Deja el modelo en error con el motivo y devuelve el vacío que corta `load()`."""

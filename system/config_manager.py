@@ -201,6 +201,26 @@ class ConfigManager:
             logger.debug(f"Config: '{key_path}' = {value}")
             return True
 
+    def delete(self, key_path: str) -> bool:
+        """
+        Borra una ruta punteada. Devuelve True si existía y se borró.
+
+        Es para sacar una clave que el programa ya no lee: dejarla sería un valor que
+        parece mandar y no manda. No toca el disco: eso lo hace `save()`. Una ruta que no
+        existe, o que pasa por algo que no es un mapa, no hace nada y no avisa.
+        """
+        with self._lock:
+            keys = key_path.split(".") if key_path else []
+            node = self._config_data
+            for key in keys[:-1]:
+                node = node.get(key) if isinstance(node, dict) else None
+            if not keys or not isinstance(node, dict) or keys[-1] not in node:
+                return False
+            del node[keys[-1]]
+            self._revision += 1
+            logger.debug(f"Config: '{key_path}' borrada")
+            return True
+
     def save(self) -> bool:
         """
         Escribe el diccionario en memoria al archivo, de forma atómica.

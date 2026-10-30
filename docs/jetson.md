@@ -29,7 +29,7 @@ y en paralelo con la CPU. La aplicación usa tres:
 | Motor | Para qué lo usa la app | Se controla con |
 |---|---|---|
 | **NVDEC** | Decodificar el video de una cámara RTSP o de un video grabado | `cameras.<slot>.decode.backend` |
-| **VIC** | Reducir el frame al salir del decodificador; cortar las vistas de los ROI a resolución nativa; escalar y convertir color antes de codificar el RTSP | `cameras.<slot>.decode.width_px/height_px`, `inference.pipelines.<slot>.roi.<cámara>.full_resolution` y `video.rtsp.codec: *_hw` |
+| **VIC** | Reducir el frame al salir del decodificador; cortar las vistas de los ROI a resolución nativa; escalar y convertir color antes de codificar el RTSP | `cameras.<slot>.decode.width_px/height_px`, el ROI de cada pipeline en una cámara RTSP o de video, y `video.rtsp.codec: *_hw` |
 | **NVENC** | Codificar los streams RTSP H.264/H.265 | `video.rtsp.codec: h264_hw` o `h265_hw` |
 
 Y la **GPU**, con TensorRT, para correr los modelos (sección 6).
@@ -186,10 +186,13 @@ arranque dice cuál quedó: `capturando (nvdec a 640x360)` o `capturando (cpu a 
 ### 4.1.1 Vistas — el ROI de un pipeline a resolución nativa
 
 Reducir el frame le quita detalle a un modelo que mira una zona chica: un ROI de 180 px en
-640×360 son 540 px en el video de 1920×1080. Un pipeline puede pedir que su ROI se corte del
-video **nativo**, antes de reducirlo. Es una *vista*: llega con cada frame y sólo la usa ese
-pipeline. El resto de la app —la pantalla, los streams, los otros pipelines— sigue con el
-frame reducido. Se declara en el ROI del pipeline, no en la cámara:
+640×360 son 540 px en el video de 1920×1080. Por eso **en una cámara que decodifica video**
+(`rtsp`, `video_file`) **el ROI de cada pipeline se corta siempre del video nativo**, antes de
+reducirlo: no hay nada que pedir. Es una *vista*: llega con cada frame y sólo la usa ese
+pipeline. El resto de la app —la pantalla, los streams, los pipelines que miran el frame
+entero— sigue con el frame reducido. Una cámara GigE no tiene vistas porque no las necesita:
+entrega el frame del sensor, así que su recorte ya es nativo, y lo que lo lleva a la entrada
+del modelo es el preproceso del modelo, por CPU.
 
 ```yaml
 inference:
@@ -202,17 +205,28 @@ inference:
           y_px: 40
           width_px: 180
           height_px: 220
-          full_resolution: true
-          output_short_side_px: 224   # 0 = el recorte a tamaño nativo
 ```
+
+**El tamaño al que sale la vista lo fija el modelo que la lee.** Al arrancar, antes de abrir
+las cámaras, se lee la entrada de su primera etapa de la metadata del `.engine` —`imgsz`, que
+ultralytics escribe al exportar— sin cargarlo, y el VIC entrega la región ya a ese tamaño:
+cubriendo la entrada en un clasificador, que después recorta el centro, y entrando en ella en
+un detector, que después rellena. El modelo no la reescala, y exportarlo a otro tamaño no pide
+tocar el config. No hay clave que pise ese tamaño; un modelo que no informa su entrada recibe
+el recorte a tamaño nativo.
+
+Un config de antes, con `full_resolution` o `output_short_side_px` en el ROI, se migra solo:
+las claves se borran, y una que pedía otra cosa —`false`, o un lado corto— deja de respetarse
+y el log lo dice.
+
 
 | Qué | Cómo |
 |---|---|
 | Quién corta | Con `nvdec`, un segundo `nvvidconv` (VIC) sobre la salida del decodificador, en paralelo al que reduce el frame, y la vista se aparea con el frame por PTS. Con `cpu`, OpenCV corta el frame nativo antes de reducirlo. |
 | Cómo reduce | 5-tap en el VIC e `INTER_AREA` en la CPU: lo más parecido a cómo reduce el clasificador su entrada. El bilineal del frame le agrega aliasing a una reducción x3. |
-| Tamaño | `output_short_side_px` lleva el lado corto a esos px y conserva la forma: con 224 y un clasificador de 224, el center crop sólo recorta. 0 = el recorte a tamaño nativo. |
+| Tamaño | La entrada del modelo que la lee, leída del `.engine`; nunca agranda. No se elige en el config. |
 | Cuándo se aplica | Al abrir la cámara: el corte se fija cuando el decodificador anuncia el tamaño nativo. Cambiar el rectángulo obliga a reiniciar; hasta entonces se mide —y se dibuja— el de la vista, y el log lo avisa. |
-| Límites | Coordenadas pares y al menos 16 px por lado en el video nativo: un rectángulo menor no se corta, y el log dice cuál. No se corta en una cámara con corrección de lente o ajuste de imagen, porque la vista no pasa por el preprocessor. |
+| Límites | Coordenadas pares y al menos 16 px por lado en el video nativo: un rectángulo menor no se corta, y el log dice cuál. En una cámara con corrección de lente o ajuste de imagen no se corta ninguna, porque la vista no pasa por el preprocessor: todos sus ROI se recortan del frame de referencia, y el arranque lo avisa. La decisión es de la cámara y no de cada frame. |
 | Si falta | El resultado de ese pipeline sale inválido con `no_view`: no se infiere sobre el recorte reducido. La cámara cuenta las faltas en `view_misses` de su estado. |
 | Rotación | El ROI se dibuja sobre el frame rotado; el corte se calcula sobre el video sin rotar, y la vista se rota igual que el frame. |
 
@@ -241,24 +255,70 @@ La app no sube el ritmo de una cámara: con una de 15 fps, un `fps_limit` de 30 
 sale de la cámara: modelo, dataset y streams. Con 90° se intercambian ancho y alto, y el
 ROI y las calibraciones en píxeles están en el frame ya rotado. Cambiarla pide rehacer el ROI.
 
-### 4.4 ROI e iluminación — `cameras.<slot>.roi`, `illumination_min`
+### 4.4 Región e iluminación — `inference.pipelines.<slot>.roi`, `illumination_min`
+
+La cámara **no tiene ROI propio**: la región es de cada pipeline, porque dos modelos sobre la
+misma cámara miran partes distintas. Se dibuja en el diálogo de regiones (pestaña
+Inferencia → «Editar regiones…») y se guarda así:
 
 ```yaml
-roi:
-  enabled: false
-  x_px: 0
-  y_px: 0
-  width_px: 0     # 0 = hasta el borde
-  height_px: 0
-illumination_min: 0   # 0–100
+inference:
+  pipelines:
+    pipeline_1:
+      roi:
+        camera_1:
+          enabled: true
+          x_px: 0
+          y_px: 0
+          width_px: 0     # 0 = hasta el borde
+          height_px: 0
+illumination_min: 0       # en `cameras.<slot>`; 0–100
 ```
 
 | Clave | Qué hace |
 |---|---|
-| `roi.*` | Recorta el frame de referencia **antes** de pasarlo al modelo: sólo lo de adentro se infiere. Las coordenadas son **píxeles del frame decodificado y rotado** y no se reescalan. Las detecciones vuelven al espacio del frame completo antes de salir. |
-| `illumination_min` | Brillo medio mínimo del ROI (0–100). Por debajo, **no se infiere** y el resultado sale inválido con el motivo. Se mide después del ajuste de medición, así que cambiar `image_adjust` o el backend obliga a revisarlo. |
+| `roi.<cámara>.*` | Recorta el frame de referencia **antes** de pasarlo al modelo: sólo lo de adentro se infiere. Sin la sección, con ella en null o con `enabled: false`, el pipeline ve el frame completo. Las coordenadas son **píxeles del frame decodificado y rotado** y no se reescalan. Las detecciones vuelven al espacio del frame completo antes de salir. |
+| `illumination_min` | Brillo medio mínimo de la región que ve cada pipeline (0–100). Por debajo, **no se infiere** y el resultado sale inválido con el motivo. Se mide después del ajuste de medición, así que cambiar `image_adjust` o el backend obliga a revisarlo. |
 
-Un ROI chico es el caso donde el tamaño de decodificación más duele: ver sección 5.
+Una región chica es el caso donde el tamaño de decodificación más duele: ver sección 5.
+
+**Un config de antes de este cambio se migra solo al arrancar.** Un `cameras.<slot>.roi`
+prendido se copia como ROI propio a cada pipeline que mira esa cámara y no declara el suyo, y
+a `cameras.<slot>.lens_health.roi`; la clave vieja se borra, junto con
+`inference.overlay.crop_to_roi`, y el log dice cada copia. Lo hace
+`system/inference/roi_migration.py` y es idempotente.
+
+La región donde la óptica mide la nitidez es otra cosa, de la cámara:
+`cameras.<slot>.lens_health.roi` (sección 4.7).
+
+### 4.4.1 Recorte en la cámara (fuera de la app)
+
+El recorte de la propia interfaz de la cámara —el AOI de pylon o de StCamera, o lo que
+ofrezca la web de una cámara IP— **lo configura quien instala, con la herramienta del
+fabricante, y la app no lo escribe ni lo muestra**. Es el único recorte que baja el tráfico
+de red, y también sube el fps máximo y baja el CPU de conversión. Los drivers GigE no tocan
+`Width`, `Height` ni `Offset`: lo que la cámara tenga, se respeta.
+
+Lo que hay que saber antes de usarlo:
+
+- **Va primero.** El frame que entrega la cámara pasa a ser el recorte, y todo lo que está en
+  píxeles del frame —las regiones de los pipelines, `max_load_y_px`, las medidas en mm, la
+  calibración de lente— se hace sobre ese frame. Orden de puesta en marcha: recorte de la
+  cámara, rotación, regiones, calibraciones. Cambiarlo después obliga a rehacer los
+  rectángulos, igual que `rotation` y `decode`.
+- **Es uno solo para toda la cámara**, así que su tamaño mínimo es la unión de las regiones
+  de todos sus pipelines. Con un pipeline que mira la escena entera no ahorra nada.
+- **Lo que queda afuera no vuelve**: ni en los streams, ni en el dataset de la cámara.
+- **En pylon Viewer** está en *Image Format Control*: achicar `Width` y `Height` primero y
+  recién después mover `OffsetX` y `OffsetY`, respetando el incremento del modelo.
+- **Tiene que sobrevivir a un corte de luz.** En Basler, guardar la configuración en un *user
+  set* y marcarlo como el de arranque; si no, la cámara vuelve al sensor completo y todas las
+  regiones quedan corridas sin ningún error. En una Sentech, verificarlo en StCamera. En una
+  cámara RTSP no hay una interfaz común: depende del modelo, y lo que siempre hay es la
+  resolución del stream, que es el equivalente de `decode`.
+- **Si se pierde, la app lo avisa**: las regiones propias guardan el tamaño del frame sobre el
+  que se dibujaron, y el diálogo de regiones y el log avisan cuando el frame que llega es de
+  otro tamaño.
 
 ### 4.5 Corrección de lente — `cameras.<slot>.calibration`
 
@@ -303,9 +363,14 @@ error, da un equipo que mide peor sin avisar.
 Mide la nitidez del frame de la cámara y compara contra una referencia calibrada con el
 vidrio limpio. **La referencia depende del tamaño del frame**: reducir de 1920×1080 a
 640×360 baja la varianza del Laplaciano y la hace parecer un vidrio sucio. La calibración
-registra exposición, ganancia, rotación y ROI como condiciones, pero **no el tamaño de
+registra exposición, ganancia, rotación y región como condiciones, pero **no el tamaño de
 decodificación**, así que la pantalla no avisa si se cambia. Al cambiar `decode`, se vuelve
 a calibrar.
+
+La región donde se mide es `cameras.<slot>.lens_health.roi` (`enabled`, `x_px`, `y_px`,
+`width_px`, `height_px`), y se dibuja en la misma pestaña de óptica. No es la de ningún
+pipeline: lo que importa acá es dónde hay textura fija y nítida para medir el vidrio. Sin
+región se mide el frame entero.
 
 ### 4.8 Visualización — `video.display`
 
@@ -415,7 +480,7 @@ models:
 | `cameras` | Qué cámaras entran a este hilo; `[]` = todas las que le lleguen. Las cámaras de un pipeline comparten el modelo, que se carga una vez. |
 | `interval_s` | Período mínimo entre frames de **una misma cámara**; 0 = todos. Es el control principal de cuánta GPU y CPU gasta un pipeline: no cambia la imagen de ningún frame, cambia cuántos se miran. |
 | `min_detections`, `min_result_confidence_pct` | Marcan el resultado **completo** como no confiable. Se emite igual, con el motivo; sus números no son una medición. |
-| `roi.<cámara>` | ROI propio del pipeline en esa cámara: reemplaza al de la cámara sólo para él, y `enabled: false` es el frame entero. Con `full_resolution` se corta del video nativo ([sección 4.1.1](#411-vistas--el-roi-de-un-pipeline-a-resolución-nativa)). |
+| `roi.<cámara>` | Región del pipeline en esa cámara; sin ella, en null o con `enabled: false`, el pipeline ve el frame entero (la cámara no tiene ROI propio, [sección 4.4](#44-región-e-iluminación--inferencepipelinesslotroi-illumination_min)). En una cámara RTSP o de video se corta del video nativo, a la entrada del modelo ([sección 4.1.1](#411-vistas--el-roi-de-un-pipeline-a-resolución-nativa)). El diálogo de regiones lo escribe junto con `frame_width_px` / `frame_height_px`, el tamaño del frame sobre el que se dibujó: el motor avisa en el log si el que llega es otro. |
 
 ### 4.13 Anotado — `inference.overlay`
 
@@ -424,9 +489,8 @@ pantalla, al stream anotado y al dataset.
 
 | Clave | Qué hace en la imagen |
 |---|---|
-| `draw_boxes`, `draw_masks`, `draw_labels`, `draw_roi`, `draw_timestamp` | Qué se dibuja. Las máscaras sólo si el modelo las devuelve. |
+| `draw_boxes`, `draw_masks`, `draw_labels`, `draw_roi`, `draw_timestamp` | Qué se dibuja. Las máscaras sólo si el modelo las devuelve. `draw_roi` dibuja el recuadro de cada pipeline con su color y su nombre, y lo pinta de verde, rojo o amarillo si el pipeline declara un veredicto (`roi_state`); un resultado no confiable va gris y punteado. |
 | `font_scale`, `thickness` | Tamaño del texto y del trazo **en píxeles del frame**. Se calibran para el tamaño de cada cámara: al reducir con `decode`, el texto sale proporcionalmente más grande. |
-| `crop_to_roi` | El anotado es sólo el recorte del ROI. No se combina con varios pipelines sobre una cámara. |
 | `class_colors_bgr` | Color por clase; `[]` = la paleta del módulo. |
 
 Si nadie mira el stream anotado ni la pantalla, no se dibuja.
@@ -438,12 +502,13 @@ Guarda el frame de referencia: **al tamaño de decodificación, ya corregido y a
 hacer falta un modelo de mayor resolución, se junta el dataset a tamaño nativo y se pasa al
 tamaño reducido para producción.
 
-Un pipeline con ROI propio guarda otra cosa: la región que vio —la vista nativa, si la pidió—,
+Un pipeline con ROI propio guarda otra cosa: la región que vio —la vista nativa, en una cámara
+que decodifica video—,
 en su propia carpeta `<cámara>-<pipeline>/`, con su tope y su historial de duplicados. Es la
 imagen con la que se reentrena ese modelo, y el pipeline que mira el frame entero de la misma
 cámara no le pisa el guardado. `image_collector.pipelines` elige de qué pipelines se guarda.
-Para juntar un dataset a resolución completa sin pasar la app entera al tamaño nativo, la
-vista va con `output_short_side_px: 0`.
+La vista sale a la entrada del modelo, y eso es lo que se guarda: un dataset más grande —para
+reentrenar a otra resolución— no se junta hoy desde una cámara que decodifica video.
 
 ### 4.15 Telemetría de los motores
 

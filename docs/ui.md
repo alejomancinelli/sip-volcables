@@ -140,16 +140,91 @@ ui/
     status_chip.py      chip de estado con cuatro colores semánticos
     log_table.py        tabla de eventos FIFO con filtro por nivel
     realtime_chart.py   gráfica de línea de ventana fija
-    camera_panel.py     feed de UNA cámara + chips + recuadro del ROI
+    camera_panel.py     feed de UNA cámara + chips + las regiones de sus pipelines (en crudo)
     camera_grid.py      N paneles, con foco y modo crudo/anotado
+    region_canvas.py    el frame con las regiones de varios pipelines, una editable con el mouse
+    pause_button.py     pausar y reanudar el video de un diálogo de dibujo
   dialogs/
-    roi_dialog.py       dibujar el ROI con el mouse sobre el frame en vivo
+    roi_dialog.py       dibujar UN rectángulo con el mouse sobre el frame en vivo (la región de la óptica)
+    pipeline_regions_dialog.py  las regiones de todos los pipelines de una cámara, una pestaña
+                        por pipeline, con vista previa y avisos; se abre sólo desde la pestaña
+                        Inferencia con `open_regions_requested`
     level_dialog.py     marcar una altura —una línea horizontal— sobre el frame en vivo; la
                         pide una pestaña con `open_level_requested`, igual que el ROI
     gpio_dialog.py      entradas y salidas digitales
   styles/               dark.qss y light.qss
   icons/                logos y el .ico de la ventana
 ```
+
+## Las regiones de los pipelines
+
+La región de cada pipeline en cada cámara **se edita en un solo lugar**: el diálogo de
+regiones (`ui/dialogs/pipeline_regions_dialog.py`), que se abre con «Editar regiones…» desde
+la sección **«Regiones (ROI)»** de la pestaña Inferencia —debajo de «Modelos» y «Pipelines»—,
+que tiene una sub-pestaña por cámara y en cada una una fila por pipeline que la mira. La
+pestaña Cámaras no tiene botón a él.
+
+**Se muestran los nombres del operador y no los slots**: el de la cámara
+(`cameras.<slot>.name`) y el de cada pipeline (`inference.pipelines.<slot>.name`, opcional, se
+escribe en la página del pipeline). Sin nombre se muestra el slot, que sigue siendo la
+identidad —con él se elige la pestaña y bajo él se guarda—. El mismo nombre va en el recuadro
+del panel en crudo y en el del anotado; en el anotado sin tildes ni eñes, porque la fuente del
+overlay sólo dibuja ASCII («Verificación» sale «Verificacion»).
+
+- **Una pestaña por pipeline que mira esa cámara**, con el frame en vivo arriba y el rectángulo
+  de todos encima. El de la pestaña activa va grueso y se edita —arrastrarlo desde adentro lo
+  mueve, desde un borde o una esquina lo estira, desde afuera dibuja uno nuevo—; los otros
+  van finos, para ver cuánto se pisan, y el diálogo dice el porcentaje.
+- **Vista previa**: el recorte, que es lo que recibe el modelo. En una cámara que decodifica
+  video sale del frame reducido —la de verdad sale del nativo—, y la etiqueta lo marca como
+  aproximado.
+- **Corte del video nativo y salida del VIC: no se eligen.** En una cámara que decodifica video
+  (`rtsp`, `video_file`) la región se corta siempre del video a su resolución original, *antes*
+  de reducirlo al tamaño de la cámara (`decode`), y el **VIC** —el escalador por hardware de la
+  Jetson— la entrega siempre a la entrada del modelo, leída del `.engine`: no hay campo para
+  pisarla. En una cámara GigE el frame ya es nativo; en una con corrección de lente o ajuste de
+  imagen la región sale del frame reducido y un aviso lo dice. Se aplica al reiniciar. Detalle
+  en `docs/jetson.md` §4.1.1.
+- **Pausar el video**: el botón «Pausar video» congela el frame para dibujar sobre una imagen
+  quieta; la vista previa y los avisos siguen sobre ese frame. Lo tienen también el diálogo de
+  ROI y el de nivel (`ui/widgets/pause_button.py`).
+- **Avisos**, de `system/inference/regions.py` (`find_region_problems()`): el rectángulo se
+  sale del frame, el config pide el video nativo en una cámara con corrección de lente o ajuste de
+  imagen, o se dibujó sobre un frame de otro tamaño que el que llega ahora. Una pestaña con
+  aviso lleva un ⚠ y el texto se ve debajo del lienzo.
+- **Al aceptar** se escriben sólo las pestañas que se tocaron, y las regiones propias
+  llevan `frame_width_px` / `frame_height_px`: el tamaño del frame sobre el que se
+  dibujaron. El motor las compara con el frame que llega y avisa en el log si cambió.
+
+En el monitor, el frame que se ve es siempre el completo, con las regiones dibujadas encima
+—un recuadro por pipeline, con su nombre—. En **anotado** las dibuja el overlay; en **crudo**,
+el panel de cámara. Nunca los dos: el panel sabe en qué modo está por `set_mode()`.
+
+**El color de un pipeline es uno solo** y sale de `overlay.get_pipeline_style(index)`, donde
+`index` es su posición en `inference.pipelines`: el overlay, el panel y el diálogo lo leen de
+ahí. La paleta **no usa verde, rojo ni amarillo**, que quedan para el estado. Con más
+pipelines que colores se repiten, y la segunda vuelta va punteada.
+
+**El recuadro se pinta por el veredicto.** Un pipeline puede declarar, con
+`_set_roi_state()` junto a sus `labels`, que su región está `ok`, `nok` o en `warning`
+(`ROI_STATE_*` de `result.py`), y el overlay pinta el borde de verde, rojo o amarillo. Sólo el
+código del proyecto sabe qué veredicto es «bien» o «mal», así que el template no lo decide: la
+única excepción es el pipeline de una etapa con el modelo sintético, para verlo en
+`manual_test/ui/`. Reglas del dibujo:
+
+- **El nombre del pipeline sigue en su color propio** y lleva el veredicto en texto
+  («grain OK», «grain NOK»): el color solo no alcanza para un operador daltónico ni en un
+  stream en blanco y negro. El `nok` además va con trazo más grueso.
+- **Un resultado no confiable nunca se pinta de estado**: va gris, punteado y con el motivo
+  («grain (dark_frame)»), aunque el pipeline haya dicho `ok`. Sus números no son una medición,
+  y un recuadro verde sobre algo que no se midió es peor que ninguno.
+- **El estado vive lo que vive su resultado**: pasada la vigencia del composer, o cerrada la
+  compuerta de frames, el recuadro vuelve a su color o desaparece. No hay memoria del último
+  `nok`.
+- **Sólo en anotado.** En crudo no hay resultado, y el panel dibuja la geometría del config con
+  el color del pipeline.
+- El verde, el rojo y el amarillo del overlay son valores sobre el frame (`overlay.ROI_STATE_COLORS_BGR`)
+  y no los tonos translúcidos de los chips de la UI; se parecen a propósito y no se comparan.
 
 ## La vista de monitor viene vacía
 

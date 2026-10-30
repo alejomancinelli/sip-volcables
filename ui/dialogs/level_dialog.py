@@ -10,12 +10,14 @@ frame de cámara, en píxeles: la misma que lee el motor.
 Guarda la fila como un entero en la clave que se le dé, y persiste el archivo al aceptar.
 **La clave es un parámetro**: quien pide el nivel es la pestaña dueña de esa sección, y este
 diálogo no sabe qué se mide contra él.
+
+El video se puede pausar (`PauseButton`) para marcar sobre un frame quieto.
 """
 
 import cv2
 import numpy as np
 from PySide6.QtCore import QPointF, Qt, Slot
-from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox,
     QVBoxLayout,
@@ -26,6 +28,7 @@ from system.config_manager import ConfigManager
 from ui import theme
 from ui.strings import tr
 from ui.widgets.form import add_hint_row
+from ui.widgets.pause_button import PauseButton
 
 _MIN_CANVAS_WIDTH_PX = 640
 _MIN_CANVAS_HEIGHT_PX = 400
@@ -73,8 +76,8 @@ class LevelDialog(QDialog):
 
     @Slot(object)
     def update_frame(self, frame_bgr: np.ndarray | None):
-        """Slot para la señal de frames de la cámara. Ignora un frame vacío."""
-        if frame_bgr is None or frame_bgr.size == 0:
+        """Slot para la señal de frames de la cámara. Ignora un frame vacío o en pausa."""
+        if frame_bgr is None or frame_bgr.size == 0 or self._pause_button.is_paused:
             return
         self._last_frame = frame_bgr
         self._canvas.set_frame(frame_bgr)
@@ -92,6 +95,8 @@ class LevelDialog(QDialog):
         return box
 
     def _build_button_row(self) -> QHBoxLayout:
+        self._pause_button = PauseButton()
+
         cancel_button = QPushButton(tr("dialog_cancel"))
         cancel_button.setObjectName("cancelButton")
         cancel_button.clicked.connect(self.reject)
@@ -101,6 +106,7 @@ class LevelDialog(QDialog):
         save_button.clicked.connect(self._on_save_clicked)
 
         row = QHBoxLayout()
+        row.addWidget(self._pause_button)
         row.addStretch()
         row.addWidget(cancel_button)
         row.addWidget(save_button)
@@ -187,6 +193,12 @@ class _LevelCanvas(QLabel):
                          QPointF(self._offset_x_px + self._image_width_px, y_widget))
         painter.end()
         self.setPixmap(canvas)
+
+    def resizeEvent(self, event: QResizeEvent):
+        """Redibuja el último frame al nuevo tamaño: en pausa no llega otro que lo haga."""
+        super().resizeEvent(event)
+        if self._last_frame is not None:
+            self.set_frame(self._last_frame)
 
     # ── Mouse ────────────────────────────────────────────────────────────────
 

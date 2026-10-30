@@ -25,7 +25,7 @@ Qué no hace, a propósito:
 dataset, que se guardan corregidas y ajustadas—: pasarles el preprocessor otra vez les
 corregiría el lente y les multiplicaría el brillo dos veces.
 
-**Una cámara con vistas** —algún pipeline le pide su ROI con `full_resolution`— recibe la
+**Una cámara con vistas** —un pipeline tiene un ROI en una cámara que decodifica video— recibe la
 imagen como la entrega el video: nativa y sin rotar. Se le hace lo que en vivo hace el
 decodificador por CPU (`decoder.render()`): se reduce al tamaño de `decode`, se le cortan
 las vistas del nativo y se rota, así el pipeline ve la misma vista que en la línea. Una
@@ -45,6 +45,7 @@ from .abstract_pipeline import AbstractPipeline
 from .pipeline_factory import create_pipeline
 from .preprocessing import build_camera_views, build_preprocessor
 from .result import InferenceResult
+from .roi_migration import migrate_roi_config
 
 
 class OfflineRunner:
@@ -56,6 +57,9 @@ class OfflineRunner:
     """
 
     def __init__(self, config: ConfigManager, *, apply_preprocessor: bool = True):
+        # En memoria y sin reescribir el config de quien lo usa: se mide como mediría la
+        # línea con ese mismo archivo, que la migra al arrancar.
+        migrate_roi_config(config, save=False)
         preprocessor = build_preprocessor(config) if apply_preprocessor else None
         hooks = build_hooks(config)
 
@@ -78,7 +82,8 @@ class OfflineRunner:
             self._pipelines.append(pipeline)
 
         self._config = config
-        self._camera_views = build_camera_views(config, self.pipeline_slots)
+        self._camera_views = build_camera_views(
+            config, {pipeline.pipeline_slot: pipeline for pipeline in self._pipelines})
         self._decode_by_camera: dict[str, DecodeSettings] = {}
 
     @property
