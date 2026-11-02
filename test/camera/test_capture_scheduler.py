@@ -145,6 +145,46 @@ class TestHasMeasurementCycle:
     def test_without_pipelines(self):
         assert has_measurement_cycle(_MockConfig()) is False
 
+    def test_measuring_on_request_is_a_cycle(self):
+        """La pestaña de dataset tiene que ofrecer «a pedido»: una ronda pedida se guarda."""
+        config = self._config(pipeline_1=1)
+        config._values["inference.pipelines.pipeline_1.cycle_trigger"] = "request"
+        assert has_measurement_cycle(config) is True
+
+
+class _RevisedConfig(_MockConfig):
+    """Con `revision`, como el ConfigManager: cambia con cada `set`."""
+
+    def __init__(self, **overrides):
+        super().__init__(**overrides)
+        self.revision = 0
+
+    def set(self, key: str, value: object):
+        self._values[key] = value
+        self.revision += 1
+
+
+class TestCycleSettingsCache:
+    """La forma del ciclo se consulta en cada frame: se relee sólo cuando cambia el config."""
+
+    def test_a_change_in_the_config_is_seen(self):
+        config = _RevisedConfig(**{f"inference.pipelines.{_PIPELINE}.frames_per_cycle": 1})
+        scheduler = _scheduler(config)
+        assert scheduler.is_cycled(_PIPELINE) is False
+        config.set(f"inference.pipelines.{_PIPELINE}.cycle_trigger", "request")
+        assert scheduler.is_cycled(_PIPELINE) is True
+        assert scheduler.is_on_request(_PIPELINE) is True
+
+    def test_without_a_change_the_config_is_not_read_again(self):
+        config = _RevisedConfig(**{f"inference.pipelines.{_PIPELINE}.frames_per_cycle": 3})
+        scheduler = _scheduler(config)
+        scheduler.is_cycled(_PIPELINE)
+        reads = []
+        config.get = lambda key, default=None: reads.append(key) or default
+        for _ in range(3):
+            scheduler.is_cycled(_PIPELINE)
+        assert reads == []
+
 
 # ── Sin ciclo: pass-through ──────────────────────────────────────────────────
 
@@ -429,6 +469,102 @@ class TestIdleCameras:
 
 
 # ── Ciclo de vida ────────────────────────────────────────────────────────────
+
+def _on_request_config(frames_per_cycle: int = 2, **overrides) -> _MockConfig:
+    return _config(frames_per_cycle, **{
+        f"inference.pipelines.{_PIPELINE}.cycle_trigger": "request", **overrides})
+
+
+class TestRequestedRound:
+    """Una ronda que abre quien la pide: un contador del PLC, un flanco de GPIO."""
+
+    def test_it_says_which_pipelines_measure_on_request(self):
+        """Lo usa el cableado para la vigencia de su última medición en pantalla."""
+        assert _scheduler(_on_request_config()).is_on_request(_PIPELINE) is True
+        assert _scheduler(_config()).is_on_request(_PIPELINE) is False
+
+    def test_on_request_it_starts_without_a_round(self):
+        assert _scheduler(_on_request_config()).take_frame(_SLOT, _PIPELINE) is False
+
+    def test_a_request_opens_the_round(self):
+        scheduler = _scheduler(_on_request_config())
+        assert scheduler.request_round(_PIPELINE) is True
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is True
+
+    def test_after_the_round_it_waits_for_the_next_request(self):
+        scheduler = _scheduler(_on_request_config())
+        collector = _collect(scheduler)
+        scheduler.request_round(_PIPELINE)
+        _feed(scheduler, [_result(load_pct=10.0)] * 2)
+        assert len(collector.results) == 1
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is False
+
+    def test_a_request_during_a_round_changes_nothing(self):
+        """Interrumpirla mezclaría el resultado que ya estaba en el motor con la ronda nueva."""
+        scheduler = _scheduler(_on_request_config(frames_per_cycle=3))
+        collector = _collect(scheduler)
+        scheduler.request_round(_PIPELINE)
+        _feed(scheduler, [_result(load_pct=10.0)])
+        assert scheduler.request_round(_PIPELINE) is False
+        _feed(scheduler, [_result(load_pct=20.0)] * 2)
+        assert len(collector.results) == 1
+        assert collector.results[0].metrics["sample_count"] == 3
+
+    def test_a_request_while_waiting_for_a_frame_changes_nothing(self):
+        scheduler = _scheduler(_on_request_config())
+        scheduler.request_round(_PIPELINE)
+        scheduler.take_frame(_SLOT, _PIPELINE)
+        assert scheduler.request_round(_PIPELINE) is False
+
+    def test_one_frame_on_request_is_a_cycle(self):
+        """El permiso es lo que hace que el frame medido sea uno posterior al pedido."""
+        scheduler = _scheduler(_on_request_config(frames_per_cycle=1))
+        assert scheduler.is_cycled(_PIPELINE) is True
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is False
+        assert scheduler.request_round(_PIPELINE) is True
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is True
+
+    def test_on_interval_a_request_skips_the_wait(self):
+        config = _config(**{f"inference.pipelines.{_PIPELINE}.cycle_interval_s": 30})
+        scheduler = _scheduler(config)
+        _feed(scheduler, [_result(load_pct=10.0)] * 3)
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is False
+        assert scheduler.request_round(_PIPELINE) is True
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is True
+
+    def test_on_interval_a_round_already_open_is_the_one_requested(self):
+        assert _scheduler().request_round(_PIPELINE) is True
+
+    def test_without_a_cycle_there_is_nothing_to_request(self):
+        """Sin ciclo cada frame ya es una medición."""
+        assert _scheduler(_config(frames_per_cycle=1)).request_round(_PIPELINE) is False
+
+    def test_a_pipeline_it_does_not_run_is_refused(self):
+        """Uno sin licencia no tiene hilo, así que tampoco ronda."""
+        assert _scheduler(_on_request_config()).request_round(_OTHER_PIPELINE) is False
+
+    def test_a_stopped_scheduler_refuses(self):
+        scheduler = _scheduler(_on_request_config())
+        scheduler.stop()
+        assert scheduler.request_round(_PIPELINE) is False
+
+    def test_a_request_turns_an_idle_camera_on(self):
+        config = _on_request_config(**{
+            f"inference.pipelines.{_PIPELINE}.idle_cameras_between_cycles": True})
+        scheduler = CaptureScheduler(config, (_PIPELINE,))
+        collector = _collect(scheduler)
+        scheduler.start()
+        assert collector.captures == [(_SLOT, False)]
+        scheduler.request_round(_PIPELINE)
+        assert collector.captures[-1] == (_SLOT, True)
+
+    def test_an_unknown_trigger_measures_on_the_clock_and_warns(self, caplog):
+        config = _config(**{f"inference.pipelines.{_PIPELINE}.cycle_trigger": "plc"})
+        with caplog.at_level("WARNING"):
+            scheduler = _scheduler(config)
+        assert "cycle_trigger 'plc'" in caplog.text
+        assert scheduler.take_frame(_SLOT, _PIPELINE) is True
+
 
 class TestLifecycle:
     def test_start_is_idempotent(self):

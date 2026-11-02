@@ -44,6 +44,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       version.py              nivel 0 — la versión del programa; va en código, no en config
       system_monitor.py       métricas de hardware: CPU, RAM, disco, red, GPU
       gpio_control.py         entradas y salidas digitales sobre libgpiod; sin ella, simulado
+      frame_signals.py        nivel 1 — la foto de la planta (GPIO y PLC) y sus flancos
       camera/
         capture_thread.py     un hilo por cámara; entrega frames y telemetría por señales
         capture_scheduler.py  el ciclo de N frames por medición; con `frames_per_cycle: 1`,
@@ -96,10 +97,11 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         request.py            arma la solicitud que se manda a firmar
         __main__.py           CLI: status | fingerprint | request | install
       modbus/
-        schema.py             nivel 1 — maquinaria del mapa: carga, escalas, espejo R/W
+        schema.py             nivel 1 — maquinaria del mapa: carga, escalas, quién escribe cada fila
         register_map.yaml     el mapa concreto; es lo que cambia en cada instalación
         registers.py          carga el YAML al importar y expone el SCHEMA validado
         server.py             servidor esclavo TCP + RTU sobre un datastore en RAM
+        plc_variables.py      lo que escribe el PLC: la cola, el drenado y el log de cada cambio
         export_map.py         genera docs/modbus_map.{md,csv} desde el YAML
       telemetry/
         persistence.py        junta puntos en una ventana y los escribe en batch
@@ -154,6 +156,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       license/                emite la solicitud y simula el binario para probar la licencia
       model_protection/       cifra unos pesos y los abre en memoria; mide el costo
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
+      modbus_write/           el PLC escribe: el servidor solo, la app entera con una
+                              compuerta y una medición a pedido, y un cliente que hace de PLC
     calibration/              herramientas de puesta en marcha que producen valores del config;
                               una carpeta por calibrador, con su README para quien calibra.
                               La jerarquía y las reglas, en `calibration/README.md`
@@ -179,8 +183,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               calibration.md (cómo se calibra un equipo en la puesta en
                               marcha, con los calibradores del fork),
                               jetson.md (los aceleradores: qué parámetros los controlan, qué
-                              le hacen a la imagen y cómo exportar los engines) y
-                              tests.md (el índice de la suite, generado)
+                              le hacen a la imagen y cómo exportar los engines),
+                              plc_commands.md (qué escribe el PLC y cómo, para el
+                              integrador) y tests.md (el índice de la suite, generado)
     recordings/               videos que el driver `video_file` reproduce; no se versionan
     data/                     logs y dataset en runtime
 
@@ -235,8 +240,19 @@ Son punteros: el contrato vive en el archivo, no acá.
   `analysis.py`: agrega en el tiempo lo que `summarize_metrics` agrega dentro de un ciclo,
   la usa el analyzer del fork que publique tendencias, y en el template no la llama nadie.
 - **Mapa de registros Modbus** — `system/modbus/schema.py`: los campos de una fila,
-  el vocabulario de `producer`, las escalas y el espejo R/W del bloque de config.
+  el vocabulario de `producer`, las escalas, la copia de umbrales del config que se
+  publica (`mirror_batch()`) y qué escribe el PLC (`plc_regs()`, `write_ranges()`, y
+  `write_range()`, la regla única del rango).
   El mapa concreto es `system/modbus/register_map.yaml`.
+- **Escrituras del PLC** — el servidor (`system/modbus/server.py`) valida la petición
+  entera y avisa a `on_write` bajo su lock; `PlcVariables` (`system/modbus/plc_variables.py`)
+  lo encola, y el cableado de `main.py` lo drena cada 100 ms y lo deja en
+  `FrameSignals.plc`, que viaja con cada frame a `InferenceResult.signals`
+  (`system/inference/result.py`). El fork reacciona a un cambio en
+  `_on_signals_changed()` de `main.py`, con las funciones de flanco de
+  `system/frame_signals.py`, y pide una medición con `CaptureScheduler.request_round()`
+  (`system/camera/capture_scheduler.py`). Lo que tiene que saber el integrador está en
+  `docs/plc_commands.md`.
 - **Bitfields** — `system/formats/*.py`: cada archivo es el dueño de su palabra y
   documenta qué significa cada bit. Nadie corre bits afuera.
 - **Salud de la óptica** — `system/camera/lens_health.py`: el vocabulario `STATE_*`, qué
@@ -396,7 +412,9 @@ Lo que no se deduce leyendo un archivo suelto:
   guardando el anotado propio de cada pipeline, porque su JSON trae sólo esas detecciones.
   Una cámara sin ningún resultado vigente —todos sus pipelines cortados o caídos— se ve en
   vivo en vez de congelada en el último anotado; la vigencia mira también el tiempo real
-  entre resultados, así que un modelo lento no la hace parpadear entre anotado y vivo.
+  entre resultados, así que un modelo lento no la hace parpadear entre anotado y vivo. Un
+  pipeline que mide a pedido no la mira: entre sus resultados pasa lo que tarda alguien en
+  pedir el siguiente, y su última medición quedaría en pantalla tres veces ese tiempo.
   Con `crop_to_roi` no se combina: el lienzo es el recorte de uno y el ROI de los otros no
   tiene por qué caer adentro.
 - **Una señal de la planta corta los frames de una cámara a un pipeline, no el pipeline.**
@@ -409,7 +427,8 @@ Lo que no se deduce leyendo un archivo suelto:
   caminos del frame: en el hilo de captura para los pipelines sin ciclo y en el de la GUI,
   antes de pedir el permiso del scheduler, para los que tienen. Por eso recibe
   `FrameSignals`, una foto inmutable que `main.py` **reemplaza entera y nunca modifica**:
-  un hilo de captura la lee sin lock y ve la vieja o la nueva, nunca mitad de cada una.
+  un hilo de captura la lee sin lock y ve la vieja o la nueva, nunca mitad de cada una. Trae
+  las entradas del GPIO y las variables que escribe el PLC.
   Va en `main.py` y no en `hooks.py` porque lee el estado vivo de la planta, que la corrida
   de imágenes sueltas no tiene. Mientras está cerrada, los registros del pipeline quedan
   con su último valor, su overlay se va del anotado en el frame siguiente —el composer lo
@@ -474,8 +493,8 @@ Lo que no se deduce leyendo un archivo suelto:
 - La telemetría se acumula en una ventana y sale en batch; cada punto viaja con el
   instante en que se midió, no con el de la escritura. El hilo drena la cola de continuo,
   así que el ritmo no lo limita la cola —medido: 50 puntos/s sin descartar—: lo que se
-  achica al publicar más seguido es el margen ante un backend trabado (100 puntos de cola
-  = 100/N segundos a N puntos/s) y el volumen que queda guardado por día. Aun así se
+  achica al publicar más seguido es el margen ante un backend trabado (1000 puntos de cola
+  = 1000/N segundos a N puntos/s) y el volumen que queda guardado por día. Aun así se
   publica **por tick y no por evento**, porque una serie de salud por evento no agrega
   información. La estructura de las series —measurements, tags y nombres de campo— es un
   contrato con los dashboards y está en `docs/influxdb.md`.
@@ -611,10 +630,32 @@ Lo que no se deduce leyendo un archivo suelto:
   `python -m system.modbus.export_map` y no se edita a mano. Direccionamiento
   base-1, regla única **reg N ⇔ 4000N**, y ninguna dirección se escribe como
   literal fuera de `system/modbus/`: se pide con `SCHEMA.addr("nombre")`.
-- El mapa se sirve de **sólo lectura**: el PLC lee con FC03 y la app escribe desde
-  adentro. Las demás funciones se rechazan con 0x02 en vez de contestar un valor
-  que parezca una medición. El bloque de configuración escribible por el PLC existe
-  en la maquinaria pero el template no lo usa.
+- **El PLC escribe sólo las filas `producer: plc`, y nunca el config.** Están en
+  40101-40150 —por convención, no por validación— y se escriben con FC06 o FC16, cada valor
+  contra su rango; el resto del mapa se lee con FC03 y nada más. La petición se valida
+  **entera** antes de escribir, porque pymodbus dejaba escrita la primera mitad de un FC16
+  que se metía en una fila ajena: 0x02 si toca un registro que no es del PLC o usa otra
+  función, 0x03 si un valor cae fuera de rango. Un umbral viaja en un solo sentido: una fila
+  `config` lo **publica** para que el HMI lo muestre, y el PLC no la puede escribir. Que el
+  PLC cambiara el config se diseñó y se descartó —obligaba a aplicar en caliente lo que se
+  lee al armar el motor y a resolver el choque con lo que edita el operador—; el porqué está
+  en `.claude/plans/plc-commands.md`.
+- **Para la maquinaria todo lo que escribe el PLC es una variable.** Una fila `plc` llega por
+  nombre a `FrameSignals.plc` y viaja con cada frame a `InferenceResult.signals`; el fork la
+  lee como **nivel** —en una compuerta o en el analyzer: «el proceso está OK», la velocidad
+  de la cinta— o como **evento** en `_on_signals_changed()`. Entra por evento —comparar
+  registros perdería dos escrituras del mismo período— y se aplica cada 100 ms, así que lo
+  escrito dentro de ese lapso llega como un solo cambio, con el valor final. Por eso un
+  disparo es un contador y no un bit: una sola escritura, reescribir el mismo número no
+  vuelve a disparar, y el número queda en el JSON de la medición. Al reiniciar todo vuelve a
+  0, así que el 0 es el reposo y el PLC escribe sus variables de forma cíclica. **El equipo
+  no le contesta al PLC**: un fork que necesite confirmar un disparo declara su propio
+  registro.
+- **Medir a pedido es del fork, no del operador.** Con
+  `inference.pipelines.<slot>.cycle_trigger: request` un pipeline mide sólo cuando
+  `request_round()` se lo pide, y sin el `_on_signals_changed()` del fork que lo llama no
+  mide nunca. Por eso no tiene campo en la pestaña de inferencia: se edita en el archivo, y
+  el default sigue siendo `interval`, medir por reloj.
 - Las escalas son del esquema, no del productor: quien mide entrega el valor físico
   a `SCHEMA.encode()` y el registro sale escalado y saturado a uint16.
 - Modbus TCP y RTU comparten el datastore y son independientes: el que no levanta
@@ -688,9 +729,10 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   (lo devuelve `_build_monitor_content()` de `main.py`), un calibrador en
   `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), y lo que corresponda en
   `test/`, `manual_test/` y `docs/`.
-- **De `main.py` se completan tres métodos**, los del bloque marcado: el widget del
-  monitor, el contexto que se guarda con el dataset y las compuertas de frames —que el
-  template deja vacías—. Lo que entra al motor —classifier,
+- **De `main.py` se completan cuatro métodos**, los del bloque marcado: el widget del
+  monitor, el contexto que se guarda con el dataset, las compuertas de frames y la
+  reacción a un cambio de señal (`_on_signals_changed()`) —las dos últimas, vacías en el
+  template—. Lo que entra al motor —classifier,
   analyzer y annotators— es de `hooks.py`, porque también lo usa la corrida de imágenes
   sueltas. El resto del archivo es cableado y se cross-portea.
 - **De `ui/` sólo se agrega**: el widget del monitor, los textos que ese widget necesite
@@ -707,19 +749,20 @@ La tabla completa, archivo por archivo, está en `README.md`.
 ## Qué todavía no existe
 
 - Del template ya no falta el cableado: `main.py` instancia todo y conecta las señales,
-  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los tres
-  métodos marcados de `main.py`: el widget del monitor, el contexto del dataset y las
-  compuertas de frames. Lo que sigue faltando es el contenido: qué se mide y qué se publica.
-- **Las compuertas de frames leen sólo el GPIO.** `FrameSignals` tiene hoy un campo,
-  `gpio_inputs`; leer una señal que escriba el PLC por Modbus es otro campo, y antes que
-  eso que el servidor acepte escrituras en las filas `producer: config`, que hoy rechaza.
+  y lo del fork sale de `hooks.py` —classifier, analyzer y annotators— y de los cuatro
+  métodos marcados de `main.py`: el widget del monitor, el contexto del dataset, las
+  compuertas de frames y la reacción a un cambio de señal. Lo que sigue faltando es el
+  contenido: qué se mide y qué se publica.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
-  pero qué publica es lo más específico de cada fork y se declara al escribirlo.
+  pero qué publica es lo más específico de cada fork y se declara al escribirlo. Lo mismo
+  el bloque 40101-40150 que escribe el PLC: la maquinaria está, y el mapa trae ejemplos
+  comentados.
 - **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
   y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
   `inference.pipelines`, incluidos los que no arrancaron, y se filtra contra el mapa como
   las de cámara. Ningún mapa declara todavía esas filas, así que no llegan al PLC: falta
-  decidir dónde viven —el hueco de 92-97 o un bloque nuevo después del 100—.
+  decidir dónde viven dentro del bloque de lectura —el hueco de 92-97 es el candidato—,
+  porque 40101-40150 es del PLC.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección
   `lens_health:` del config, la pestaña con la calibración por cámara y el bit al PLC
   están. Lo que queda es de cada instalación —calibrar cada cámara con el vidrio limpio,
@@ -749,6 +792,10 @@ La tabla completa, archivo por archivo, está en `README.md`.
   el plan están en `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
+- **De la escritura del PLC falta la prueba contra un PLC de verdad.** Lo demás está y se
+  probó con Modbus Poll contra la app (`manual_test/modbus_write/`). El disparo por GPIO no
+  tiene código propio: es un `gpio_rose()` en `_on_signals_changed()` del fork. El plan, con
+  lo decidido y lo descartado, está en `.claude/plans/plc-commands.md`.
 - **El ground truth por fork está diseñado y postergado**: imágenes con el resultado
   esperado, versionadas en el repo del fork, y un comando que dice cuáles pasan. Ya existen
   las dos piezas en las que se apoya —el driver de video y la corrida de imágenes sueltas—;

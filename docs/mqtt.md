@@ -35,9 +35,10 @@ Uno por serie, bajo el prefijo del equipo:
 | Tópico | Qué sale por muestra |
 |---|---|
 | `planta_norte/system` | 1 mensaje: hardware del equipo |
+| `planta_norte/network` | 1 por interfaz de red |
 | `planta_norte/camera` | 1 por cámara |
 | `planta_norte/services` | 1 mensaje: los seis canales de salida |
-| `planta_norte/inference` | 1 por par (cámara, pipeline) con resultados nuevos |
+| `planta_norte/inference` | 7 por par (cámara, pipeline) con resultados nuevos, partidos por `kind` y `stat` |
 
 **La cámara y el pipeline no van en el tópico, van adentro del mensaje.** El tópico nombra
 la serie, no la instancia: agregar una cámara no agrega tópicos, agrega mensajes en el que
@@ -61,7 +62,7 @@ suscriptor que selle con la hora de llegada deforma la serie.
 ### Ojo: los fields pisan a los tags
 
 La fusión es en ese orden, así que **una métrica que se llame igual que un tag lo
-sobreescribe sin avisar**. Los tags son `device`, `camera` y `pipeline`: una métrica del
+sobreescribe sin avisar**. Los tags son `device`, `interface`, `camera`, `pipeline`, `kind` y `stat`: una métrica del
 analyzer llamada `camera` reemplazaría al slot en el mensaje y el suscriptor perdería de
 qué cámara vino. Es la misma razón por la que en el mapa Modbus el nombre de la métrica es
 el contrato: los nombres se eligen una vez y valen para todos los destinos.
@@ -75,14 +76,23 @@ Los valores son de ejemplo; los nombres y los tipos son los reales.
 ```json
 {
   "device": "vision_01",
-  "cpu_usage_pct": 34.2, "gpu_usage_pct": 61.0,
-  "cpu_temp_c": 52.0, "gpu_temp_c": 58.0,
-  "ram_used_mb": 3820.0, "ram_total_mb": 16384.0,
-  "disk_free_gb": 214.7, "power_w": 18.4, "overcurrent_count": 0,
-  "net_eth0_rx_mbps": 12.6, "net_eth0_tx_mbps": 0.9,
+  "cpu_usage_pct": 34, "gpu_usage_pct": 61,
+  "cpu_temp_c": 52, "gpu_temp_c": 58,
+  "ram_used_mb": 3820, "ram_total_mb": 16384,
+  "disk_free_gb": 214, "power_w": 18.4, "overcurrent_count": 0,
   "engine_vic_active": 1, "engine_vic_mhz": 448,
   "engine_nvdec_active": 1, "engine_nvdec_mhz": 716,
   "engine_nvenc_active": 0, "engine_nvenc_mhz": 0,
+  "time": 1757340012.412
+}
+```
+
+`planta_norte/network` — uno por interfaz
+
+```json
+{
+  "device": "vision_01", "interface": "eth0",
+  "rx_mbps": 12.6, "tx_mbps": 0.9,
   "time": 1757340012.412
 }
 ```
@@ -94,6 +104,7 @@ Los valores son de ejemplo; los nombres y los tipos son los reales.
   "device": "vision_01", "camera": "camera_1",
   "connected": 1, "capture_enabled": 1, "misconfigured": 0,
   "fps_estimated": 9.8, "temperature_c": 41.2, "illumination_pct": 63,
+  "lens_state": 0, "lens_sharpness_pct": 97,
   "time": 1757340012.418
 }
 ```
@@ -111,24 +122,29 @@ andando.
 }
 ```
 
-`planta_norte/inference` — uno por par (cámara, pipeline). Los campos con nombre de la
-planta terminados en `_mean`, `_std`, `_min` y `_max` son los del analyzer del fork —acá
-`load_height_mm` y `belt_coverage_pct` son de ejemplo—; el resto es de la maquinaria.
+`planta_norte/inference` — siete por par (cámara, pipeline), uno por cada combinación de
+`kind` y `stat` (ver [`influxdb.md`](influxdb.md#inference--el-resultado-agregado)). Acá van
+tres de los siete; `load_height_mm` y `belt_coverage_pct` son métricas de ejemplo del
+analyzer de un fork, y el resto es de la maquinaria. Los mensajes de `stat` `std`, `min` y
+`max` tienen los mismos campos que el de `mean`.
 
 ```json
 {
+  "device": "vision_01", "camera": "camera_1", "pipeline": "pipeline_1", "kind": "count",
+  "result_count": 5, "invalid_count": 1, "invalid_reason": "dark_frame", "sample_count": 4,
+  "time": 1757340012.180
+}
+{
   "device": "vision_01", "camera": "camera_1", "pipeline": "pipeline_1",
-  "result_count": 5, "invalid_count": 1, "invalid_reason": "low_illumination",
-  "sample_count": 4,
-  "confidence_pct_mean": 87.4, "detection_count_mean": 12.0,
-  "inference_time_ms_mean": 196.3, "inference_time_ms_max": 241.0,
-  "cycle_time_ms_mean": 412.8, "cycle_time_ms_max": 497.5,
-  "illumination_pct_mean": 58.2,
-  "stage_detector_ms_mean": 174.1,
-  "load_height_mm_mean": 812.4, "load_height_mm_std": 6.1,
-  "load_height_mm_min": 803.0, "load_height_mm_max": 820.0,
-  "belt_coverage_pct_mean": 71.3, "belt_coverage_pct_std": 2.4,
-  "belt_coverage_pct_min": 68.0, "belt_coverage_pct_max": 74.0,
+  "kind": "time", "stat": "max",
+  "total_ms": 241.0, "detector_ms": 212.4, "cycle_ms": 497.5,
+  "time": 1757340012.180
+}
+{
+  "device": "vision_01", "camera": "camera_1", "pipeline": "pipeline_1",
+  "kind": "result", "stat": "mean",
+  "confidence_pct": 87.4, "detection_count": 12.0,
+  "load_height_mm": 812.4, "belt_coverage_pct": 71.3,
   "time": 1757340012.180
 }
 ```

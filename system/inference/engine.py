@@ -64,7 +64,7 @@ el overlay y `analysis.count_by_class`.
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 import cv2
@@ -129,9 +129,10 @@ class InferenceThread(QThread):
         # color a las máscaras y a las referencias. La medición no lo ve.
         self._canvas_adjust = canvas_adjust
 
-        # Último frame de cada cámara esperando su turno, y el turno mismo: el índice
-        # rota sobre los slots pendientes para que ninguna cámara tape a las otras.
-        self._pending: dict[str, np.ndarray] = {}
+        # Último frame de cada cámara esperando su turno, con las variables con que entró, y
+        # el turno mismo: el índice rota sobre los slots pendientes para que ninguna cámara
+        # tape a las otras.
+        self._pending: dict[str, tuple[np.ndarray, Mapping[str, object] | None]] = {}
         self._pending_lock = threading.Lock()
         self._frame_available = threading.Event()
         self._next_slot_index = 0
@@ -176,7 +177,7 @@ class InferenceThread(QThread):
         return not camera_slots or camera_slot in camera_slots
 
     def push_frame(self, frame_bgr: np.ndarray | None, camera_slot: str, *,
-                   ignore_interval: bool = False):
+                   ignore_interval: bool = False, signals: Mapping[str, object] | None = None):
         """
         Deja el frame de una cámara para que se infiera. Barata y thread-safe.
 
@@ -189,6 +190,10 @@ class InferenceThread(QThread):
         en `dropped` el que reemplaza a uno que el hilo todavía no consumió.
         `ignore_interval` fuerza la inferencia de ese frame: es lo que necesita un
         proyecto que captura con la luz encendida y no quiere esperar el período.
+
+        `signals` son las variables de la planta en este instante; viajan con el frame y
+        salen en `InferenceResult.signals`. Se guardan sin copiar: quien llama entrega una
+        foto que no modifica después.
         """
         if frame_bgr is None or frame_bgr.size == 0 or not self.is_enabled:
             return
@@ -203,7 +208,7 @@ class InferenceThread(QThread):
                 return
             self._last_push_s[camera_slot] = now_s
             replaced = camera_slot in self._pending
-            self._pending[camera_slot] = frame_bgr
+            self._pending[camera_slot] = (frame_bgr, signals)
         if replaced:
             self._count("dropped")
         self._frame_available.set()
@@ -270,7 +275,8 @@ class InferenceThread(QThread):
         except Exception as e:
             self._warn_throttled("timestamp", f"No se pudo dibujar la hora: {e}.")
 
-    def process(self, frame_bgr: np.ndarray, camera_slot: str) -> InferenceResult:
+    def process(self, frame_bgr: np.ndarray, camera_slot: str,
+                signals: Mapping[str, object] | None = None) -> InferenceResult:
         """
         Corre el ciclo completo sobre un frame en el hilo del que llama, sin el hilo propio.
 
@@ -291,7 +297,7 @@ class InferenceThread(QThread):
                 f"[Inference/{self.pipeline_slot}] process() con el hilo corriendo: el "
                 f"pipeline no admite dos frames a la vez."
             )
-        return self._process(frame_bgr, camera_slot)
+        return self._process(frame_bgr, camera_slot, signals)
 
     def get_status(self) -> dict:
         """
@@ -357,8 +363,8 @@ class InferenceThread(QThread):
                 self._emit_status_if_due()
                 continue
 
-            camera_slot, frame_bgr = job
-            result = self._process(frame_bgr, camera_slot)
+            camera_slot, frame_bgr, signals = job
+            result = self._process(frame_bgr, camera_slot, signals)
             self._publish(result)
             self.result_ready.emit(result)
             self._emit_status_if_due()
@@ -379,9 +385,10 @@ class InferenceThread(QThread):
         )
         return False
 
-    def _take_next(self) -> tuple[str, np.ndarray] | None:
+    def _take_next(self) -> tuple[str, np.ndarray, Mapping[str, object] | None] | None:
         """
-        Saca el frame de la próxima cámara por turno, o None si no hay nada pendiente.
+        Saca el frame de la próxima cámara por turno, con las variables con que entró, o
+        None si no hay nada pendiente.
 
         El turno rota sobre las cámaras que tienen frame: con el modelo más lento que la
         captura, tomar siempre la primera dejaría a las demás sin inferir nunca.
@@ -394,11 +401,13 @@ class InferenceThread(QThread):
             index = self._next_slot_index % len(camera_slots)
             self._next_slot_index = index + 1
             camera_slot = camera_slots[index]
-            return camera_slot, self._pending.pop(camera_slot)
+            frame_bgr, signals = self._pending.pop(camera_slot)
+            return camera_slot, frame_bgr, signals
 
     # ── Inferencia de un frame ───────────────────────────────────────────────
 
-    def _process(self, frame_bgr: np.ndarray, camera_slot: str) -> InferenceResult:
+    def _process(self, frame_bgr: np.ndarray, camera_slot: str,
+                 signals: Mapping[str, object] | None = None) -> InferenceResult:
         """Corre el ciclo completo sobre un frame y devuelve el resultado ya anotado."""
         started_s = time.perf_counter()
         previous_start_s = self._last_start_s.get(camera_slot)
@@ -417,6 +426,8 @@ class InferenceThread(QThread):
             roi_px=roi_px,
             illumination_pct=_compute_illumination_pct(region_bgr),
             is_synthetic=self._pipeline.is_synthetic,
+            # Una copia propia: el resultado viaja a otros hilos y al dataset.
+            signals=dict(signals or {}),
         )
 
         reason = self._gate_frame(result, camera_slot)
