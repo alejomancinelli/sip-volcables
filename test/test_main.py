@@ -21,7 +21,7 @@ from system.formats import gpio_status, pipeline_status
 from system.inference import pipeline_factory
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.hooks import EngineHooks
-from system.inference.result import InferenceResult
+from system.inference.result import REASON_DARK_FRAME, Detection, InferenceResult
 from system.modbus import registers
 from system.modbus.plc_variables import PlcVariables
 from system.modbus.schema import (
@@ -219,6 +219,27 @@ class TestModbusServerWiring:
         assert main.REGISTER_MAP_ERROR is registers.LOAD_ERROR
 
 
+class TestHardwarePoints:
+    """La red sale en su propia serie, con la interfaz en un tag y no en el campo."""
+
+    _METRICS = {"cpu_usage_pct": 34, "power_w": 14.6, "temps_c": {"cpu-thermal": 52.0},
+                "net_mbps": {"eth0": {"rx_mbps": 38.2, "tx_mbps": 4.1},
+                             "Ethernet 2": {"rx_mbps": 0.0, "tx_mbps": 0.0}}}
+
+    def test_the_system_point_carries_only_scalars(self):
+        assert main._build_system_fields(self._METRICS) == {"cpu_usage_pct": 34,
+                                                            "power_w": 14.6}
+
+    def test_every_interface_has_the_same_two_fields(self):
+        assert main._build_network_points(self._METRICS) == [
+            ("eth0", {"rx_mbps": 38.2, "tx_mbps": 4.1}),
+            ("Ethernet 2", {"rx_mbps": 0.0, "tx_mbps": 0.0}),
+        ]
+
+    def test_without_network_there_are_no_points(self):
+        assert main._build_network_points({"cpu_usage_pct": 34}) == []
+
+
 class TestInferenceFields:
     """
     Los fields de un punto de telemetría de inferencia.
@@ -259,6 +280,93 @@ class TestInferenceFields:
         fields = main._build_inference_fields(results)
         assert (fields["load_pct_mean"], fields["load_pct_std"],
                 fields["sample_count"]) == (50.0, 10.0, 2)
+
+
+class TestInferencePoints:
+    """
+    La serie `inference` partida por `kind` y `stat`.
+
+    Lo que se cuida es que un panel elija qué mira filtrando tags: los campos llevan el
+    nombre limpio, y el estadístico va en `stat`.
+    """
+
+    @staticmethod
+    def _people(count: int) -> list:
+        return [Detection(0, "person", 85.0, (0, 0, 10, 10)) for _ in range(count)]
+
+    def _results(self) -> list:
+        return [
+            InferenceResult(camera_slot="camera_1", confidence_pct=80.0,
+                            detections=self._people(3), inference_time_ms=40.0,
+                            stage_times_ms={"model_1": 38.0}, illumination_pct=50,
+                            metrics={"count_person": 3}),
+            InferenceResult(camera_slot="camera_1", confidence_pct=90.0,
+                            detections=self._people(5), inference_time_ms=60.0,
+                            stage_times_ms={"model_1": 55.0}, illumination_pct=70,
+                            metrics={"count_person": 5}),
+            InferenceResult(camera_slot="camera_1", inference_time_ms=20.0,
+                            is_valid=False, invalid_reason=REASON_DARK_FRAME),
+        ]
+
+    def _by_tags(self, results: list) -> dict:
+        return {tuple(sorted(tags.items())): fields
+                for tags, fields in main._build_inference_points(results)}
+
+    def test_the_kinds_and_stats_are_the_ones_of_the_contract(self):
+        assert set(self._by_tags(self._results())) == {
+            (("kind", "count"),),
+            (("kind", "time"), ("stat", "mean")), (("kind", "time"), ("stat", "max")),
+            (("kind", "result"), ("stat", "mean")), (("kind", "result"), ("stat", "std")),
+            (("kind", "result"), ("stat", "min")), (("kind", "result"), ("stat", "max")),
+        }
+        assert len(main._build_inference_points(self._results())) \
+            == main._INFERENCE_POINTS_PER_PAIR
+
+    def test_the_count_point_says_how_many_and_why(self):
+        count = self._by_tags(self._results())[(("kind", "count"),)]
+        assert count == {"result_count": 3, "invalid_count": 1,
+                         "invalid_reason": REASON_DARK_FRAME, "sample_count": 2}
+
+    def test_the_latency_covers_every_result_and_every_stage(self):
+        """El descarte también gastó su pasada: entra al tiempo, no a lo medido."""
+        points = self._by_tags(self._results())
+        assert points[(("kind", "time"), ("stat", "mean"))] == {"total_ms": 40.0,
+                                                               "model_1_ms": 46.5}
+        assert points[(("kind", "time"), ("stat", "max"))] == {"total_ms": 60.0,
+                                                              "model_1_ms": 55.0}
+
+    def test_the_measured_fields_carry_the_clean_name(self):
+        points = self._by_tags(self._results())
+        assert points[(("kind", "result"), ("stat", "mean"))] == {
+            "confidence_pct": 85.0, "detection_count": 4.0, "count_person": 4.0}
+        assert points[(("kind", "result"), ("stat", "min"))]["count_person"] == 3.0
+
+    def test_every_measured_value_is_a_float(self):
+        """Un `min` entero al lado de una media decimal: InfluxDB rechaza la escritura."""
+        for tags, fields in main._build_inference_points(self._results()):
+            if tags["kind"] != "count":
+                assert all(isinstance(value, float) for value in fields.values()), tags
+
+    def test_the_illumination_is_left_to_the_camera_series(self):
+        for _, fields in main._build_inference_points(self._results()):
+            assert not [name for name in fields if name.startswith("illumination")]
+
+    def test_without_a_valid_result_there_is_nothing_measured(self):
+        """El `sample_count=0` del conteo ya lo dice; un punto vacío no agrega nada."""
+        dark = [InferenceResult(camera_slot="camera_1", is_valid=False,
+                                invalid_reason=REASON_DARK_FRAME)]
+        kinds = [tags["kind"] for tags, _ in main._build_inference_points(dark)]
+        assert kinds == ["count", "time", "time"]
+
+    def test_a_cycle_keeps_its_dispersion_under_the_clean_name(self):
+        cycle = InferenceResult(
+            camera_slot="camera_1",
+            metrics={"load_pct": 50.0, "load_pct_std": 10.0, "load_pct_min": 40.0,
+                     "load_pct_max": 60.0, "sample_count": 5},
+        )
+        points = self._by_tags([cycle])
+        assert [points[(("kind", "result"), ("stat", stat))]["load_pct"]
+                for stat in ("mean", "std", "min", "max")] == [50.0, 10.0, 40.0, 60.0]
 
 
 class _FrameSink:
@@ -998,19 +1106,32 @@ class TestDatasetGating:
 
     def test_the_telemetry_keeps_the_numbers_without_the_frames(self):
         """Guardado entero, cada resultado retenía dos frames de 9 MB hasta el tick."""
-        from system.inference.result import Detection
         app = self._application(collector_active=False)
         result = InferenceResult(camera_slot="camera_1", metrics={"load_pct": 60.0})
         result.source_bgr = np.zeros((8, 8, 3), np.uint8)
         result.annotated_bgr = np.zeros((8, 8, 3), np.uint8)
         result.detections = [Detection(class_index=0, class_name="ok",
-                                       confidence_pct=90.0, bbox_px=(0, 0, 4, 4))]
+                                       confidence_pct=90.0, bbox_px=(0, 0, 4, 4),
+                                       mask=np.ones((4, 4), np.uint8))]
         app._on_cycle_complete(result)
 
         (kept,) = app._pending_results[("camera_1", "")]
-        assert (kept.source_bgr, kept.annotated_bgr, kept.detections) == (None, None, [])
+        assert (kept.source_bgr, kept.annotated_bgr) == (None, None)
+        assert [d.mask for d in kept.detections] == [None]
         assert kept.metrics == result.metrics and kept.timestamp_s == result.timestamp_s
         assert result.source_bgr is not None, "el resultado original no se toca"
+        assert result.detections[0].mask is not None, "ni sus detecciones"
+
+    def test_the_detection_count_reaches_the_telemetry(self):
+        """Sin un analyzer que lo repita en `metrics`, sale del resultado guardado."""
+        app = self._application(collector_active=False)
+        result = InferenceResult(camera_slot="camera_1", detections=[
+            Detection(class_index=0, class_name="ok", confidence_pct=90.0,
+                      bbox_px=(0, 0, 4, 4)) for _ in range(3)])
+        app._on_cycle_complete(result)
+
+        fields = main._build_inference_fields(app._pending_results[("camera_1", "")])
+        assert fields["detection_count_mean"] == 3.0
 
 
 class _WritableMockConfig(_MockConfig):

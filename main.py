@@ -174,19 +174,35 @@ _SAMPLE_INTERVAL_S = _SAMPLE_INTERVAL_MS / 1000
 # una sola escritura lenta a InfluxDB alcanza para llenarla y empezar a descartar. Por eso
 # el arranque avisa, y por eso el aviso habla de tolerancia y no de tope.
 # Ver docs/influxdb.md.
-_TELEMETRY_STALL_SAFE_POINTS_PER_S = 10.0
-_TELEMETRY_QUEUE_POINTS = 100.0    # `_QUEUE_MAXSIZE` de persistence.py, para el aviso
+_TELEMETRY_STALL_SAFE_POINTS_PER_S = 100.0
+_TELEMETRY_QUEUE_POINTS = 1000.0   # `_QUEUE_MAXSIZE` de persistence.py, para el aviso
 
 # Measurements de las series de salud. Los nombres son el contrato con los dashboards:
 # renombrarlos rompe los paneles que ya consultan.
 _MEASUREMENT_SYSTEM = "system"
+_MEASUREMENT_NETWORK = "network"
 _MEASUREMENT_CAMERA = "camera"
 _MEASUREMENT_SERVICES = "services"
 _MEASUREMENT_INFERENCE = "inference"
 
+# Los tags que parten la serie `inference`; ver `_build_inference_points()`. Los valores
+# también son contrato: un panel filtra por `kind == "result"` y `stat == "max"`.
+_KIND_COUNT = "count"
+_KIND_TIME = "time"
+_KIND_RESULT = "result"
+_STAT_MEAN = "mean"
+_STAT_MAX = "max"
+# La latencia lleva media y máximo: un pico es lo que se quiere ver, y el promedio lo
+# esconde. Lo medido lleva los cuatro de `analysis.SUMMARY_SUFFIXES`.
+_TIME_STATS = (_STAT_MEAN, _STAT_MAX)
+_INFERENCE_COUNT_FIELDS = ("result_count", "invalid_count", "invalid_reason", "sample_count")
+# Uno de conteo, uno por estadístico de la latencia y uno por estadístico de lo medido.
+_INFERENCE_POINTS_PER_PAIR = 1 + len(_TIME_STATS) + len(analysis.SUMMARY_SUFFIXES)
+
 # Métricas de hardware que van directo a fields. `net_mbps` y `temps_c` no están porque
-# son dicts anidados y un field de Influx es escalar: la red se aplana y las zonas
-# térmicas no se publican. Filtrar por tipo, en cambio, perdería la red sin avisar.
+# son dicts anidados y un field de Influx es escalar: la red sale en su propia serie, con
+# la interfaz en un tag, y las zonas térmicas no se publican. Filtrar por tipo, en cambio,
+# perdería la red sin avisar.
 _SYSTEM_METRIC_KEYS = (
     "cpu_usage_pct", "gpu_usage_pct", "cpu_temp_c", "gpu_temp_c",
     "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w",
@@ -1060,13 +1076,15 @@ class Application(QObject):
         # Telemetría: al buzón, no a la cola. Lo publica el tick, agregado, porque una
         # serie por resultado escala con los fps y no agrega información. Los no
         # confiables entran igual: cuántos se cayeron y por qué es justo lo que se quiere
-        # poder preguntar después. Entra sin los frames ni las detecciones, que el tick no
-        # lee: guardado entero, cada resultado retenía dos frames de 9 MB y sus máscaras
-        # hasta el tick siguiente.
+        # poder preguntar después. Entra sin los frames ni las máscaras: guardado entero,
+        # cada resultado retenía dos frames de 9 MB y sus máscaras hasta el tick siguiente.
+        # Las detecciones quedan, sin máscara, porque de ellas sale `detection_count`:
+        # vaciarlas lo publicaba en 0 en todo fork cuyo analyzer no lo repitiera.
         self._pending_results.setdefault(
             (result.camera_slot, result.pipeline_slot), []
-        ).append(dataclasses.replace(result, source_bgr=None, annotated_bgr=None,
-                                     detections=[]))
+        ).append(dataclasses.replace(
+            result, source_bgr=None, annotated_bgr=None,
+            detections=[dataclasses.replace(d, mask=None) for d in result.detections]))
         self._store_metrics(result)
 
     def _show_annotated(self, frame_bgr: np.ndarray, camera_slot: str):
@@ -1531,6 +1549,11 @@ class Application(QObject):
                 _build_system_fields(self._last_metrics),
                 tags=self._telemetry_tags,
             )
+            for interface, fields in _build_network_points(self._last_metrics):
+                self._telemetry.push_data(
+                    _MEASUREMENT_NETWORK, fields,
+                    tags={**self._telemetry_tags, "interface": interface},
+                )
 
         now_s = time.monotonic()
         for camera_slot in (self._config.get("cameras", {}) or {}):
@@ -1568,7 +1591,10 @@ class Application(QObject):
 
     def _publish_inference(self):
         """
-        Un punto por par (cámara, pipeline) con lo que llegó desde la muestra anterior.
+        Los puntos de cada par (cámara, pipeline) con lo que llegó desde la muestra anterior.
+
+        Son `_INFERENCE_POINTS_PER_PAIR` por par, partidos por `kind` y `stat`: cómo, en
+        `_build_inference_points()`.
 
         **Se agrega, no se muestrea.** Con inferencia de 200 ms y una muestra por segundo
         entran cinco resultados: promediarlos usa los cinco y el desvío dice si el proceso
@@ -1587,15 +1613,16 @@ class Application(QObject):
         for (camera_slot, pipeline_slot), results in self._pending_results.items():
             if not results:
                 continue
-            self._telemetry.push_data(
-                _MEASUREMENT_INFERENCE,
-                _build_inference_fields(results),
-                tags={**self._telemetry_tags,
-                      "camera": camera_slot, "pipeline": pipeline_slot},
-                # El instante del último resultado, no el del tick: el punto vale por
-                # cuándo se midió y entre las dos cosas hay hasta una muestra entera.
-                time_s=results[-1].timestamp_s,
-            )
+            pair_tags = {**self._telemetry_tags,
+                         "camera": camera_slot, "pipeline": pipeline_slot}
+            for point_tags, fields in _build_inference_points(results):
+                self._telemetry.push_data(
+                    _MEASUREMENT_INFERENCE, fields,
+                    tags={**pair_tags, **point_tags},
+                    # El instante del último resultado, no el del tick: el punto vale por
+                    # cuándo se midió y entre las dos cosas hay hasta una muestra entera.
+                    time_s=results[-1].timestamp_s,
+                )
         self._pending_results.clear()
 
     def _warn_if_telemetry_margin_is_thin(self):
@@ -1603,24 +1630,27 @@ class Application(QObject):
         Avisa al arrancar si la telemetría queda sin margen ante un InfluxDB trabado.
 
         No es que la cola no dé abasto en régimen: la drena un hilo y aguanta muchísimo
-        más. Lo que se achica al publicar más puntos es el colchón: la cola guarda 100, así
-        que a `N` puntos/s tolera `100/N` segundos de escritura trabada antes de descartar.
+        más. Lo que se achica al publicar más puntos es el colchón: la cola guarda 1000, así
+        que a `N` puntos/s tolera `1000/N` segundos de escritura trabada antes de descartar.
         Por debajo de una ventana de publicación de margen, una sola escritura lenta ya
         pierde datos, y eso conviene saberlo al arrancar y no por un hueco en el dashboard.
 
-        Con el muestreo fijo en un segundo, lo único que mueve la cuenta es cuántas cámaras
-        y cuántos pares (cámara, pipeline) hay, así que el remedio no es un parámetro sino
-        agrandar la cola.
+        Con el muestreo fijo en un segundo, lo único que mueve la cuenta es cuántas
+        interfaces de red, cuántas cámaras y cuántos pares (cámara, pipeline) hay, así que
+        el remedio no es un parámetro sino agrandar la cola.
         """
+        interface_count = len(self._monitor.get_interfaces())
         camera_count = len(self._config.get("cameras", {}) or {})
         pair_count = sum(len(e.camera_slots) or camera_count for e in self._engines)
-        points_per_s = (2 + camera_count + pair_count) / _SAMPLE_INTERVAL_S
+        points_per_s = (2 + interface_count + camera_count
+                        + pair_count * _INFERENCE_POINTS_PER_PAIR) / _SAMPLE_INTERVAL_S
         if points_per_s <= _TELEMETRY_STALL_SAFE_POINTS_PER_S:
             return
         tolerance_s = _TELEMETRY_QUEUE_POINTS / points_per_s
         logger.warning(
             f"[Main] La telemetría publica ~{points_per_s:.1f} puntos/s "
-            f"({camera_count} cámara(s), {pair_count} par(es) cámara-pipeline): con la cola "
+            f"({interface_count} interfaz(ces) de red, {camera_count} cámara(s), "
+            f"{pair_count} par(es) cámara-pipeline): con la cola "
             f"en {_TELEMETRY_QUEUE_POINTS:.0f} puntos tolera {tolerance_s:.1f} s de InfluxDB "
             f"trabado antes de descartar. Agrandar `_QUEUE_MAXSIZE` en persistence.py da más "
             f"margen. Ver docs/influxdb.md."
@@ -2032,26 +2062,65 @@ def _build_modbus_server(config: ConfigManager, on_write: OnWrite | None = None
                               on_write=on_write)
 
 
+def _build_inference_points(results: list) -> list[tuple[dict, dict]]:
+    """
+    Los puntos de inferencia de una muestra, como `(tags propios, fields)`.
+
+    Una sola serie, `inference`, partida por dos tags para que un panel elija qué mira
+    filtrando columnas y no leyendo nombres de campo:
+
+      - `kind=count`: cuántos resultados entraron, cuántos se descartaron y por qué. Sin
+        `stat`, porque son conteos de la muestra y no estadísticos.
+      - `kind=time`, `stat=mean|max`: la latencia de la pasada entera (`total_ms`) y la de
+        cada etapa (`<model_slot>_ms`), sobre todos los resultados: un descarte también
+        gastó su pasada.
+      - `kind=result`, `stat=mean|std|min|max`: lo que se midió. El campo lleva el nombre de
+        la métrica sin sufijo —`count_person`—, así que comparar la media con el máximo es
+        agrupar por `stat`.
+
+    **Todos los valores de `time` y `result` son float.** Los puntos de un mismo `kind`
+    comparten nombres de campo, e InfluxDB rechaza el campo que cambia de tipo: un `min`
+    entero al lado de una media decimal haría rechazar la escritura.
+
+    Un par sin resultados confiables no publica `result`: no hay qué resumir, y el
+    `sample_count=0` del conteo ya lo dice.
+    """
+    fields = _build_inference_fields(results)
+    points = [({"kind": _KIND_COUNT},
+               {name: fields.pop(name) for name in _INFERENCE_COUNT_FIELDS})]
+    for stat, stat_fields in _build_inference_times(results).items():
+        points.append(({"kind": _KIND_TIME, "stat": stat}, stat_fields))
+
+    # Lo que queda termina, por construcción, en uno de los sufijos: de ahí sale el `stat`.
+    for suffix in analysis.SUMMARY_SUFFIXES:
+        stat_fields = {name[:-len(suffix)]: float(value)
+                       for name, value in fields.items() if name.endswith(suffix)}
+        if stat_fields:
+            points.append(({"kind": _KIND_RESULT, "stat": suffix[1:]}, stat_fields))
+    return points
+
+
 def _build_inference_fields(results: list) -> dict:
     """
-    Campos de un punto de inferencia a partir de los resultados de una muestra.
+    Los conteos y los estadísticos de lo medido, en un dict plano con sufijos.
 
-    Tres grupos, y cada uno se agrega sobre lo que corresponde:
+    Es el paso intermedio de `_build_inference_points()`, que lo parte por `kind` y `stat`:
+    fuera de `_INFERENCE_COUNT_FIELDS`, cada clave termina en un sufijo de
+    `analysis.SUMMARY_SUFFIXES`, y de ese sufijo sale el `stat`. Dos grupos, y cada uno se
+    agrega sobre lo que corresponde:
 
       - **Cuántos y por qué**: `result_count`, `invalid_count` y el último
         `invalid_reason`. Sin esto no hay forma de preguntar cuántas mediciones se
         cayeron; el motivo es el del último descarte, y `invalid_count` da la magnitud.
-      - **Escalares del resultado**, que no están en `metrics` y se promedian acá. La
-        confianza y el conteo de detecciones sólo sobre los confiables —promediar la
-        confianza de un descarte da un número que no significa nada—; el tiempo y la
-        iluminación sobre todos, porque valen igual y la iluminación baja es justamente
-        uno de los motivos de descarte.
-      - **Las métricas del proyecto**, con media, desvío y rango, vía
-        `analysis.summarize_metrics()`, que ya devuelve el dict plano que los fields
-        necesitan y agrega `sample_count`. Lo que el ciclo YA resumió viaja tal cual: con
-        `frames_per_cycle` en más de uno acá llega un solo ciclo por tick, así que derivar
-        de nuevo daría desvío 0 y rango nulo sobre una sola muestra, y taparía la
-        dispersión de los N frames, que es la que mide algo.
+      - **Lo medido**: la confianza y el conteo de detecciones, que no están en
+        `metrics`, y las métricas del proyecto vía `analysis.summarize_metrics()`, que
+        agrega `sample_count`. Todo sólo sobre los confiables: promediar la confianza de un
+        descarte da un número que no significa nada. Lo que el ciclo YA resumió viaja tal
+        cual: con `frames_per_cycle` en más de uno acá llega un solo ciclo por tick, así
+        que derivar de nuevo daría desvío 0 y rango nulo sobre una sola muestra, y taparía
+        la dispersión de los N frames, que es la que mide algo.
+
+    La iluminación no está: ya sale por cámara en la serie `camera`, y medida una sola vez.
     """
     valid = [r for r in results if r.is_valid]
     last_invalid = next((r for r in reversed(results) if not r.is_valid), None)
@@ -2062,23 +2131,7 @@ def _build_inference_fields(results: list) -> dict:
         "invalid_reason": last_invalid.invalid_reason if last_invalid is not None else "",
     }
     for key in ("confidence_pct", "detection_count"):
-        fields.update(_mean_field(key, [getattr(r, key) for r in valid]))
-    for key in ("inference_time_ms", "illumination_pct"):
-        fields.update(_mean_field(key, [getattr(r, key) for r in results]))
-
-    # Un pico de latencia es lo que se quiere ver, y el promedio lo esconde.
-    times_ms = [r.inference_time_ms for r in results]
-    if times_ms:
-        fields["inference_time_ms_max"] = round(max(times_ms), 2)
-
-    # Tiempo por etapa: la clave es el slot del modelo, así que un pipeline de dos etapas
-    # publica dos campos y se ve cuál se llevó el tiempo.
-    stage_samples: dict[str, list] = {}
-    for result in results:
-        for model_slot, elapsed_ms in (result.stage_times_ms or {}).items():
-            stage_samples.setdefault(str(model_slot), []).append(float(elapsed_ms))
-    for model_slot, samples in stage_samples.items():
-        fields.update(_mean_field(f"stage_{model_slot}_ms", samples))
+        fields.update(_summary_fields(key, [getattr(r, key) for r in valid]))
 
     fields.update(analysis.summarize_metrics(results))
     # Los estadísticos que ya trae el ciclo pisan a los recién derivados: `sample_count`
@@ -2090,32 +2143,64 @@ def _build_inference_fields(results: list) -> dict:
     return fields
 
 
-def _mean_field(name: str, samples: list) -> dict:
-    """`{name}_mean` sobre las muestras, o nada si no hubo ninguna."""
+def _build_inference_times(results: list) -> dict[str, dict]:
+    """
+    La latencia de una muestra por estadístico: `{"mean": {...}, "max": {...}}`.
+
+    Los campos son `total_ms` —la pasada entera— y `<model_slot>_ms` por etapa, así que un
+    pipeline de dos etapas publica tres y se ve cuál se llevó el tiempo.
+    """
+    samples_ms: dict[str, list] = {"total": [float(r.inference_time_ms) for r in results]}
+    for result in results:
+        for model_slot, elapsed_ms in (result.stage_times_ms or {}).items():
+            samples_ms.setdefault(str(model_slot), []).append(float(elapsed_ms))
+    samples_ms = {name: values for name, values in samples_ms.items() if values}
+    return {
+        _STAT_MEAN: {f"{name}_ms": round(statistics.fmean(values), 2)
+                     for name, values in samples_ms.items()},
+        _STAT_MAX: {f"{name}_ms": round(max(values), 2)
+                    for name, values in samples_ms.items()},
+    }
+
+
+def _summary_fields(name: str, samples: list) -> dict:
+    """Media, desvío y rango con los sufijos de `summarize_metrics`, o nada sin muestras."""
     if not samples:
         return {}
-    return {f"{name}_mean": round(statistics.fmean(float(s) for s in samples), 2)}
+    values = [float(sample) for sample in samples]
+    return {f"{name}_mean": round(statistics.fmean(values), 2),
+            f"{name}_std": round(statistics.pstdev(values), 2),
+            f"{name}_min": round(min(values), 2),
+            f"{name}_max": round(max(values), 2)}
 
 
 def _build_system_fields(metrics: dict) -> dict:
     """
-    Métricas de hardware como fields de Influx: escalares, con la red aplanada.
+    Métricas de hardware como fields de Influx: sólo las escalares.
 
-    `net_mbps` llega como `{interfaz: {rx_mbps, tx_mbps}}` y un field de Influx es
-    escalar, así que cada interfaz se abre en dos campos con su nombre adentro. Filtrar
-    los valores no escalares —que es lo obvio— dejaría el tráfico de red afuera sin que
-    nadie se enterara.
-
-    `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
+    La red no va acá: sale en su propia serie, de `_build_network_points()`. `temps_c`
+    no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
     `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard
     que tenga que andar en los dos.
     """
-    fields = {key: metrics[key] for key in _SYSTEM_METRIC_KEYS if key in metrics}
-    for iface, throughput in (metrics.get("net_mbps") or {}).items():
-        safe_iface = str(iface).replace(" ", "_")
-        fields[f"net_{safe_iface}_rx_mbps"] = float(throughput.get("rx_mbps", 0.0))
-        fields[f"net_{safe_iface}_tx_mbps"] = float(throughput.get("tx_mbps", 0.0))
-    return fields
+    return {key: metrics[key] for key in _SYSTEM_METRIC_KEYS if key in metrics}
+
+
+def _build_network_points(metrics: dict) -> list[tuple[str, dict]]:
+    """
+    Un punto por interfaz, `(interfaz, fields)`, para la serie `network`.
+
+    **La interfaz va en un tag y no en el nombre del campo**, por la misma razón que la
+    cámara: con `net_eth0_rx_mbps` cada equipo tenía campos distintos —`eth0` en la
+    Jetson, `Ethernet` en Windows— y un panel se filtraba con una regex sobre el nombre.
+    Con el tag, los campos son siempre `rx_mbps` y `tx_mbps`, y el panel agrupa por
+    `interface`.
+    """
+    return [
+        (str(iface), {"rx_mbps": float(throughput.get("rx_mbps", 0.0)),
+                      "tx_mbps": float(throughput.get("tx_mbps", 0.0))})
+        for iface, throughput in (metrics.get("net_mbps") or {}).items()
+    ]
 
 
 def main(argv: list | None = None) -> int:

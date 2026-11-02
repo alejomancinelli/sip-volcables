@@ -26,12 +26,16 @@ sin privilegios de administrador. Puede leer bastante más bajo que lo que muest
 la BIOS, y es la misma zona con la que Windows decide su propio throttling.
 `temps_c` dice con qué sensor se midió, en Windows y en la Jetson.
 
-Dos puntos del contrato que no se ven en las firmas:
+Tres puntos del contrato que no se ven en las firmas:
   - `net_mbps` se calcula por diferencia contra la lectura anterior, así que la
     primera llamada devuelve las interfaces en 0. El intervalo se mide, no se
     asume: llamar cada 5 s da la misma tasa que llamar cada 1 s.
   - Una fuente que falla deja su métrica en el valor neutro y no arrastra a las
     demás. El aviso de cada fuente sale una sola vez.
+  - El tipo de cada clave no depende de la fuente. InfluxDB fija el tipo de un
+    campo con el primer punto que lo escribe y rechaza el que llega con otro, así
+    que un `power_w` que fuera float desde los rails y entero desde nvidia-smi —o
+    en su 0 neutro— haría rechazar escrituras en el equipo que alterna.
 """
 
 import glob
@@ -255,7 +259,8 @@ class SystemMonitor:
           cpu_temp_c, gpu_temp_c         °C; 0 si el equipo no lo expone
           ram_used_mb, ram_total_mb      MiB
           disk_free_gb                   GiB libres en `system_monitor.disk_path`
-          power_w                        W del módulo, o de la GPU discreta; 0 sin sensor
+          power_w                        W del módulo, o de la GPU discreta; 0.0 sin
+                                         sensor. Siempre float, venga de donde venga
           net_mbps                       {interfaz: {"rx_mbps": float, "tx_mbps": float}}
           temps_c                        {zona: °C} con el nombre que le da la plataforma
 
@@ -286,10 +291,24 @@ class SystemMonitor:
                 "ram_used_mb": 0 if memory is None else int(memory.used / _MB),
                 "ram_total_mb": 0 if memory is None else int(memory.total / _MB),
                 "disk_free_gb": self._read_or(self._read_disk_free_gb, 0, "el disco"),
-                "power_w": power_w if power_w is not None else gpu.get("power_w", 0),
+                "power_w": float(power_w if power_w is not None
+                                 else gpu.get("power_w", 0.0)),
                 "net_mbps": self._read_or(self._read_net_mbps, {}, "la red"),
                 "temps_c": zones,
             }
+
+    def get_interfaces(self) -> list[str]:
+        """
+        Las interfaces que `net_mbps` va a reportar, sin esperar a la primera lectura.
+
+        Es para quien tiene que contar antes de medir —cuántos puntos por segundo va a
+        publicar la telemetría— y no paga el bloqueo de `get_metrics()`. [] si psutil
+        falla.
+        """
+        with self._lock:
+            return self._read_or(
+                lambda: self._select_interfaces(psutil.net_io_counters(pernic=True)),
+                [], "las interfaces de red")
 
     # ── Temperaturas ─────────────────────────────────────────────────────────
 

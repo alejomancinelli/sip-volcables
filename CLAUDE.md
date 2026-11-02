@@ -450,8 +450,8 @@ Lo que no se deduce leyendo un archivo suelto:
 - La telemetría se acumula en una ventana y sale en batch; cada punto viaja con el
   instante en que se midió, no con el de la escritura. El hilo drena la cola de continuo,
   así que el ritmo no lo limita la cola —medido: 50 puntos/s sin descartar—: lo que se
-  achica al publicar más seguido es el margen ante un backend trabado (100 puntos de cola
-  = 100/N segundos a N puntos/s) y el volumen que queda guardado por día. Aun así se
+  achica al publicar más seguido es el margen ante un backend trabado (1000 puntos de cola
+  = 1000/N segundos a N puntos/s) y el volumen que queda guardado por día. Aun así se
   publica **por tick y no por evento**, porque una serie de salud por evento no agrega
   información. La estructura de las series —measurements, tags y nombres de campo— es un
   contrato con los dashboards y está en `docs/influxdb.md`.

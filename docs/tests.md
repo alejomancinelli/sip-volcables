@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**71 archivos, 392 grupos, 1986 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**71 archivos, 394 grupos, 2000 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 324 |
+| [test/](#test) | 7 | 338 |
 | [test/build/](#testbuild) | 2 | 43 |
 | [test/camera/](#testcamera) | 3 | 168 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -216,7 +216,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 109 tests
+### [test_main.py](../test/test_main.py) — 121 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -227,7 +227,9 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
+| `TestHardwarePoints` | La red sale en su propia serie, con la interfaz en un tag y no en el campo. | 3 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
+| `TestInferencePoints` | La serie `inference` partida por `kind` y `stat`. | 8 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
@@ -235,7 +237,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
 | `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
 | `TestGatedOverlay` | El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo. | 5 |
-| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
+| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 4 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
 | `TestLensCalibration` |  | 7 |
@@ -268,11 +270,24 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_map_the_server_refuses_to_serve`
   - `test_with_the_map_loaded_nothing_blocks_it`
   - `test_it_passes_the_error_that_registers_reports`
+- `TestHardwarePoints`
+  - `test_the_system_point_carries_only_scalars`
+  - `test_every_interface_has_the_same_two_fields`
+  - `test_without_network_there_are_no_points`
 - `TestInferenceFields`
   - `test_the_cycle_dispersion_travels_untouched`
   - `test_nothing_gets_a_second_round_of_suffixes`
   - `test_the_sample_count_is_the_frames_of_the_cycle`
   - `test_without_a_cycle_the_stats_are_derived`
+- `TestInferencePoints`
+  - `test_the_kinds_and_stats_are_the_ones_of_the_contract`
+  - `test_the_count_point_says_how_many_and_why`
+  - `test_the_latency_covers_every_result_and_every_stage`
+  - `test_the_measured_fields_carry_the_clean_name`
+  - `test_every_measured_value_is_a_float`
+  - `test_the_illumination_is_left_to_the_camera_series`
+  - `test_without_a_valid_result_there_is_nothing_measured`
+  - `test_a_cycle_keeps_its_dispersion_under_the_clean_name`
 - `TestFramePath`
   - `test_an_uncycled_engine_gets_the_frame_in_the_capture_thread`
   - `test_the_frame_takes_the_plc_variables_with_it`
@@ -333,6 +348,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`
   - `test_the_telemetry_keeps_the_numbers_without_the_frames`
+  - `test_the_detection_count_reaches_the_telemetry`
 - `TestLensInterval`
   - `test_it_takes_the_interval_from_the_config`
   - `test_without_the_key_it_falls_back_to_the_default`
@@ -415,7 +431,7 @@ Tests de las dos raíces.
 
 </details>
 
-### [test_system_monitor.py](../test/test_system_monitor.py) — 106 tests
+### [test_system_monitor.py](../test/test_system_monitor.py) — 108 tests
 
 Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows, cálculo del throughput de red y estabilidad del contrato de `get_metrics`.
 
@@ -434,8 +450,8 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 | `TestParseWmiZones` |  | 5 |
 | `TestWmiZones` | La temperatura de Windows sale de las zonas ACPI del firmware. | 6 |
 | `TestDisk` |  | 5 |
-| `TestNetThroughput` |  | 11 |
-| `TestGetMetrics` |  | 13 |
+| `TestNetThroughput` |  | 12 |
+| `TestGetMetrics` |  | 14 |
 
 <details><summary>Tests</summary>
 
@@ -545,12 +561,14 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
   - `test_an_interface_of_another_machine_is_skipped`
   - `test_an_interface_that_appears_starts_from_zero`
   - `test_an_interface_that_disappears_stops_being_reported`
+  - `test_the_interfaces_are_known_before_the_first_reading`
   - `test_the_baseline_advances_on_every_call`
 - `TestGetMetrics`
   - `test_the_real_machine_answers_every_key`
   - `test_the_keys_are_there_even_without_any_source`
   - `test_the_jetson_sources_feed_the_metrics`
   - `test_windows_falls_back_to_nvidia_smi_for_the_gpu`
+  - `test_the_power_is_a_float_whatever_the_source`
   - `test_a_firmware_without_zones_reports_no_temperature`
   - `test_the_windows_acpi_zone_feeds_the_cpu_temperature`
   - `test_windows_without_an_nvidia_gpu_reports_zeros`

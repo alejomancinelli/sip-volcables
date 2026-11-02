@@ -117,6 +117,7 @@ Qué mirar:
 """
 
 import argparse
+import dataclasses
 import io
 import logging
 import random
@@ -165,6 +166,10 @@ from system.video.abstract_video_server import (                         # noqa:
 )
 from system.video.http_server import HttpVideoServer                     # noqa: E402
 
+# El armador de los puntos de inferencia es el de la app: así lo que esta prueba manda a
+# InfluxDB tiene la misma forma —los mismos `kind` y `stat`— que lo que manda el equipo.
+from main import _MEASUREMENT_INFERENCE, _build_inference_points          # noqa: E402
+
 from ui import service_status                                            # noqa: E402
 from ui.main_window import MainWindow                                    # noqa: E402
 from ui.widgets.camera_grid import CameraGrid                            # noqa: E402
@@ -174,6 +179,7 @@ _CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 _METRICS_INTERVAL_S = 1.0        # cada cuánto se pide una métrica de hardware nueva
 _REGISTERS_INTERVAL_MS = 1000    # cada cuánto se escriben los registros y se refresca la tabla
 _STATUS_INTERVAL_MS = 1000       # cada cuánto se releen los `status` de los subsistemas
+_TELEMETRY_INTERVAL_MS = 1000    # cada cuánto se agrega y se publica la inferencia, como en main.py
 _GPIO_INTERVAL_MS = 2000         # cada cuánto se mueven las entradas del GPIO doble
 _CONFIG_WATCH_INTERVAL_MS = 1000 # cada cuánto se mira si cambió el config.yaml
 
@@ -383,6 +389,10 @@ class _DemoApp(QObject):
         # chips tienen que decir; prendiendo InfluxDB en la pestaña Telemetría y
         # reiniciando, el mismo chip pasa a informar si conectó o no.
         self._telemetry = PersistenceThread(config)
+        self._telemetry_tags = {"device": str(config.get("system.device_id", "") or "")}
+        # Los resultados de cada par (cámara, pipeline) desde el último tick: se publican
+        # agregados, como en la app, y no uno por uno.
+        self._pending_results: dict[tuple[str, str], list] = {}
 
         # ── Inferencia ───────────────────────────────────────────────────────
         # Un hilo por pipeline habilitado. `annotate_gate` atado al combo de la
@@ -439,6 +449,7 @@ class _DemoApp(QObject):
         self._timers = [
             self._start_timer(_REGISTERS_INTERVAL_MS, self._on_registers_tick),
             self._start_timer(_STATUS_INTERVAL_MS, self._on_status_tick),
+            self._start_timer(_TELEMETRY_INTERVAL_MS, self._on_telemetry_tick),
             self._start_timer(_CONFIG_WATCH_INTERVAL_MS, self._on_config_watch_tick),
         ]
 
@@ -502,16 +513,14 @@ class _DemoApp(QObject):
         """Un resultado del motor: el frame anotado a la grilla y al stream anotado."""
         self._camera_illumination[result.camera_slot] = result.illumination_pct
         self._grid.set_illumination_pct(result.camera_slot, result.illumination_pct)
-        # Telemetría: encola y vuelve, sin tocar la red. Con los backends apagados el
-        # punto se descarta; prendiendo InfluxDB en el config, sale de verdad.
-        self._telemetry.push_data(
-            "inference",
-            {"confidence_pct": result.confidence_pct,
-             "detection_count": result.detection_count,
-             "illumination_pct": result.illumination_pct,
-             **result.metrics},
-            tags={"camera": result.camera_slot, "pipeline": result.pipeline_slot},
-        )
+        # Telemetría: al buzón, y la publica el tick. Sin los frames ni las máscaras, que
+        # el tick no lee y retendrían megas por resultado; las detecciones quedan, porque
+        # de ellas sale `detection_count`.
+        self._pending_results.setdefault(
+            (result.camera_slot, result.pipeline_slot), []
+        ).append(dataclasses.replace(
+            result, source_bgr=None, annotated_bgr=None,
+            detections=[dataclasses.replace(d, mask=None) for d in result.detections]))
         if result.annotated_bgr is None:
             return
         shown_bgr = self._composer.compose(
@@ -540,6 +549,25 @@ class _DemoApp(QObject):
         """Slot de `_MetricsPoller`: llega ya medido, desde el hilo del poller."""
         self._last_metrics = metrics
         self._window.diagnostics_view.update_hardware_metrics(metrics)
+
+    def _on_telemetry_tick(self):
+        """
+        Publica la inferencia agregada por par, con la forma de la app: siete puntos
+        partidos por `kind` y `stat`, sellados con el instante del último resultado.
+
+        Con los backends apagados en el config los puntos se descartan; prendiendo
+        InfluxDB en la pestaña Telemetría y reiniciando, salen de verdad.
+        """
+        for (camera_slot, pipeline_slot), results in self._pending_results.items():
+            if not results:
+                continue
+            pair_tags = {**self._telemetry_tags,
+                         "camera": camera_slot, "pipeline": pipeline_slot}
+            for point_tags, fields in _build_inference_points(results):
+                self._telemetry.push_data(_MEASUREMENT_INFERENCE, fields,
+                                          tags={**pair_tags, **point_tags},
+                                          time_s=results[-1].timestamp_s)
+        self._pending_results.clear()
 
     def _on_registers_tick(self):
         """
