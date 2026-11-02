@@ -29,7 +29,7 @@ y en paralelo con la CPU. La aplicación usa tres:
 | Motor | Para qué lo usa la app | Se controla con |
 |---|---|---|
 | **NVDEC** | Decodificar el video de una cámara RTSP o de un video grabado | `cameras.<slot>.decode.backend` |
-| **VIC** | Reducir el frame al salir del decodificador; escalar y convertir color antes de codificar el RTSP | `cameras.<slot>.decode.width_px/height_px` y `video.rtsp.codec: *_hw` |
+| **VIC** | Reducir el frame al salir del decodificador; cortar las vistas de los ROI a resolución nativa; escalar y convertir color antes de codificar el RTSP | `cameras.<slot>.decode.width_px/height_px`, `inference.pipelines.<slot>.roi.<cámara>.full_resolution` y `video.rtsp.codec: *_hw` |
 | **NVENC** | Codificar los streams RTSP H.264/H.265 | `video.rtsp.codec: h264_hw` o `h265_hw` |
 
 Y la **GPU**, con TensorRT, para correr los modelos (sección 6).
@@ -182,6 +182,49 @@ arranque dice cuál quedó: `capturando (nvdec a 640x360)` o `capturando (cpu a 
 
 **Cambiarlo obliga a revisar** todo lo que está en píxeles de la cámara; ver la
 [sección 5](#5-elegir-el-tamaño-de-decodificación).
+
+### 4.1.1 Vistas — el ROI de un pipeline a resolución nativa
+
+Reducir el frame le quita detalle a un modelo que mira una zona chica: un ROI de 180 px en
+640×360 son 540 px en el video de 1920×1080. Un pipeline puede pedir que su ROI se corte del
+video **nativo**, antes de reducirlo. Es una *vista*: llega con cada frame y sólo la usa ese
+pipeline. El resto de la app —la pantalla, los streams, los otros pipelines— sigue con el
+frame reducido. Se declara en el ROI del pipeline, no en la cámara:
+
+```yaml
+inference:
+  pipelines:
+    pipeline_1:
+      roi:
+        camera_3:
+          enabled: true
+          x_px: 210                   # en el frame reducido y rotado: el que se ve y se dibuja
+          y_px: 40
+          width_px: 180
+          height_px: 220
+          full_resolution: true
+          output_short_side_px: 224   # 0 = el recorte a tamaño nativo
+```
+
+| Qué | Cómo |
+|---|---|
+| Quién corta | Con `nvdec`, un segundo `nvvidconv` (VIC) sobre la salida del decodificador, en paralelo al que reduce el frame, y la vista se aparea con el frame por PTS. Con `cpu`, OpenCV corta el frame nativo antes de reducirlo. |
+| Cómo reduce | 5-tap en el VIC e `INTER_AREA` en la CPU: lo más parecido a cómo reduce el clasificador su entrada. El bilineal del frame le agrega aliasing a una reducción x3. |
+| Tamaño | `output_short_side_px` lleva el lado corto a esos px y conserva la forma: con 224 y un clasificador de 224, el center crop sólo recorta. 0 = el recorte a tamaño nativo. |
+| Cuándo se aplica | Al abrir la cámara: el corte se fija cuando el decodificador anuncia el tamaño nativo. Cambiar el rectángulo obliga a reiniciar; hasta entonces se mide —y se dibuja— el de la vista, y el log lo avisa. |
+| Límites | Coordenadas pares y al menos 16 px por lado en el video nativo: un rectángulo menor no se corta, y el log dice cuál. No se corta en una cámara con corrección de lente o ajuste de imagen, porque la vista no pasa por el preprocessor. |
+| Si falta | El resultado de ese pipeline sale inválido con `no_view`: no se infiere sobre el recorte reducido. La cámara cuenta las faltas en `view_misses` de su estado. |
+| Rotación | El ROI se dibuja sobre el frame rotado; el corte se calcula sobre el video sin rotar, y la vista se rota igual que el frame. |
+
+Costo medido en un Orin NX con dos cámaras a 15 fps (1920×1080 y 2560×1440), sobre un 36 % de
+un núcleo de base: **+7 puntos** con la vista reducida a 224 por el VIC, **+21** con la vista a
+tamaño nativo, que es casi todo copiar bytes. Por CPU, decodificar y cortar cuesta unas
+**4 veces** lo de hoy, así que en la Jetson es `nvdec`. Las mediciones y las reglas están en
+`.claude/plans/decoder-views-jetson-findings.md`; la prueba en el equipo, en
+`manual_test/decoder_views/`.
+
+El dataset de un pipeline con ROI propio guarda la vista, que es lo que vio el modelo
+([sección 4.14](#414-dataset--image_collector)).
 
 ### 4.2 Adquisición — `cameras.<slot>.acquisition`
 
@@ -372,6 +415,7 @@ models:
 | `cameras` | Qué cámaras entran a este hilo; `[]` = todas las que le lleguen. Las cámaras de un pipeline comparten el modelo, que se carga una vez. |
 | `interval_s` | Período mínimo entre frames de **una misma cámara**; 0 = todos. Es el control principal de cuánta GPU y CPU gasta un pipeline: no cambia la imagen de ningún frame, cambia cuántos se miran. |
 | `min_detections`, `min_result_confidence_pct` | Marcan el resultado **completo** como no confiable. Se emite igual, con el motivo; sus números no son una medición. |
+| `roi.<cámara>` | ROI propio del pipeline en esa cámara: reemplaza al de la cámara sólo para él, y `enabled: false` es el frame entero. Con `full_resolution` se corta del video nativo ([sección 4.1.1](#411-vistas--el-roi-de-un-pipeline-a-resolución-nativa)). |
 
 ### 4.13 Anotado — `inference.overlay`
 
@@ -394,6 +438,13 @@ Guarda el frame de referencia: **al tamaño de decodificación, ya corregido y a
 hacer falta un modelo de mayor resolución, se junta el dataset a tamaño nativo y se pasa al
 tamaño reducido para producción.
 
+Un pipeline con ROI propio guarda otra cosa: la región que vio —la vista nativa, si la pidió—,
+en su propia carpeta `<cámara>-<pipeline>/`, con su tope y su historial de duplicados. Es la
+imagen con la que se reentrena ese modelo, y el pipeline que mira el frame entero de la misma
+cámara no le pisa el guardado. `image_collector.pipelines` elige de qué pipelines se guarda.
+Para juntar un dataset a resolución completa sin pasar la app entera al tamaño nativo, la
+vista va con `output_short_side_px: 0`.
+
 ### 4.15 Telemetría de los motores
 
 La telemetría de hardware publica, leída de sysfs **sin root**, `engine_<motor>_active`
@@ -412,8 +463,9 @@ ese tamaño. Sale de tres reglas:
 1. **El ancho del ROI, ya reducido, tiene que ser al menos el ancho de entrada del modelo.**
    Un ROI de un tercio del ancho es 640 px a 1080p, pero 213 px a 640×360, y el modelo lo
    recibe estirado cerca de 3×: pierde detalle. Si no alcanza, se decodifica más grande
-   (1280×720) o a tamaño nativo. El ROI se recorta *después* de reducir, así que no hay
-   forma de conservar los píxeles originales.
+   (1280×720) o a tamaño nativo. El ROI se recorta *después* de reducir, salvo que el
+   pipeline pida una vista ([sección 4.1.1](#411-vistas--el-roi-de-un-pipeline-a-resolución-nativa)),
+   que lo corta del nativo y deja el resto de la app en el tamaño reducido.
 2. **El tamaño de entrada del modelo es el piso, no el de las fotos con que se entrenó.** Un
    modelo entrenado con `imgsz=640` sobre imágenes 1080p las vio reducidas a 640 de ancho:
    frames de 640×360 le dan prácticamente los mismos píxeles. Uno entrenado a `imgsz=1280`

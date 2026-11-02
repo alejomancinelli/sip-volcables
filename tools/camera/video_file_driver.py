@@ -40,7 +40,8 @@ class VideoFileDriver(AbstractCameraDriver):
             backend   : cpu | nvdec | auto — quién decodifica (ver decoder.py)
             width_px  : tamaño al que sale el frame; los dos en 0 = el del video
             height_px
-        rotation : opcional — la aplica la base
+            views     : rectángulos cortados del video nativo; los arma el cableado
+        rotation : opcional — la aplica la base, al frame y a sus vistas
 
     Una carpeta es una playlist: se reproducen sus videos (.mp4 .avi .mkv .mov) en orden
     alfabético y al terminar el último vuelve a empezar. Un archivo solo es una playlist
@@ -122,7 +123,7 @@ class VideoFileDriver(AbstractCameraDriver):
         if frame is None:
             return None
         self._last_delivery_s = time.monotonic()
-        return self._deliver(frame)
+        return self._deliver(frame, self._capture.retrieve_views())
 
     def get_status(self) -> dict:
         status = {

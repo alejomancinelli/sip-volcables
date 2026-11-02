@@ -194,3 +194,33 @@ class TestHooks:
         [result] = _loaded(_config()).run_image(_frame(), "camera_1")
         assert ("annotator", "camera_1") in calls
         assert tuple(result.annotated_bgr[0, 0]) == (1, 2, 3)
+
+
+class TestViews:
+    """Una cámara con vistas recibe la imagen nativa y la ve como en vivo."""
+
+    def _config(self, **camera) -> _MockConfig:
+        return _config(
+            cameras={"camera_1": {"decode": {"width_px": 80, "height_px": 60}, **camera}},
+            pipelines={"pipeline_1": {"enabled": True, "cameras": [], "roi": {"camera_1": {
+                "enabled": True, "full_resolution": True,
+                "x_px": 10, "y_px": 10, "width_px": 20, "height_px": 20}}}})
+
+    def test_the_image_is_reduced_like_the_camera_does(self):
+        [result] = _loaded(self._config()).run_image(_frame(), "camera_1")
+        assert result.source_bgr.shape[:2] == (60, 80)
+
+    def test_the_pipeline_sees_the_view_cut_from_the_native_image(self):
+        """El ROI de 20 px del frame reducido es de 40 px en la imagen nativa, que es el doble."""
+        [result] = _loaded(self._config()).run_image(_frame(), "camera_1")
+        assert result.region_bgr.shape[:2] == (40, 40)
+        assert result.roi_px == (10, 10, 20, 20)
+
+    def test_the_frame_is_rotated_like_the_camera_does(self):
+        [result] = _loaded(self._config(rotation="90cw")).run_image(_frame(), "camera_1")
+        assert result.source_bgr.shape[:2] == (80, 60)
+
+    def test_a_camera_without_views_gets_the_image_as_it_is(self):
+        frame = _frame()
+        [result] = _loaded(_config()).run_image(frame, "camera_1")
+        assert result.source_bgr is frame
