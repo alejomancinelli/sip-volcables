@@ -198,15 +198,19 @@ trae:
 7. **`metrics.py`**: la cuenta del proceso, de las detecciones a los números que el
    cliente mide. Es lo que termina en el panel del anotado, en el JSON del dataset, en la
    telemetría y en los registros.
-8. **`register_map.yaml`**: las filas `producer: inference` en el rango 3-50, y después
+8. **`register_map.yaml`**: las filas `producer: inference` en el rango 3-50 —y los
+   umbrales que el HMI tiene que mostrar, como filas `producer: config`—, las que escribe el
+   PLC en 40101-40150 si las hay (`producer: plc`, ver
+   [docs/plc_commands.md](docs/plc_commands.md)), y después
    `python -m system.modbus.export_map` para regenerar la tabla del integrador.
 9. **`hooks.py`**: `build_hooks()` lee `process:` una vez y arma lo que el motor recibe
    del proyecto —classifier, analyzer y annotators—. Lo usan la app y la corrida de
    imágenes sueltas, así que las dos miden igual. El preprocessor sale solo del config: la
    calibración del lente y el `image_adjust` de cada cámara.
-   **`main.py`** ya cablea todo; se completan sus tres métodos marcados,
-   `_build_monitor_content()`, `_build_dataset_context()` y, si una señal de la planta
-   tiene que cortar los frames a un pipeline, `_build_frame_gates()`.
+   **`main.py`** ya cablea todo; se completan sus cuatro métodos marcados,
+   `_build_monitor_content()`, `_build_dataset_context()` y, si la planta tiene algo que
+   decir, `_build_frame_gates()` —una señal que corta los frames a un pipeline— y
+   `_on_signals_changed()` —un evento, como un contador del PLC que pide una medición—.
 10. **La vista de operador**, si la grilla de cámaras no alcanza: el widget propio se
     devuelve desde `_build_monitor_content()` de `main.py`. Los textos nuevos van a
     `ui/strings.py`, con su clave en inglés y una columna por idioma; el resto de la UI
@@ -224,7 +228,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | Archivo | Qué se escribe |
 |---|---|
 | `config.yaml` | todos los valores, y la sección `process:` completa |
-| `system/modbus/register_map.yaml` | las filas de inferencia; el resto del mapa es plantilla |
+| `system/modbus/register_map.yaml` | las filas de inferencia, los umbrales publicados y lo que escribe el PLC; el resto del mapa es plantilla |
 | `system/inference/pipeline.py` | el orden de las etapas y sus cortocircuitos |
 | `system/inference/metrics.py` | la cuenta del proceso |
 | `system/inference/hooks.py` | el cuerpo de `build_hooks()`: classifier, analyzer y annotators con los valores de `process:` |
@@ -233,7 +237,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `system/version.py` | la versión del fork; se sube en cada release |
 | `setup/jetson/*.txt` | el framework de inferencia en la Jetson: qué versiones se fijan (`constraints.txt`), qué se instala (`requirements.txt`) y qué entra con `--no-deps` (`requirements-nodeps.txt`). Vienen con los ejemplos comentados |
 | `setup/venv-setup/verify_env.py` | **sólo el bloque «What changes in each fork»**: los módulos del framework y cómo se prueba la GPU |
-| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor, el contexto del dataset y las compuertas de frames. El resto es cableado genérico |
+| `main.py` | **sólo el bloque «Lo que cambia en cada fork»**: el widget del monitor, el contexto del dataset, las compuertas de frames y la reacción a un cambio de señal (`_on_signals_changed()`). El resto es cableado genérico |
 | `CLAUDE.md` | el mapa y las decisiones del fork |
 | `README.md` | esta guía, reemplazada por la del proyecto |
 

@@ -1,5 +1,6 @@
 """Tests del servidor Modbus: lectura de config, direccionamiento base-1, el
-contexto de sólo lectura y el ciclo de vida de los dos transportes.
+contexto —de sólo lectura salvo en las filas que escribe el PLC— y el ciclo de vida
+de los dos transportes.
 
 Nada de acá abre un socket ni un puerto serie: los `StartAsync*Server` de pymodbus
 se reemplazan por dobles. El datastore sí es el real —es lo que se está probando—
@@ -11,7 +12,13 @@ import dataclasses
 import threading
 
 import pytest
+from pymodbus.constants import ExcCodes
 from pymodbus.datastore.simulator import Cell
+from pymodbus.pdu import ExceptionResponse
+from pymodbus.pdu.register_message import (
+    WriteMultipleRegistersRequest,
+    WriteSingleRegisterRequest,
+)
 
 from system.modbus import server as modbus_server
 from system.modbus.server import (
@@ -117,6 +124,24 @@ class TestRegisterCount:
         assert server.get_register(21) == 0
 
 
+class TestRegisterCountFromTheMap:
+    def test_the_datastore_grows_to_the_last_row_of_the_map(self):
+        """Una fila en 117 no obliga a acordarse de subir `register_count`."""
+        server = SharedModbusServer(_MockConfig(), max_addr=117)
+        assert server.register_count == 117
+        server.update_register(117, 7)
+        assert server.get_register(117) == 7
+
+    def test_a_larger_config_count_wins(self):
+        server = SharedModbusServer(_MockConfig(**{"modbus.register_count": 150}),
+                                    max_addr=117)
+        assert server.register_count == 150
+
+    def test_an_empty_map_keeps_the_config_count(self):
+        assert SharedModbusServer(_MockConfig(), max_addr=0).register_count \
+            == DEFAULT_REGISTER_COUNT
+
+
 class TestRegisterAccess:
     def setup_method(self):
         self.server = _server()
@@ -207,6 +232,198 @@ class TestReadOnlyContext:
     def test_writes_are_rejected(self, func_code):
         """El mapa es de sólo lectura: la app escribe desde adentro, el PLC no."""
         assert not self.simulator.validate(func_code, 0, 1)
+
+
+class TestPlcWrites:
+    """
+    FC06 y FC16 sobre las filas que escribe el PLC, por el mismo camino que una petición
+    real: el `datastore_update()` de los pedidos de pymodbus contra el contexto del servidor.
+    """
+
+    # Como en un mapa: 101 sin rango, 105 booleano, 106 hasta 999; 102-104 y 107 no se
+    # declaran.
+    _RANGES = {101: (0, 0xFFFF), 105: (0, 1), 106: (0, 999)}
+
+    def setup_method(self):
+        self.writes = []
+        self.server = SharedModbusServer(
+            _MockConfig(), max_addr=110, write_ranges=self._RANGES,
+            on_write=self.writes.append,
+        )
+
+    def _send(self, request):
+        return asyncio.run(request.datastore_update(self.server._context,
+                                                    self.server.slave_id))
+
+    def _write_single(self, addr: int, raw: int):
+        return self._send(WriteSingleRegisterRequest(
+            address=addr - 1, registers=[raw], dev_id=self.server.slave_id))
+
+    def _write_multiple(self, addr: int, raws: list[int]):
+        return self._send(WriteMultipleRegistersRequest(
+            address=addr - 1, count=len(raws), registers=raws, dev_id=self.server.slave_id))
+
+    def test_fc06_on_a_writable_row_lands_in_the_register(self):
+        self._write_single(106, 42)
+        assert self.server.get_register(106) == 42
+
+    def test_fc06_answers_with_the_echo_and_not_an_exception(self):
+        """
+        Después de escribir, pymodbus relee con `getValues(fc=6)` para armar el eco. Con
+        un `validate()` que aceptara sólo FC03, el registro quedaba escrito y el PLC
+        recibía 0x02: una escritura aplicada que el integrador ve rechazada.
+        """
+        response = self._write_single(106, 42)
+        assert not isinstance(response, ExceptionResponse)
+        assert response.registers == [42]
+
+    def test_fc16_writes_every_register(self):
+        response = self._write_multiple(105, [1, 42])
+        assert not isinstance(response, ExceptionResponse)
+        assert [self.server.get_register(a) for a in (105, 106)] == [1, 42]
+
+    def test_fc16_into_a_row_the_plc_does_not_write_writes_nothing(self):
+        """La base de pymodbus validaba mientras escribía y dejaba la primera mitad."""
+        response = self._write_multiple(105, [1, 42, 7])        # 107 no es escribible
+        assert response.exception_code == ExcCodes.ILLEGAL_ADDRESS
+        assert [self.server.get_register(a) for a in (105, 106, 107)] == [0, 0, 0]
+        assert self.writes == []
+
+    def test_a_value_out_of_range_is_illegal_value_and_writes_nothing(self):
+        response = self._write_multiple(105, [1, 1000])         # 106 llega a 999
+        assert response.exception_code == ExcCodes.ILLEGAL_VALUE
+        assert [self.server.get_register(a) for a in (105, 106)] == [0, 0]
+        assert self.writes == []
+
+    def test_a_boolean_row_takes_only_zero_and_one(self):
+        assert self._write_single(105, 2).exception_code == ExcCodes.ILLEGAL_VALUE
+
+    @pytest.mark.parametrize("addr", [1, 102, 107])
+    def test_an_address_the_plc_does_not_write_is_illegal_address(self, addr):
+        assert self._write_single(addr, 1).exception_code == ExcCodes.ILLEGAL_ADDRESS
+        assert self.server.get_register(addr) == 0
+
+    def test_a_writable_address_past_the_datastore_is_rejected(self):
+        """Un conjunto que no coincide con el mapa no puede terminar en un IndexError."""
+        server = SharedModbusServer(_MockConfig(), write_ranges={500: (0, 0xFFFF)},
+                                    on_write=lambda writes: None)
+        assert not server._simulator.validate(_FC_WRITE_SINGLE, 499, 1)
+
+    def test_on_write_gets_base_1_addresses_and_raw_values(self):
+        self._write_multiple(105, [1, 42])
+        assert self.writes == [{105: 1, 106: 42}]
+
+    def test_on_write_runs_with_the_lock_taken(self):
+        """Entre la escritura y el aviso no se mete un `update_block()`."""
+        seen = []
+        server = SharedModbusServer(
+            _MockConfig(), max_addr=110, write_ranges={106: (0, 0xFFFF)},
+            on_write=lambda writes: seen.append(server._lock.locked()))
+        asyncio.run(server._context.async_setValues(
+            server.slave_id, _FC_WRITE_SINGLE, 105, [42]))
+        assert seen == [True]
+
+    def test_an_app_write_is_never_reported_as_a_plc_write(self):
+        """Lo que llega a `on_write` es siempre del PLC: no hay que adivinarlo comparando."""
+        self.server.update_block({105: 1, 106: 42})
+        assert self.writes == []
+
+    def test_a_plc_read_sees_what_the_plc_wrote(self):
+        self._write_multiple(105, [1, 42])
+        assert _read_from_the_plc(self.server, 104, 2) == [1, 42]
+
+    @pytest.mark.parametrize("func_code", [5, 15, 22, 23])
+    def test_other_write_functions_stay_rejected(self, func_code):
+        rc = asyncio.run(self.server._context.async_setValues(
+            self.server.slave_id, func_code, 104, [1]))
+        assert rc == ExcCodes.ILLEGAL_ADDRESS
+        assert self.server.get_register(105) == 0
+
+    def test_without_on_write_nothing_is_writable(self):
+        """Aceptar escrituras que nadie aplica sería peor que rechazarlas."""
+        server = SharedModbusServer(_MockConfig(), write_ranges={5: (0, 1)})
+        assert not server._simulator.validate(_FC_WRITE_SINGLE, 4, 1)
+
+
+class TestRejectedWriteWarning:
+    """
+    El PLC se entera de un rechazo por la excepción; el equipo, por este warning. Sin él no
+    queda rastro de que un programa manda valores que no corresponden.
+    """
+
+    _RANGES = {105: (0, 1), 106: (0, 999)}
+
+    def setup_method(self):
+        self.now = 0.0
+        self.server = SharedModbusServer(
+            _MockConfig(), max_addr=110, write_ranges=self._RANGES,
+            on_write=lambda writes: None,
+        )
+        self.server._simulator._rejections._clock = lambda: self.now
+
+    def _write(self, addr: int, raws: list[int], func_code: int = _FC_WRITE_MULTIPLE):
+        return asyncio.run(self.server._context.async_setValues(
+            self.server.slave_id, func_code, addr - 1, raws))
+
+    @staticmethod
+    def _warnings(caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records
+                if r.levelname == "WARNING" and "rechazada" in r.getMessage()]
+
+    def test_an_out_of_range_value_names_the_register_and_the_value(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(106, [1000], _FC_WRITE_SINGLE)
+        warning, = self._warnings(caplog)
+        assert "FC06 en 40106" in warning
+        assert "40106 = 1000 fuera de rango (0x03)" in warning
+
+    def test_a_register_the_plc_does_not_write_is_reported(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(107, [1], _FC_WRITE_SINGLE)
+        warning, = self._warnings(caplog)
+        assert "40107 = 1 no es escribible (0x02)" in warning
+
+    def test_an_fc16_names_the_whole_request_and_the_register_that_failed(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(105, [1, 42, 7])
+        warning, = self._warnings(caplog)
+        assert "FC16 en 40105-40107" in warning
+        assert "40107 = 7 no es escribible" in warning
+
+    def test_a_function_that_is_not_served_is_reported(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(105, [1], func_code=23)
+        warning, = self._warnings(caplog)
+        assert "la función FC23 no se sirve" in warning
+
+    def test_an_accepted_write_logs_nothing(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(105, [1, 42])
+        assert self._warnings(caplog) == []
+
+    def test_the_same_rejection_is_logged_once_per_interval(self, caplog):
+        """Un PLC que reintenta en cada ciclo no puede llenar el log."""
+        caplog.set_level("WARNING")
+        for _ in range(3):
+            self._write(106, [1000], _FC_WRITE_SINGLE)
+        assert len(self._warnings(caplog)) == 1
+
+    def test_the_next_warning_counts_the_silenced_ones(self, caplog):
+        caplog.set_level("WARNING")
+        for _ in range(3):
+            self._write(106, [1000], _FC_WRITE_SINGLE)
+        self.now += 61
+        self._write(106, [1000], _FC_WRITE_SINGLE)
+        first, second = self._warnings(caplog)
+        assert "Otras" not in first
+        assert "Otras 2 iguales" in second
+
+    def test_another_register_or_reason_is_reported_on_its_own(self, caplog):
+        caplog.set_level("WARNING")
+        self._write(105, [2], _FC_WRITE_SINGLE)      # fuera de rango en 105
+        self._write(106, [1000], _FC_WRITE_SINGLE)   # fuera de rango en 106
+        self._write(107, [1], _FC_WRITE_SINGLE)      # no escribible en 107
+        assert len(self._warnings(caplog)) == 3
 
 
 class _ReadMidWrite(Cell):

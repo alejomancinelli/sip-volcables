@@ -10,7 +10,7 @@ Maquinaria genérica: reutilizable entre proyectos. Lo único específico de cad
 el contenido de `metrics` —lo que devuelve el analyzer— y los nombres de clase, que
 salen del config.
 
-Cinco puntos del contrato que no se ven en los campos:
+Puntos del contrato que no se ven en los campos:
   - **Todas las coordenadas son del frame de cámara**, en píxeles y con el origen
     arriba a la izquierda, incluso cuando la inferencia corrió sobre un ROI: quien
     recorta vuelve a sumar el origen con `offset_detections` antes de entregar —y, si
@@ -33,6 +33,12 @@ Cinco puntos del contrato que no se ven en los campos:
     sólo el código del proyecto sabe qué veredicto equivale a «bien» o «mal». Un resultado
     con `is_valid` en False no se pinta aunque traiga un estado: sus números no son una
     medición, y un recuadro verde sobre algo que no se midió es peor que ninguno.
+  - **`signals` es la foto de las variables de la planta** —hoy, las que escribe el PLC por
+    Modbus, por nombre de fila— **del instante en que el frame entró al motor**, no del
+    instante en que salió. Es lo que lee el analyzer para calcular con un dato de afuera —la
+    velocidad de la cinta, el código de producto—: si el valor cambia mientras el frame se
+    infiere, la medición sale con el de ese frame, y el dataset guarda el que se usó. Vacío
+    cuando nadie las manda, como en la corrida de imágenes sueltas.
   - **Los frames viajan por referencia.** `source_bgr` es el frame que entró,
     `region_bgr` la imagen sobre la que corrió el pipeline —el recorte del ROI, o la
     vista que el decodificador cortó a resolución nativa— y `annotated_bgr` una copia
@@ -135,6 +141,7 @@ class InferenceResult:
     is_valid: bool = True
     invalid_reason: str = ""
     is_synthetic: bool = False               # detecciones de un modelo sintético, no una medición
+    signals: dict = field(default_factory=dict)          # variables de la planta al entrar al motor
 
     @property
     def detection_count(self) -> int:
@@ -165,6 +172,7 @@ class InferenceResult:
             "labels": dict(self.labels),
             "roi_state": self.roi_state,
             "metrics": dict(self.metrics),
+            "signals": dict(self.signals),
             "detections": [detection.to_dict() for detection in self.detections],
         }
 

@@ -19,20 +19,37 @@ import csv
 import os
 
 from system.modbus.registers import MAP_PATH, SCHEMA
-from system.modbus.schema import Reg, to_plc_address
+from system.modbus.schema import PRODUCER_PLC, Reg, to_plc_address, write_range
 from system.paths import PROJECT_ROOT
 
 DOCS_DIR = os.path.join(PROJECT_ROOT, "docs")
 MARKDOWN_PATH = os.path.join(DOCS_DIR, "modbus_map.md")
 CSV_PATH = os.path.join(DOCS_DIR, "modbus_map.csv")
 
-_COLUMNS = ("Registro", "PLC", "Nombre", "Descripción", "Unidad", "Escala", "Origen")
+_COLUMNS = ("Registro", "PLC", "Nombre", "Descripción", "Unidad", "Escala", "Acceso",
+            "Rango", "Origen")
+
+_ACCESS_READ = "lectura"
+_ACCESS_WRITE = "escribe el PLC"
 
 _GENERATED_NOTE = (
     "Generado por `python -m system.modbus.export_map` desde "
     "`system/modbus/register_map.yaml`. No editar a mano: los cambios se hacen en "
     "el YAML y se vuelve a generar."
 )
+
+
+def _range_text(reg: Reg) -> str:
+    """
+    Lo que el PLC puede escribir en la fila, en la unidad física; '-' si no la escribe.
+
+    Va en la unidad física y no cruda, como `min_value` / `max_value` en el YAML: la escala
+    tiene su propia columna, y el integrador la aplica igual que al leer.
+    """
+    if reg.producer != PRODUCER_PLC:
+        return "-"
+    low, high = write_range(reg)
+    return f"{low:g}-{high:g}"
 
 
 def _row(reg: Reg) -> tuple[str, ...]:
@@ -44,6 +61,8 @@ def _row(reg: Reg) -> tuple[str, ...]:
         reg.desc,
         reg.unit or "-",
         f"x{reg.scale}" if reg.scale != 1 else "-",
+        _ACCESS_WRITE if reg.producer == PRODUCER_PLC else _ACCESS_READ,
+        _range_text(reg),
         reg.producer,
     )
 
@@ -55,11 +74,14 @@ def build_markdown() -> str:
         "",
         _GENERATED_NOTE,
         "",
-        "Holding registers de sólo lectura (FC03), direccionamiento base-1: el "
-        "registro N es el que el PLC lee como 4000N.",
+        "Holding registers, direccionamiento base-1: el registro N es el que el PLC lee "
+        "como 4000N. Todo se lee con FC03. Las filas con acceso «escribe el PLC» se "
+        "escriben con FC06 o FC16, dentro de su rango: fuera de rango la respuesta es la "
+        "excepción 0x03, y sobre cualquier otro registro la 0x02. Cómo y cuándo escribir "
+        "está en `docs/plc_commands.md`.",
         "",
         "Los valores con escala viajan multiplicados por ella: un registro con "
-        "escala x10 y valor 415 son 41,5 en su unidad.",
+        "escala x10 y valor 415 son 41,5 en su unidad. El rango está en esa misma unidad.",
         "",
         "| " + " | ".join(_COLUMNS) + " |",
         "|" + "|".join("---" for _ in _COLUMNS) + "|",

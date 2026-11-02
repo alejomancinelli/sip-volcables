@@ -474,6 +474,8 @@ manual_test/decoder_views/output/
 # Snapshots of the live camera viewer: one run against one set of cameras.
 manual_test/cameras/output/
 
+manual_test/modbus_write/data/
+
 # Inputs and outputs of a calibration run: they belong to one commissioning day of one
 # plant, and what stays of them is the value they produced, in config.yaml. Each folder
 # keeps its .gitkeep, and samples/ keeps a format example. `**` plus the re-included

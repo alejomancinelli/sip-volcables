@@ -272,7 +272,7 @@ class TestQueue:
         engine.push_frame(_frame(level=200), _SLOT)
         status = engine.get_status()
         assert (status["queued"], status["dropped"]) == (1, 0)
-        _, (frame, _) = engine._take_next()
+        _, frame, _, _ = engine._take_next()
         assert frame[0, 0, 0] == 200
 
     def test_a_consumed_frame_is_not_replaced_within_the_interval(self):
@@ -792,6 +792,48 @@ class TestAnalyzer:
 
 
 # ── Frame anotado ────────────────────────────────────────────────────────────
+
+class TestSignals:
+    """Las variables de la planta viajan con el frame, del push al resultado."""
+
+    def test_the_signals_pushed_with_the_frame_reach_the_result(self):
+        engine = _engine(_FakePipeline())
+        engine.push_frame(_frame(), _SLOT, signals={"belt_speed_mps": 1.5})
+        result = _run_frames(engine, []).last()
+        assert result.signals == {"belt_speed_mps": 1.5}
+
+    def test_without_signals_the_result_has_none(self):
+        assert _process_one(_engine(_FakePipeline()), _frame()).signals == {}
+
+    def test_the_analyzer_reads_them_from_the_result(self):
+        """Es para lo que existen: calcular con un dato que manda el PLC."""
+        engine = _engine(_FakePipeline(), analyzer=lambda result: {
+            "speed_x2": result.signals["belt_speed_mps"] * 2})
+        engine.push_frame(_frame(), _SLOT, signals={"belt_speed_mps": 1.5})
+        assert _run_frames(engine, []).last().metrics == {"speed_x2": 3.0}
+
+    def test_a_replaced_frame_takes_its_signals_with_it(self):
+        """Gana el último frame, y con él la foto con que entró, no una mezcla."""
+        engine = _engine(_FakePipeline())
+        engine.push_frame(_frame(), _SLOT, signals={"product_code": 1})
+        engine.push_frame(_frame(), _SLOT, signals={"product_code": 2})
+        assert _run_frames(engine, []).last().signals == {"product_code": 2}
+
+    def test_each_camera_keeps_its_own_signals(self):
+        engine = _engine(_FakePipeline())
+        engine.push_frame(_frame(), _SLOT, signals={"platform": 1})
+        engine.push_frame(_frame(), _OTHER_SLOT, signals={"platform": 2})
+        results = _run_frames(engine, [], expected=2).results
+        assert {r.camera_slot: r.signals["platform"] for r in results} == {
+            _SLOT: 1, _OTHER_SLOT: 2}
+
+    def test_the_result_keeps_its_own_copy(self):
+        """El resultado viaja a otros hilos y al dataset: lo que pase afuera no lo toca."""
+        signals = {"product_code": 1}
+        result = _engine(_FakePipeline()).process(_frame(), _SLOT, signals=signals)
+        signals["product_code"] = 2
+        assert result.signals == {"product_code": 1}
+
 
 class TestAnnotation:
     def test_the_result_carries_an_annotated_frame(self):

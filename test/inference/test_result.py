@@ -138,6 +138,19 @@ class TestInferenceResult:
         result.to_dict()["labels"]["belt"] = "empty"
         assert result.labels == {"belt": "full"}
 
+    def test_a_fresh_result_has_no_signals(self):
+        assert InferenceResult(camera_slot="camera_1").signals == {}
+
+    def test_the_signals_travel_in_the_dict(self):
+        """El dataset guarda con qué variables del PLC se midió cada imagen."""
+        result = InferenceResult(camera_slot="camera_1", signals={"belt_speed_mps": 1.5})
+        assert result.to_dict()["signals"] == {"belt_speed_mps": 1.5}
+
+    def test_the_signals_of_the_dict_are_a_copy(self):
+        result = InferenceResult(camera_slot="camera_1", signals={"product_code": 1})
+        result.to_dict()["signals"]["product_code"] = 2
+        assert result.signals == {"product_code": 1}
+
     def test_the_cycle_time_travels_in_the_dict(self):
         result = InferenceResult(camera_slot="camera_1", cycle_time_ms=412.84)
         assert result.to_dict()["cycle_time_ms"] == 412.8

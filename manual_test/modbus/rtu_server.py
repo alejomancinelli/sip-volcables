@@ -53,7 +53,8 @@ Qué mirar:
       a otro esclavo le pisa la respuesta y rompe la comunicación de los dos. El
       maestro tiene que ver el timeout del esclavo ausente, no un 0x0B nuestro.
     - Escrituras (FC06, FC16) y las demás lecturas (FC01, FC02, FC04): 0x02, igual
-      que por TCP. El vocabulario no cambia con el transporte.
+      que por TCP —este servidor no declara filas `plc`—. El vocabulario no cambia con
+      el transporte.
     - Bajar el `baudrate` a 9600 en el config y volver a correr: con muchos
       registros pedidos de una, la respuesta tarda visiblemente más. Sirve para
       dimensionar el ciclo de scan del PLC antes de prometerlo en una puesta en

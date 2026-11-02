@@ -263,15 +263,17 @@ def _check_qt_platform() -> list[str]:
 
 def _check_pymodbus_api() -> list[str]:
     """
-    The server context takes `devices=`, and PLC reads go through the method the
-    Modbus server locks.
+    The server context takes `devices=`, and PLC reads and writes go through the methods
+    the Modbus server overrides.
 
     The keyword was `slaves=` up to pymodbus 3.9 and became `devices=` in 3.10: with an
     older build the Modbus server fails at construction, long after the install looked
-    successful. The read is worse, because nothing fails: system/modbus/server.py
-    overrides `async_OLD_getValues` so a PLC read takes the write lock, and a pymodbus
-    that reads through another method skips the lock and can serve half a block. That
-    is why requirements.txt pins the exact version.
+    successful. The read and the write are worse, because nothing fails:
+    system/modbus/server.py overrides `async_OLD_getValues` so a PLC read takes the write
+    lock, and `async_OLD_setValues` to validate a whole write and hand it to the app. A
+    pymodbus that reads through another method can serve half a block; one that writes
+    through another method answers OK to the PLC while the app never sees the value.
+    That is why requirements.txt pins the exact version.
     """
     try:
         import inspect
@@ -285,12 +287,16 @@ def _check_pymodbus_api() -> list[str]:
                 ModbusServerContext.async_getValues):
             problem = ("PLC reads no longer go through async_OLD_getValues - the Modbus "
                        "read lock is bypassed; install the pymodbus in requirements.txt")
+        elif "async_OLD_setValues" not in inspect.getsource(
+                ModbusServerContext.async_setValues):
+            problem = ("PLC writes no longer go through async_OLD_setValues - the app "
+                       "never sees them; install the pymodbus in requirements.txt")
         else:
             problem = ""
     except BaseException as exc:
         problem = f"{type(exc).__name__}: {exc}"
     return _verdict("pymodbus API", problem, True,
-                    "ModbusServerContext(devices=...), locked reads")
+                    "ModbusServerContext(devices=...), locked reads and writes")
 
 
 def _check_gpio(config: dict) -> list[str]:

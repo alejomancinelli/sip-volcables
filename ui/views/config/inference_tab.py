@@ -32,7 +32,8 @@ Tres cosas de la sección no están en esta pantalla, y no es un olvido:
 
 Las claves del ciclo de medición —`frames_per_cycle` y las tres que dependen de él— sí se
 muestran: no las lee el motor sino el scheduler, y la nota del grupo dice que con una
-imagen por medición las otras tres no hacen nada.
+imagen por medición las otras tres no hacen nada, salvo con `cycle_trigger: request`, que
+se edita en el archivo.
 
 **Las regiones tienen su propia sección, «Regiones (ROI)», y no se editan ahí.** Va debajo de
 «Pipelines» con una sub-pestaña por cámara, rotulada con su nombre. Cada una tiene una fila por
@@ -153,7 +154,7 @@ class InferenceTab(AbstractConfigTab):
             "min_result_confidence_pct": add_form_row(form, tr("inf_min_result_conf"),
                                                       build_spin_box(0, 100, 0)),
             # El ciclo de medición: los lee el scheduler, no el motor. Con
-            # `frames_per_cycle` en 1 los otros tres no hacen nada.
+            # `frames_per_cycle` en 1 los otros tres no hacen nada, salvo a pedido.
             "frames_per_cycle": add_form_row(form, tr("inf_frames_per_cycle"),
                                              build_spin_box(1, _MAX_FRAMES_PER_CYCLE, 1)),
             "cycle_interval_s": add_form_row(

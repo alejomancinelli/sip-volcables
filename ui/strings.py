@@ -388,13 +388,16 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Stop capture between measurements",
                                "pt": "Desligar a captura entre medições"},
     "inf_cycle_note":         {"es": "Con 1 imagen por medición las otras tres no hacen "
-                                     "nada. Apagar la captura libera la red, pero deja el "
-                                     "video en vivo sin imagen hasta la medición siguiente.",
+                                     "nada, salvo en un pipeline que mide a pedido. Apagar "
+                                     "la captura libera la red, pero deja el video en vivo "
+                                     "sin imagen hasta la medición siguiente.",
                                "en": "With 1 frame per measurement the other three do "
-                                     "nothing. Stopping capture frees the network but "
+                                     "nothing, except on a pipeline that measures on "
+                                     "request. Stopping capture frees the network but "
                                      "leaves the live view blank until the next measurement.",
                                "pt": "Com 1 imagem por medição as outras três não fazem "
-                                     "nada. Desligar a captura libera a rede, mas deixa o "
+                                     "nada, exceto num pipeline que mede sob demanda. "
+                                     "Desligar a captura libera a rede, mas deixa o "
                                      "vídeo ao vivo sem imagem até a medição seguinte."},
     "inf_roi_box":            {"es": "ROI en",         "en": "ROI on",        "pt": "ROI em"},
     "inf_roi_mode":           {"es": "Región:",        "en": "Region:",       "pt": "Região:"},
@@ -654,15 +657,6 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "({plc_addr} for the PLC).",
                                "pt": "O mapa carregado usa até o registrador {max_addr} "
                                      "({plc_addr} para o CLP)."},
-    "mb_map_overflow":        {"es": "El mapa llega al registro {max_addr} ({plc_addr} para "
-                                     "el PLC), más allá de los {count} expuestos: esos "
-                                     "registros no se publican.",
-                               "en": "The map reaches register {max_addr} ({plc_addr} for the "
-                                     "PLC), past the {count} exposed: those registers are "
-                                     "not published.",
-                               "pt": "O mapa chega ao registrador {max_addr} ({plc_addr} para "
-                                     "o CLP), além dos {count} expostos: esses registradores "
-                                     "não são publicados."},
     "mb_serial_port":         {"es": "Puerto serie:",  "en": "Serial port:",  "pt": "Porta serial:"},
     "mb_baudrate":            {"es": "Baudrate:",      "en": "Baud rate:",    "pt": "Baud rate:"},
     "mb_parity":              {"es": "Paridad:",       "en": "Parity:",       "pt": "Paridade:"},

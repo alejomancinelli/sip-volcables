@@ -20,7 +20,7 @@ diagonal entre pares del mismo nivel.
 | Nivel | Qué es | Archivos | Puede importar |
 |---|---|---|---|
 | 0 | Infraestructura | `system/logger.py`, `system/paths.py`, `system/config_manager.py` | nada del repo |
-| 1 | Módulos puros (sin Qt, sin protocolo, sin I/O) | `formats/camera_health`, `formats/com_status`, `formats/system_status`, `modbus/schema`, `image_collector/conditions` | nivel 0 |
+| 1 | Módulos puros (sin Qt, sin protocolo, sin I/O) | `formats/camera_health`, `formats/com_status`, `formats/system_status`, `modbus/schema`, `image_collector/conditions`, `frame_signals` | nivel 0 |
 | 2 | Implementaciones detrás de una interfaz | `tools/camera/*`, `system/telemetry/backends/*` | 0–1 |
 | 3 | Subsistemas (QThread / QObject) | `camera/capture_thread`, `camera/capture_scheduler`, `inference/engine`, `modbus/server`, `telemetry/persistence`, `image_collector/collector`, `video/http_server`, `video/rtsp_server`, `gpio_control` | 0–2 |
 | 4 | GUI | `ui/` | 0–1 + datos ya normalizados |

@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**86 archivos, 511 grupos, 2601 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**89 archivos, 532 grupos, 2743 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,17 +14,17 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 322 |
+| [test/](#test) | 7 | 367 |
 | [test/build/](#testbuild) | 2 | 55 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
-| [test/camera/](#testcamera) | 3 | 156 |
+| [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 594 |
+| [test/inference/](#testinference) | 15 | 606 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
-| [test/modbus/](#testmodbus) | 3 | 138 |
+| [test/modbus/](#testmodbus) | 5 | 206 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/camera/](#testtoolscamera) | 6 | 217 |
@@ -154,6 +154,34 @@ Tests del cargador del `.env`.
 
 </details>
 
+### [test_frame_signals.py](../test/test_frame_signals.py) — 12 tests
+
+Tests de las funciones de flanco que usa un fork en `_on_signals_changed()`.
+
+| Grupo | Tests |
+|---|---:|
+| `TestFrameSignals` | 2 |
+| `TestEdges` | 10 |
+
+<details><summary>Tests</summary>
+
+- `TestFrameSignals`
+  - `test_it_starts_empty`
+  - `test_it_cannot_be_modified`
+- `TestEdges`
+  - `test_gpio_rises_from_zero_to_one`
+  - `test_gpio_falls_from_one_to_zero`
+  - `test_no_gpio_rise_without_the_change`
+  - `test_the_first_gpio_reading_is_not_an_edge`
+  - `test_a_read_error_in_between_is_not_an_edge`
+  - `test_another_channel_is_not_an_edge`
+  - `test_a_plc_variable_rises_and_falls`
+  - `test_a_number_rises_from_zero`
+  - `test_a_counter_change_is_read_with_plc_changed`
+  - `test_a_counter_that_wraps_around_still_changed`
+
+</details>
+
 ### [test_gpio_control.py](../test/test_gpio_control.py) — 25 tests
 
 Tests del controlador de GPIO: lectura del config, modo simulado, comando de salidas y estado de las entradas.
@@ -199,7 +227,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 107 tests
+### [test_main.py](../test/test_main.py) — 138 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -211,23 +239,28 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
+| `TestHardwarePoints` | La red sale en su propia serie, con la interfaz en un tag y no en el campo. | 3 |
 | `TestSystemFields` |  | 5 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
+| `TestInferencePoints` | La serie `inference` partida por `kind` y `stat`. | 8 |
 | `TestCycleTimeFields` | El período de la cámara se agrega sin contar el 0 del primer frame. | 2 |
 | `TestFrameViews` | Las vistas viajan con su frame hasta el motor, por los dos caminos. | 2 |
-| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
+| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
 | `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
 | `TestGatedOverlay` | El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo. | 5 |
-| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
+| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 4 |
 | `TestDatasetSubset` | Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara. | 4 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
 | `TestLensCalibration` |  | 7 |
 | `TestGpioRegisters` |  | 5 |
+| `TestPlcVariables` | El cableado del drenado: lo que escribe el PLC llega a las señales de los frames. | 5 |
+| `TestPlcServerWiring` |  | 4 |
+| `TestSignalsChanged` | El aviso al fork: una vez por cambio, con la foto de antes y la de ahora. | 8 |
 | `TestGpioShutdown` |  | 1 |
 | `TestHeadlessUi` |  | 1 |
 
@@ -258,6 +291,10 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_map_the_server_refuses_to_serve`
   - `test_with_the_map_loaded_nothing_blocks_it`
   - `test_it_passes_the_error_that_registers_reports`
+- `TestHardwarePoints`
+  - `test_the_system_point_carries_only_scalars`
+  - `test_every_interface_has_the_same_two_fields`
+  - `test_without_network_there_are_no_points`
 - `TestSystemFields`
   - `test_each_engine_opens_into_two_scalar_fields`
   - `test_active_is_an_integer_so_its_mean_is_a_fraction_of_time`
@@ -269,6 +306,15 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_gets_a_second_round_of_suffixes`
   - `test_the_sample_count_is_the_frames_of_the_cycle`
   - `test_without_a_cycle_the_stats_are_derived`
+- `TestInferencePoints`
+  - `test_the_kinds_and_stats_are_the_ones_of_the_contract`
+  - `test_the_count_point_says_how_many_and_why`
+  - `test_the_latency_covers_every_result_and_every_stage`
+  - `test_the_measured_fields_carry_the_clean_name`
+  - `test_every_measured_value_is_a_float`
+  - `test_the_illumination_is_left_to_the_camera_series`
+  - `test_without_a_valid_result_there_is_nothing_measured`
+  - `test_a_cycle_keeps_its_dispersion_under_the_clean_name`
 - `TestCycleTimeFields`
   - `test_the_first_frame_without_a_previous_one_is_left_out`
   - `test_without_any_period_there_is_no_field`
@@ -277,6 +323,8 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_a_cycled_engine_gets_the_views_of_the_frame_it_takes`
 - `TestFramePath`
   - `test_an_uncycled_engine_gets_the_frame_in_the_capture_thread`
+  - `test_the_frame_takes_the_plc_variables_with_it`
+  - `test_a_cycled_engine_also_gets_the_plc_variables`
   - `test_an_engine_only_gets_its_own_cameras`
   - `test_a_cycled_engine_waits_for_the_gui`
   - `test_the_raw_stream_gets_the_frame_only_with_clients`
@@ -333,6 +381,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`
   - `test_the_telemetry_keeps_the_numbers_without_the_frames`
+  - `test_the_detection_count_reaches_the_telemetry`
 - `TestDatasetSubset`
   - `test_an_own_roi_saves_the_region_in_its_subset`
   - `test_the_camera_roi_saves_the_frame_without_a_subset`
@@ -361,6 +410,26 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_the_outputs_word_echoes_what_was_commanded`
   - `test_both_words_have_a_row_in_the_map`
   - `test_an_analyzer_metric_cannot_overwrite_them`
+- `TestPlcVariables`
+  - `test_a_write_reaches_the_frame_signals`
+  - `test_rewriting_the_same_value_keeps_the_same_signals`
+  - `test_the_signals_are_replaced_and_never_modified`
+  - `test_a_plc_write_keeps_the_gpio_inputs`
+  - `test_a_gpio_reading_keeps_the_plc_variables`
+- `TestPlcServerWiring`
+  - `test_the_plc_writes_only_its_rows`
+  - `test_without_anyone_to_receive_them_nothing_is_writable`
+  - `test_the_datastore_reaches_the_last_row_of_the_map`
+  - `test_a_metric_cannot_take_a_plc_or_published_row`
+- `TestSignalsChanged`
+  - `test_a_plc_write_calls_it_with_both_snapshots`
+  - `test_several_writes_in_one_tick_are_one_call`
+  - `test_rewriting_the_same_value_does_not_call_it`
+  - `test_a_new_gpio_reading_calls_it`
+  - `test_the_same_gpio_reading_does_not_call_it`
+  - `test_the_new_signals_are_in_place_before_the_call`
+  - `test_a_failing_hook_warns_and_keeps_the_new_signals`
+  - `test_the_template_hook_takes_the_change_without_failing`
 - `TestGpioShutdown`
   - `test_the_polling_stops_before_the_lines_are_released`
 - `TestHeadlessUi`
@@ -400,7 +469,7 @@ Tests de las dos raíces.
 
 </details>
 
-### [test_system_monitor.py](../test/test_system_monitor.py) — 111 tests
+### [test_system_monitor.py](../test/test_system_monitor.py) — 113 tests
 
 Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows, cálculo del throughput de red y estabilidad del contrato de `get_metrics`.
 
@@ -419,8 +488,8 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 | `TestParseWmiZones` |  | 5 |
 | `TestWmiZones` | La temperatura de Windows sale de las zonas ACPI del firmware. | 6 |
 | `TestDisk` |  | 5 |
-| `TestNetThroughput` |  | 11 |
-| `TestGetMetrics` |  | 13 |
+| `TestNetThroughput` |  | 12 |
+| `TestGetMetrics` |  | 14 |
 | `TestJetsonEngines` |  | 5 |
 
 <details><summary>Tests</summary>
@@ -531,12 +600,14 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
   - `test_an_interface_of_another_machine_is_skipped`
   - `test_an_interface_that_appears_starts_from_zero`
   - `test_an_interface_that_disappears_stops_being_reported`
+  - `test_the_interfaces_are_known_before_the_first_reading`
   - `test_the_baseline_advances_on_every_call`
 - `TestGetMetrics`
   - `test_the_real_machine_answers_every_key`
   - `test_the_keys_are_there_even_without_any_source`
   - `test_the_jetson_sources_feed_the_metrics`
   - `test_windows_falls_back_to_nvidia_smi_for_the_gpu`
+  - `test_the_power_is_a_float_whatever_the_source`
   - `test_a_firmware_without_zones_reports_no_temperature`
   - `test_the_windows_acpi_zone_feeds_the_cpu_temperature`
   - `test_windows_without_an_nvidia_gpu_reports_zeros`
@@ -700,14 +771,15 @@ Tests de la tabla de calibradores: qué se puede registrar y cómo se lanza uno.
 
 ## test/camera/
 
-### [test_capture_scheduler.py](../test/camera/test_capture_scheduler.py) — 46 tests
+### [test_capture_scheduler.py](../test/camera/test_capture_scheduler.py) — 63 tests
 
 Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregación de los N resultados, ciclo vacío, vencimiento y apagado de captura entre ciclos.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestTakeFrame` |  | 5 |
-| `TestHasMeasurementCycle` | La regla que comparten el scheduler y la pestaña de dataset. | 5 |
+| `TestHasMeasurementCycle` | La regla que comparten el scheduler y la pestaña de dataset. | 6 |
+| `TestCycleSettingsCache` | La forma del ciclo se consulta en cada frame: se relee sólo cuando cambia el config. | 2 |
 | `TestPassThrough` |  | 4 |
 | `TestAggregation` |  | 7 |
 | `TestEmptyCycle` |  | 3 |
@@ -715,6 +787,7 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
 | `TestCycleInterval` |  | 2 |
 | `TestTimeout` |  | 5 |
 | `TestIdleCameras` |  | 6 |
+| `TestRequestedRound` | Una ronda que abre quien la pide: un contador del PLC, un flanco de GPIO. | 14 |
 | `TestLifecycle` |  | 4 |
 
 <details><summary>Tests</summary>
@@ -731,6 +804,10 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
   - `test_a_disabled_pipeline_with_cycle_does_not_count`
   - `test_a_missing_value_is_one_frame`
   - `test_without_pipelines`
+  - `test_measuring_on_request_is_a_cycle`
+- `TestCycleSettingsCache`
+  - `test_a_change_in_the_config_is_seen`
+  - `test_without_a_change_the_config_is_not_read_again`
 - `TestPassThrough`
   - `test_one_frame_per_cycle_is_not_cycled`
   - `test_it_always_lets_the_frame_through`
@@ -770,6 +847,21 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
   - `test_nobody_captures_while_the_interval_runs`
   - `test_stopping_gives_the_cameras_back`
   - `test_it_only_asks_when_something_changed`
+- `TestRequestedRound`
+  - `test_it_says_which_pipelines_measure_on_request`
+  - `test_on_request_it_starts_without_a_round`
+  - `test_a_request_opens_the_round`
+  - `test_after_the_round_it_waits_for_the_next_request`
+  - `test_a_request_during_a_round_changes_nothing`
+  - `test_a_request_while_waiting_for_a_frame_changes_nothing`
+  - `test_one_frame_on_request_is_a_cycle`
+  - `test_on_interval_a_request_skips_the_wait`
+  - `test_on_interval_a_round_already_open_is_the_one_requested`
+  - `test_without_a_cycle_there_is_nothing_to_request`
+  - `test_a_pipeline_it_does_not_run_is_refused`
+  - `test_a_stopped_scheduler_refuses`
+  - `test_a_request_turns_an_idle_camera_on`
+  - `test_an_unknown_trigger_measures_on_the_clock_and_warns`
 - `TestLifecycle`
   - `test_start_is_idempotent`
   - `test_stop_is_idempotent`
@@ -1515,7 +1607,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 </details>
 
-### [test_composer.py](../test/inference/test_composer.py) — 27 tests
+### [test_composer.py](../test/inference/test_composer.py) — 30 tests
 
 Tests del composer: qué resultado pone el frame de una cámara y qué overlays van encima.
 
@@ -1524,7 +1616,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 | `TestDriving` |  | 5 |
 | `TestOthers` |  | 9 |
 | `TestCompose` |  | 5 |
-| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 8 |
+| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 11 |
 
 <details><summary>Tests</summary>
 
@@ -1558,11 +1650,14 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
   - `test_forgetting_keeps_the_other_pipelines`
   - `test_a_slow_pipeline_stays_fresh_between_its_results`
   - `test_a_late_result_does_not_send_the_camera_live`
+  - `test_an_on_request_pipeline_ignores_the_time_between_requests`
+  - `test_without_being_on_request_the_same_gap_keeps_it_fresh`
+  - `test_set_intervals_also_replaces_the_on_request_pipelines`
   - `test_a_pause_after_forgetting_is_not_taken_as_the_period`
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 142 tests
+### [test_engine.py](../test/inference/test_engine.py) — 148 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1579,6 +1674,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestValidity` |  | 9 |
 | `TestLabels` |  | 4 |
 | `TestAnalyzer` |  | 5 |
+| `TestSignals` | Las variables de la planta viajan con el frame, del push al resultado. | 6 |
 | `TestAnnotation` |  | 13 |
 | `TestDrawOnto` | El overlay de un pipeline encima del anotado de otro: lo que arma el combinado. | 8 |
 | `TestLifecycle` |  | 5 |
@@ -1683,6 +1779,13 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_an_invalid_result_is_not_analyzed`
   - `test_a_failing_analyzer_does_not_break_the_result`
   - `test_the_analyzer_sees_the_inference_time`
+- `TestSignals`
+  - `test_the_signals_pushed_with_the_frame_reach_the_result`
+  - `test_without_signals_the_result_has_none`
+  - `test_the_analyzer_reads_them_from_the_result`
+  - `test_a_replaced_frame_takes_its_signals_with_it`
+  - `test_each_camera_keeps_its_own_signals`
+  - `test_the_result_keeps_its_own_copy`
 - `TestAnnotation`
   - `test_the_result_carries_an_annotated_frame`
   - `test_the_camera_frame_is_never_touched`
@@ -2183,7 +2286,7 @@ Tests de las regiones: qué rectángulo rige para un pipeline, cómo se acota y 
 
 </details>
 
-### [test_result.py](../test/inference/test_result.py) — 28 tests
+### [test_result.py](../test/inference/test_result.py) — 31 tests
 
 Tests de la forma del resultado: completado del área y el centroide, traslado al espacio del frame de cámara y serialización.
 
@@ -2192,7 +2295,7 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
 | `TestDetection` | 7 |
 | `TestOffsetDetections` | 3 |
 | `TestScaleDetections` | 6 |
-| `TestInferenceResult` | 9 |
+| `TestInferenceResult` | 12 |
 | `TestRoiState` | 3 |
 
 <details><summary>Tests</summary>
@@ -2224,6 +2327,9 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
   - `test_a_fresh_result_has_no_labels`
   - `test_the_labels_travel_in_the_dict`
   - `test_the_labels_of_the_dict_are_a_copy`
+  - `test_a_fresh_result_has_no_signals`
+  - `test_the_signals_travel_in_the_dict`
+  - `test_the_signals_of_the_dict_are_a_copy`
   - `test_the_cycle_time_travels_in_the_dict`
   - `test_the_confidence_key_is_the_one_the_save_conditions_read`
 - `TestRoiState`
@@ -2918,7 +3024,68 @@ Tests del autocontrol del verificador: una librería editada no puede aceptar li
 
 ## test/modbus/
 
-### [test_registers.py](../test/modbus/test_registers.py) — 23 tests
+### [test_export_map.py](../test/modbus/test_export_map.py) — 10 tests
+
+Tests de la tabla que lee el integrador: qué filas escribe el PLC y con qué rango.
+
+| Grupo | Tests |
+|---|---:|
+| `TestAccess` | 3 |
+| `TestRange` | 5 |
+| `TestMarkdown` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestAccess`
+  - `test_a_plc_row_is_written_by_the_plc`
+  - `test_a_published_threshold_is_only_read`
+  - `test_a_health_row_is_only_read`
+- `TestRange`
+  - `test_a_row_the_plc_does_not_write_has_no_range`
+  - `test_a_boolean_takes_zero_and_one`
+  - `test_the_declared_range_is_in_the_physical_unit`
+  - `test_without_a_range_it_is_the_whole_register`
+  - `test_without_a_range_a_scaled_row_divides_the_register`
+- `TestMarkdown`
+  - `test_it_no_longer_says_the_map_is_read_only`
+  - `test_every_row_has_one_cell_per_column`
+
+</details>
+
+### [test_plc_variables.py](../test/modbus/test_plc_variables.py) — 15 tests
+
+Tests de las variables que escribe el PLC: la cola, el drenado y el log de los cambios.
+
+| Grupo | Tests |
+|---|---:|
+| `TestRows` | 3 |
+| `TestDrain` | 8 |
+| `TestLog` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestRows`
+  - `test_every_plc_row_is_a_variable`
+  - `test_every_variable_starts_at_rest`
+  - `test_a_map_without_plc_rows_has_nothing_to_drain`
+- `TestDrain`
+  - `test_nothing_written_is_no_change`
+  - `test_a_write_comes_out_decoded`
+  - `test_writes_are_applied_in_the_order_they_arrived`
+  - `test_rewriting_the_same_value_is_no_change`
+  - `test_the_current_values_are_not_modified`
+  - `test_the_result_cannot_be_modified`
+  - `test_an_address_that_is_not_a_plc_row_is_ignored`
+  - `test_the_queue_is_empty_after_a_drain`
+- `TestLog`
+  - `test_a_change_is_logged_with_the_old_and_new_value`
+  - `test_a_variable_that_changes_often_logs_once_per_period`
+  - `test_the_next_line_counts_the_unlogged_changes`
+  - `test_the_log_period_is_per_variable`
+
+</details>
+
+### [test_registers.py](../test/modbus/test_registers.py) — 22 tests
 
 Tests del mapa de registros que se despacha con el repo.
 
@@ -2928,7 +3095,7 @@ Tests del mapa de registros que se despacha con el repo.
 | `TestAddressSpace` |  | 4 |
 | `TestConventions` |  | 7 |
 | `TestScaledRangesAreUsable` |  | 1 |
-| `TestLookupsUsedByTheApp` |  | 5 |
+| `TestLookupsUsedByTheApp` |  | 4 |
 | `TestAMissingMapDoesNotKillTheImport` | Un mapa que falta deja el motivo y un mapa vacío, y no levanta. | 3 |
 
 <details><summary>Tests</summary>
@@ -2938,7 +3105,7 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_the_map_is_not_empty`
   - `test_schema_and_registers_agree`
 - `TestAddressSpace`
-  - `test_every_address_fits_in_the_default_datastore`
+  - `test_the_datastore_reaches_every_address_of_the_map`
   - `test_addresses_are_base_1`
   - `test_addresses_are_unique`
   - `test_names_are_unique`
@@ -2957,7 +3124,6 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_per_camera_block_keeps_a_fixed_stride`
   - `test_the_license_closes_the_exposed_block`
   - `test_the_clock_words_are_consecutive_with_the_high_one_first`
-  - `test_readback_addrs_are_a_subset_of_the_map`
 - `TestAMissingMapDoesNotKillTheImport`
   - `test_a_map_that_is_not_there_leaves_the_reason`
   - `test_a_broken_map_leaves_the_reason`
@@ -2965,21 +3131,23 @@ Tests del mapa de registros que se despacha con el repo.
 
 </details>
 
-### [test_schema.py](../test/modbus/test_schema.py) — 58 tests
+### [test_schema.py](../test/modbus/test_schema.py) — 77 tests
 
-Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, espejo de configuración y detección de escrituras del PLC.
+Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, la copia del config que se publica al PLC, y qué filas puede escribir el PLC y con qué rango.
 
-| Grupo | Tests |
-|---|---:|
-| `TestToUint16` | 7 |
-| `TestRegDefaults` | 3 |
-| `TestLoadRegisters` | 12 |
-| `TestRegisterSchemaValidation` | 3 |
-| `TestIndexes` | 6 |
-| `TestEncode` | 9 |
-| `TestMirrorBatch` | 6 |
-| `TestDetectPlcWrites` | 5 |
-| `TestApplyPlcWrites` | 7 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestToUint16` |  | 7 |
+| `TestRegDefaults` |  | 3 |
+| `TestLoadRegisters` |  | 12 |
+| `TestLoadPlcRows` | Lo que el mapa deja escribir al PLC, y lo que hace que no cargue. | 12 |
+| `TestWritable` |  | 12 |
+| `TestDecode` |  | 6 |
+| `TestEncodeRefusesPlcRows` | Una fila `plc` tiene un solo dueño: si la app la escribiera, pisaría al PLC. | 4 |
+| `TestRegisterSchemaValidation` |  | 3 |
+| `TestIndexes` |  | 5 |
+| `TestEncode` |  | 9 |
+| `TestMirrorBatch` |  | 4 |
 
 <details><summary>Tests</summary>
 
@@ -3008,6 +3176,44 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_address_zero_is_rejected`
   - `test_error_message_names_the_file_and_the_row`
   - `test_default_map_path_points_into_the_package`
+- `TestLoadPlcRows`
+  - `test_a_plc_row_with_a_range_loads`
+  - `test_a_plc_row_without_a_range_loads`
+  - `test_a_config_row_publishes_any_key`
+  - `test_a_config_row_without_a_config_key_is_rejected`
+  - `test_apply_is_no_longer_a_field`
+  - `test_a_plc_row_cannot_point_at_the_config`
+  - `test_a_range_on_a_row_the_plc_does_not_write_is_rejected`
+  - `test_a_range_on_a_boolean_row_is_rejected`
+  - `test_min_above_max_is_rejected`
+  - `test_a_range_that_does_not_fit_the_register_is_rejected`
+  - `test_a_non_numeric_bound_is_rejected`
+  - `test_the_error_names_the_file_the_entry_and_the_row`
+- `TestWritable`
+  - `test_only_the_plc_rows_are_writable`
+  - `test_a_config_row_is_read_only`
+  - `test_a_row_the_app_writes_is_not_writable`
+  - `test_an_undeclared_address_is_not_writable`
+  - `test_without_a_range_the_whole_register_is_valid`
+  - `test_a_boolean_row_accepts_only_zero_and_one`
+  - `test_both_bounds_are_the_declared_ones`
+  - `test_the_raw_range_is_scaled`
+  - `test_the_physical_range_stays_in_the_unit`
+  - `test_without_a_max_the_physical_range_is_the_whole_register_unscaled`
+  - `test_the_caller_cannot_change_the_ranges`
+  - `test_an_empty_map_has_nothing_writable`
+- `TestDecode`
+  - `test_unscaled_value`
+  - `test_scaled_value`
+  - `test_boolean`
+  - `test_a_plc_row_decodes`
+  - `test_is_the_inverse_of_encode`
+  - `test_unknown_name_raises`
+- `TestEncodeRefusesPlcRows`
+  - `test_encode_raises`
+  - `test_encode_batch_raises_even_with_other_rows`
+  - `test_config_rows_still_encode`
+  - `test_the_mirror_never_includes_a_plc_row`
 - `TestRegisterSchemaValidation`
   - `test_duplicate_address_is_rejected`
   - `test_duplicate_name_is_rejected`
@@ -3017,7 +3223,6 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_unknown_name_raises`
   - `test_max_addr`
   - `test_descriptions`
-  - `test_readback_addrs_are_only_the_inference_rows`
   - `test_config_regs_are_only_the_config_rows`
 - `TestEncode`
   - `test_unscaled_value`
@@ -3034,35 +3239,22 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_uses_the_default_when_the_key_is_missing`
   - `test_applies_the_scale`
   - `test_encodes_booleans`
-  - `test_skips_externally_sourced_rows`
-  - `test_skips_rows_without_a_config_key`
-- `TestDetectPlcWrites`
-  - `test_first_cycle_detects_nothing`
-  - `test_a_plc_write_is_detected`
-  - `test_an_untouched_register_is_not_a_write`
-  - `test_a_local_config_change_is_not_a_plc_write`
-  - `test_health_rows_are_never_checked`
-- `TestApplyPlcWrites`
-  - `test_writes_land_in_config`
-  - `test_decodes_the_scale`
-  - `test_decodes_booleans`
-  - `test_the_raw_value_is_echoed_into_the_batch`
-  - `test_a_row_with_a_hook_calls_it_with_the_decoded_value`
-  - `test_a_missing_hook_is_not_a_crash`
-  - `test_nothing_to_apply_needs_no_save`
 
 </details>
 
-### [test_server.py](../test/modbus/test_server.py) — 57 tests
+### [test_server.py](../test/modbus/test_server.py) — 82 tests
 
-Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto de sólo lectura y el ciclo de vida de los dos transportes.
+Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto —de sólo lectura salvo en las filas que escribe el PLC— y el ciclo de vida de los dos transportes.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestSlaveId` |  | 7 |
 | `TestRegisterCount` |  | 4 |
+| `TestRegisterCountFromTheMap` |  | 3 |
 | `TestRegisterAccess` |  | 10 |
 | `TestReadOnlyContext` |  | 8 |
+| `TestPlcWrites` | FC06 y FC16 sobre las filas que escribe el PLC, por el mismo camino que una petición real: el `datastore_update()` de los pedidos de pymodbus contra el contexto del servidor. | 14 |
+| `TestRejectedWriteWarning` | El PLC se entera de un rechazo por la excepción; el equipo, por este warning. Sin él no queda rastro de que un programa manda valores que no corresponden. | 8 |
 | `TestAtomicBlock` | Un `update_block()` se lee entero de antes o entero de después. | 4 |
 | `TestDisabledTransports` |  | 5 |
 | `TestStartupFailures` |  | 4 |
@@ -3086,6 +3278,10 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
   - `test_reads_a_valid_count`
   - `test_invalid_count_falls_back`
   - `test_the_datastore_matches_the_count`
+- `TestRegisterCountFromTheMap`
+  - `test_the_datastore_grows_to_the_last_row_of_the_map`
+  - `test_a_larger_config_count_wins`
+  - `test_an_empty_map_keeps_the_config_count`
 - `TestRegisterAccess`
   - `test_registers_start_at_zero`
   - `test_addressing_is_base_1`
@@ -3106,6 +3302,30 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
   - `test_a_zero_count_is_rejected`
   - `test_other_read_functions_are_rejected`
   - `test_writes_are_rejected`
+- `TestPlcWrites`
+  - `test_fc06_on_a_writable_row_lands_in_the_register`
+  - `test_fc06_answers_with_the_echo_and_not_an_exception`
+  - `test_fc16_writes_every_register`
+  - `test_fc16_into_a_row_the_plc_does_not_write_writes_nothing`
+  - `test_a_value_out_of_range_is_illegal_value_and_writes_nothing`
+  - `test_a_boolean_row_takes_only_zero_and_one`
+  - `test_an_address_the_plc_does_not_write_is_illegal_address`
+  - `test_a_writable_address_past_the_datastore_is_rejected`
+  - `test_on_write_gets_base_1_addresses_and_raw_values`
+  - `test_on_write_runs_with_the_lock_taken`
+  - `test_an_app_write_is_never_reported_as_a_plc_write`
+  - `test_a_plc_read_sees_what_the_plc_wrote`
+  - `test_other_write_functions_stay_rejected`
+  - `test_without_on_write_nothing_is_writable`
+- `TestRejectedWriteWarning`
+  - `test_an_out_of_range_value_names_the_register_and_the_value`
+  - `test_a_register_the_plc_does_not_write_is_reported`
+  - `test_an_fc16_names_the_whole_request_and_the_register_that_failed`
+  - `test_a_function_that_is_not_served_is_reported`
+  - `test_an_accepted_write_logs_nothing`
+  - `test_the_same_rejection_is_logged_once_per_interval`
+  - `test_the_next_warning_counts_the_silenced_ones`
+  - `test_another_register_or_reason_is_reported_on_its_own`
 - `TestAtomicBlock`
   - `test_a_plc_read_never_sees_half_a_block`
   - `test_a_plc_read_waits_for_the_write_lock`

@@ -7,9 +7,9 @@ genera con `python -m system.modbus.export_map`. Un mapa editable desde la UI se
 dos verdades sobre la misma dirección.
 
 `register_count` se muestra pero no se edita: cuántos registros expone el datastore lo
-decide el tamaño del mapa, no una preferencia de planta. Al lado se informa hasta qué
-registro llega el mapa cargado, y si el mapa se pasa de la cuenta expuesta el aviso lo
-dice: esos registros no se publicarían y el PLC leería ceros sin que nada falle.
+decide el tamaño del mapa, no una preferencia de planta. Se muestra lo que expone el
+servidor —`register_count` o la última fila del mapa, la que sea mayor— y al lado hasta qué
+registro llega el mapa cargado.
 """
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -95,21 +95,15 @@ class ModbusTab(AbstractConfigTab):
 
     def _refresh_register_count(self):
         """Muestra los registros expuestos y hasta dónde llega el mapa cargado."""
-        count = int(self._config.get("modbus.register_count", 100))
         max_addr = SCHEMA.max_addr()
+        # Como el servidor: el datastore llega hasta la última fila del mapa.
+        count = max(int(self._config.get("modbus.register_count", 100)), max_addr)
         # Con las dos numeraciones: adentro del repo la dirección es base-1, pero quien
         # mira esta pantalla suele tener el PLC al lado, donde el registro 1 es el 40001.
         self._register_count.setText(
             f"{count}   ({to_plc_address(1)}–{to_plc_address(count)})")
-        is_overflow = max_addr > count
-        self._map_extent.setText(
-            tr("mb_map_overflow" if is_overflow else "mb_map_extent").format(
-                max_addr=max_addr, count=count, plc_addr=to_plc_address(max_addr))
-        )
-        # El aviso de desborde se pinta como advertencia; el informativo, como nota.
-        self._map_extent.setObjectName("warningBanner" if is_overflow else "hintLabel")
-        self._map_extent.style().unpolish(self._map_extent)
-        self._map_extent.style().polish(self._map_extent)
+        self._map_extent.setText(tr("mb_map_extent").format(
+            max_addr=max_addr, plc_addr=to_plc_address(max_addr)))
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
