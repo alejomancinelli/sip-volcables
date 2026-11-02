@@ -170,14 +170,20 @@ inference:
       min_detections: 0         # menos detecciones que esto = resultado no confiable
       min_result_confidence_pct: 0   # confianza media por debajo de esto = resultado no confiable
       # ── El ciclo de medición ──────────────────────────────────────────────
-      # El motor no lee ninguna de estas cuatro: emite un resultado por frame y no
-      # promedia. Las lee `system/camera/capture_scheduler.py`, que junta los N resultados
-      # y los agrega con `analysis.summarize_metrics` (media, desvío y rango) y
+      # El motor no lee ninguna de estas: emite un resultado por frame y no promedia. Las
+      # lee `system/camera/capture_scheduler.py`, que junta los N resultados y los agrega
+      # con `analysis.summarize_metrics` (media, desvío y rango) y
       # `analysis.pick_representative` (qué frame se guarda y se muestra).
       #
-      # Con `frames_per_cycle: 1` el scheduler es un pass-through y las otras tres no
-      # hacen nada: una aplicación en tiempo real no tiene ciclo que orquestar.
+      # Con `frames_per_cycle: 1` y `cycle_trigger: interval` el scheduler es un
+      # pass-through y las demás no hacen nada: una aplicación en tiempo real no tiene ciclo
+      # que orquestar.
       frames_per_cycle: 1       # imágenes que forman UNA medición; 1 = una por frame
+      # Quién abre las rondas. `interval`: el reloj, cada `cycle_interval_s`. `request`: sólo
+      # `request_round()`, que el fork llama cuando la planta lo pide —un contador del PLC,
+      # un flanco de GPIO— desde `_on_signals_changed()` de main.py. Con `request` el
+      # pipeline tiene ciclo aunque mida de a un frame: el medido es uno posterior al pedido.
+      cycle_trigger: interval
       cycle_interval_s: 0.0     # espera entre rondas; 0 = la siguiente arranca al terminar
       capture_timeout_s: 30     # un frame pedido que no vuelve en esto se da por perdido
       idle_cameras_between_cycles: false
@@ -276,10 +282,9 @@ modbus:
   # el archivo que cambia en cada instalación. La copia para el integrador se genera
   # con `python -m system.modbus.export_map`.
   slave_id: 1                   # 1–247; el único unit id al que contesta el equipo
-  register_count: 100           # registros expuestos: 1–N, o 40001–4000N para el PLC.
-                                # No se edita desde la UI: lo decide el tamaño del mapa.
-                                # Tiene que cubrir la dirección más alta de
-                                # register_map.yaml, o esos registros no se publican.
+  register_count: 100           # mínimo de registros expuestos: 1–N, o 40001–4000N para
+                                # el PLC. El servidor llega igual hasta la última fila de
+                                # register_map.yaml. No se edita desde la UI.
   tcp:
     enabled: true
     host: 0.0.0.0               # interfaz por la que escucha; 0.0.0.0 = todas

@@ -61,9 +61,10 @@ Los seis puntos de extensión del motor, y de dónde sale cada uno:
     annotator       `system/inference/hooks.py`, con las factories de `annotations.py`
     annotate_gate   acá: se dibuja si lo mira la UI o un cliente del stream anotado
 
-**Qué toca el fork.** Los tres métodos del bloque «Lo que cambia en cada fork»: qué mira el
-operador, con qué parámetros quedó medido lo que se guarda y qué señales de la planta cortan
-los frames a un pipeline. Lo que entra al motor es de
+**Qué toca el fork.** Los cuatro métodos del bloque «Lo que cambia en cada fork»: qué mira
+el operador, con qué parámetros quedó medido lo que se guarda, qué señales de la planta
+cortan los frames a un pipeline y cómo se reacciona cuando una cambia
+(`_on_signals_changed()`). Lo que entra al motor es de
 `hooks.py`, que también usa la corrida de imágenes sueltas: armarlo acá lo dejaría en un
 solo lado de los dos. El resto es cableado genérico y se cross-portea sin editar.
 
@@ -83,7 +84,7 @@ import statistics
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import datetime, timezone
 from types import MappingProxyType
 
@@ -98,6 +99,9 @@ from system.camera import lens_health
 from system.camera.lens_health import LensHealthMonitor
 from system.config_manager import ConfigManager
 from system.env import load_env_file
+from system.frame_signals import (  # noqa: F401 — los flancos, para `_on_signals_changed()`
+    FrameGate, FrameSignals, gpio_fell, gpio_rose, plc_changed, plc_fell, plc_rose,
+)
 from system.formats import (
     camera_health, com_status, gpio_status, pipeline_status, system_status,
 )
@@ -115,8 +119,11 @@ from system.license.manager import (
 )
 from system.license.request import WeakFingerprintError, save_request
 from system.logger import logger
+from system.modbus.plc_variables import DRAIN_INTERVAL_MS as PLC_DRAIN_INTERVAL_MS
+from system.modbus.plc_variables import PlcVariables
 from system.modbus.registers import LOAD_ERROR as REGISTER_MAP_ERROR, REGISTERS, SCHEMA
-from system.modbus.server import SharedModbusServer
+from system.modbus.schema import PRODUCER_CONFIG, PRODUCER_PLC
+from system.modbus.server import OnWrite, SharedModbusServer
 from system.system_monitor import SystemMonitor
 from system.telemetry.persistence import PersistenceThread
 from system.version import APP_VERSION
@@ -201,34 +208,17 @@ _HEALTH_REGISTER_NAMES = frozenset({
     "gpio_inputs_bitfield", "gpio_outputs_bitfield",
 })
 
-# Todos los nombres del mapa cargado. `SCHEMA.encode_batch()` levanta KeyError con un
-# nombre que no existe, así que las métricas se filtran contra esto antes de codificar.
-_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS)
+# Los nombres del mapa que escribe el tick de registros. `SCHEMA.encode_batch()` levanta
+# KeyError con un nombre que no existe, así que las métricas se filtran contra esto antes de
+# codificar. Quedan afuera las filas que tienen otro dueño: las `plc` las escribe sólo el PLC
+# —codificarlas levanta—, y las `config` las publica `SCHEMA.mirror_batch()` desde el config,
+# así que una métrica que se llame igual no las pisa.
+_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
+                            if reg.producer not in (PRODUCER_PLC, PRODUCER_CONFIG))
 
 _COLLECTOR_MODE_INTERVAL = "interval"
 
 _GATE_WARN_PERIOD_S = 10.0        # techo del aviso de una compuerta que falla, por pipeline
-
-
-@dataclasses.dataclass(frozen=True)
-class FrameSignals:
-    """
-    Lo que dice la planta en este instante, para las compuertas de frames.
-
-    Inmutable y entero a propósito: se arma uno nuevo cada vez que cambia una fuente y se
-    reemplaza de una vez, así que un hilo de captura que lo lee ve el viejo o el nuevo,
-    nunca la mitad de cada uno, sin lock. Una fuente nueva —un registro que escriba el PLC—
-    es un campo más, y las compuertas que no lo usan no cambian.
-
-        gpio_inputs : canal (desde 1, como en el borne) -> 1, 0 o `READ_ERROR`
-    """
-
-    gpio_inputs: Mapping[int, int] = dataclasses.field(
-        default_factory=lambda: MappingProxyType({}))
-
-
-# `gate(camera_slot, signals) -> bool`: False corta los frames de esa cámara a ese pipeline.
-FrameGate = Callable[[str, FrameSignals], bool]
 
 
 # ── Log a archivo ────────────────────────────────────────────────────────────────
@@ -539,8 +529,11 @@ class Application(QObject):
         self._rtsp_video = RtspVideoServer(config)
 
         # ── Modbus ───────────────────────────────────────────────────────────
+        # Lo que escribe el PLC entra por evento: el servidor lo encola desde su hilo y
+        # `_on_plc_writes_tick` lo aplica en el de la GUI.
+        self._plc_variables = PlcVariables(SCHEMA)
         # `run()` bloquea hasta que `stop()` lo desarme, así que va en su propio hilo.
-        self._modbus = _build_modbus_server(config)
+        self._modbus = _build_modbus_server(config, on_write=self._plc_variables.on_write)
         self._modbus_thread = threading.Thread(
             target=self._modbus.run, name="modbus", daemon=True
         )
@@ -566,7 +559,8 @@ class Application(QObject):
         # ── Anotado de varios pipelines por cámara ───────────────────────────
         # Una cámara que miran dos pipelines muestra un solo frame con los dos overlays:
         # mostrar cada anotado tal como llega hace parpadear el de cada uno.
-        self._composer = FrameComposer(self._read_composer_intervals())
+        self._composer = FrameComposer(self._read_composer_intervals(),
+                                       self._read_on_request_pipelines())
 
         # ── Compuertas de frames ─────────────────────────────────────────────
         # Una señal de la planta que corta los frames de una cámara a un pipeline mientras
@@ -637,12 +631,10 @@ class Application(QObject):
         self._gpio = GpioController(config)
         self._gpio_thread = GpioPollingThread(self._gpio, config)
         self._gpio_thread.inputs_updated.connect(self._on_gpio_inputs_updated)
-        # Última lectura de las entradas, para el tick de registros. Se toca sólo desde el
-        # hilo de la GUI: el slot llega en cola.
-        self._gpio_inputs: dict[int, int] = {}
-        # Lo mismo para las compuertas, que lo leen en los hilos de captura. Se REEMPLAZA
-        # entero al llegar una lectura y nunca se modifica: es lo que deja leerlo sin lock.
-        self._frame_signals = FrameSignals()
+        # La última lectura de las entradas y las variables del PLC: lo leen las compuertas en
+        # los hilos de captura y el tick de registros. Se REEMPLAZA entero al llegar una
+        # lectura o una escritura y nunca se modifica: es lo que deja leerlo sin lock.
+        self._frame_signals = FrameSignals(plc=self._plc_variables.rest_values())
 
         # ── Hardware y timers ────────────────────────────────────────────────
         self._monitor = SystemMonitor(config)
@@ -657,6 +649,10 @@ class Application(QObject):
             self._start_timer(RECHECK_INTERVAL_MS, self._on_license_tick),
             self._start_timer(self._read_lens_interval_ms(), self._on_lens_tick),
         ]
+        # Sin filas `plc` el servidor no acepta escrituras: no hay nada que drenar.
+        if self._plc_variables.addrs:
+            self._timers.append(
+                self._start_timer(PLC_DRAIN_INTERVAL_MS, self._on_plc_writes_tick))
         self._warn_if_telemetry_margin_is_thin()
 
         self._ui.connect_config_saved(self._on_config_saved)
@@ -786,12 +782,41 @@ class Application(QObject):
         """
         return {}
 
+    def _on_signals_changed(self, previous: FrameSignals, current: FrameSignals):
+        """
+        Las señales de la planta cambiaron: una escritura del PLC o una lectura de GPIO.
+
+        Es el lugar para reaccionar a un **evento** —un contador del PLC, un flanco en una
+        entrada—, que una compuerta no lee bien porque mira un nivel frame por frame. **El
+        template no reacciona a nada.** Un fork que mide cuando la planta lo pide, con los
+        flancos de `system/frame_signals.py`, que ya están importados acá:
+
+            def _on_signals_changed(self, previous, current):
+                if (plc_changed(previous, current, "measure_seq")
+                        or gpio_rose(previous, current, channel=1)):
+                    if not self._scheduler.request_round("pipeline_2"):
+                        logger.info("[Fork] Ronda en curso: el disparo se ignora.")
+
+        Corre en el hilo de la GUI, una vez por cambio —reescribir el mismo valor no la
+        llama—, y recibe las dos fotos enteras porque un evento a veces depende de otra señal:
+        disparar sólo si el proceso está OK. Una que levanta se avisa en el log y no frena
+        nada.
+
+        Lo que el PLC escribe dentro de un drenado (100 ms) llega como un solo cambio, con el
+        valor final: por eso un evento es un contador y no un bit. Y cada frame lleva el número
+        del momento en que entró, así que con disparos más seguidos que una ronda, sus frames
+        pueden llevar el del siguiente.
+        """
+
     # ── Ciclo de vida ────────────────────────────────────────────────────────
 
     def start(self):
         """Arranca servidores e hilos y muestra la ventana."""
         self._http_video.start()
         self._rtsp_video.start()
+        # Los umbrales publicados salen del config, y van antes de levantar el servidor: el
+        # PLC nunca lee un 0 que no es el valor. Los demás registros esperan su primer tick.
+        self._modbus.update_block(SCHEMA.mirror_batch(self._config))
         self._modbus_thread.start()
         self._telemetry.start()
         self._collector.start()
@@ -907,7 +932,7 @@ class Application(QObject):
             if (not self._scheduler.is_cycled(engine.pipeline_slot)
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)):
-                engine.push_frame(frame_bgr, camera_slot)
+                engine.push_frame(frame_bgr, camera_slot, signals=signals.plc)
         # Lo que mira una persona puede llevar gamma y contraste local; lo que se mide,
         # nunca. Sin clientes en el crudo no se ajusta nada: `_for_display` crea un frame.
         if (self._http_video.has_raw_clients(camera_slot)
@@ -963,7 +988,8 @@ class Application(QObject):
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)
                     and self._scheduler.take_frame(camera_slot, engine.pipeline_slot)):
-                engine.push_frame(frame_bgr, camera_slot, ignore_interval=True)
+                engine.push_frame(frame_bgr, camera_slot, ignore_interval=True,
+                                  signals=signals.plc)
 
     @Slot(object, str)
     def _on_camera_status(self, status: dict, camera_slot: str):
@@ -1101,6 +1127,14 @@ class Application(QObject):
             intervals[engine.pipeline_slot] = interval_s
         return intervals
 
+    def _read_on_request_pipelines(self) -> frozenset[str]:
+        """
+        Los pipelines que miden a pedido: su última medición sigue vigente su período
+        configurado y no tres veces lo que tardó en llegar el pedido siguiente.
+        """
+        return frozenset(engine.pipeline_slot for engine in self._engines
+                         if self._scheduler.is_on_request(engine.pipeline_slot))
+
     def _warn_if_crop_hides_overlays(self, camera_slots: tuple[str, ...]):
         """
         Avisa una vez si `crop_to_roi` deja sin combinar el anotado de alguna cámara.
@@ -1230,7 +1264,8 @@ class Application(QObject):
                 )
             elif self._scheduler.is_cycled(pipeline_slot):
                 logger.warning(
-                    f"[Main] {pipeline_slot} mide de a varios frames y tiene compuerta: con "
+                    f"[Main] {pipeline_slot} tiene ciclo —varios frames o a pedido— y "
+                    f"tiene compuerta: con "
                     f"una cámara cortada, el ciclo espera hasta su timeout por cada ronda."
                 )
 
@@ -1244,9 +1279,42 @@ class Application(QObject):
 
     @Slot(object)
     def _on_gpio_inputs_updated(self, states: dict):
-        """Slot de `GpioPollingThread`: la última lectura de las entradas."""
-        self._gpio_inputs = dict(states)
-        self._frame_signals = FrameSignals(gpio_inputs=MappingProxyType(dict(states)))
+        """
+        Slot de `GpioPollingThread`: la última lectura de las entradas.
+
+        Las señales se reemplazan sólo si la lectura cambió: el polling trae la misma en cada
+        vuelta, y cada reemplazo es un aviso a `_on_signals_changed()`.
+        """
+        if self._frame_signals.gpio_inputs != states:
+            self._set_frame_signals(dataclasses.replace(
+                self._frame_signals, gpio_inputs=MappingProxyType(dict(states))))
+
+    def _set_frame_signals(self, signals: FrameSignals):
+        """
+        Reemplaza las señales enteras y avisa del cambio al fork.
+
+        Primero el reemplazo y después el aviso: lo que el fork pida desde ahí —una ronda— ya
+        se mide con las señales nuevas.
+        """
+        previous = self._frame_signals
+        self._frame_signals = signals
+        try:
+            self._on_signals_changed(previous, signals)
+        except Exception as e:
+            logger.warning(f"[Main] _on_signals_changed falló: {e}. Las señales quedan igual.",
+                           exc_info=True)
+
+    def _on_plc_writes_tick(self):
+        """
+        Aplica lo que escribió el PLC desde el tick anterior: `PlcVariables.drain()`.
+
+        Si alguna variable cambió, las señales se reemplazan enteras una sola vez —los hilos
+        de captura las leen sin lock— con un solo aviso a `_on_signals_changed()`. El valor
+        nuevo lo ven las compuertas y la foto del frame siguiente.
+        """
+        plc = self._plc_variables.drain(self._frame_signals.plc)
+        if plc is not None:
+            self._set_frame_signals(dataclasses.replace(self._frame_signals, plc=plc))
 
     def _on_registers_tick(self):
         """
@@ -1312,10 +1380,19 @@ class Application(QObject):
             values.update(self._build_metric_registers())
 
         # Un solo `encode_batch` para los dos consumidores —el datastore que lee el PLC y
-        # la tabla que mira el operador—: codificar dos veces los deja divergir.
+        # la tabla que mira el operador—: codificar dos veces los deja divergir. Los
+        # umbrales publicados salen del config en cada tick, así que un cambio desde la
+        # interfaz le llega al PLC en el siguiente.
         registers = SCHEMA.encode_batch(self._mapped_only(values))
+        registers.update(SCHEMA.mirror_batch(self._config))
         self._modbus.update_block(registers)
-        self._ui.update_modbus_values(registers)
+        # La tabla muestra también lo que escribió el PLC, leído del datastore: la app no
+        # lo escribe, así que no está en el bloque.
+        self._ui.update_modbus_values({**registers, **self._read_plc_registers()})
+
+    def _read_plc_registers(self) -> dict[int, int]:
+        """{addr: crudo} de las filas `plc`, tal como las dejó el PLC."""
+        return {reg.addr: self._modbus.get_register(reg.addr) for reg in SCHEMA.plc_regs()}
 
     def _on_status_tick(self):
         """
@@ -1564,7 +1641,8 @@ class Application(QObject):
         # El motor relee `interval_s` en el frame siguiente, así que la vigencia de cada
         # overlay en el anotado combinado tiene que seguirlo: si no, un período alargado
         # haría parpadear ese overlay hasta reiniciar.
-        self._composer.set_intervals(self._read_composer_intervals())
+        self._composer.set_intervals(self._read_composer_intervals(),
+                                     self._read_on_request_pipelines())
         # La referencia de cada óptica también: es el número que la pantalla deja editar a
         # mano para copiar el de un equipo gemelo, y esperar un reinicio para que tome
         # efecto haría parecer que no se guardó. El umbral y la ventana sí esperan, como
@@ -1696,7 +1774,7 @@ class Application(QObject):
         hardware_available = self._gpio.hardware_available
         return {
             "gpio_inputs_bitfield": gpio_status.pack_inputs(
-                self._gpio_inputs, hardware_available=hardware_available),
+                self._frame_signals.gpio_inputs, hardware_available=hardware_available),
             "gpio_outputs_bitfield": gpio_status.pack_outputs(
                 self._gpio.get_all_outputs(), hardware_available=hardware_available),
         }
@@ -1930,7 +2008,8 @@ def _parse_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _build_modbus_server(config: ConfigManager) -> SharedModbusServer:
+def _build_modbus_server(config: ConfigManager, on_write: OnWrite | None = None
+                         ) -> SharedModbusServer:
     """
     El servidor Modbus, con el motivo por el que no debería arrancar si lo hay.
 
@@ -1943,8 +2022,14 @@ def _build_modbus_server(config: ConfigManager) -> SharedModbusServer:
     El resto del equipo sigue andando —mira, mide, guarda el dataset y publica a la
     telemetría—: lo único que se cae es la publicación al PLC, que sin mapa no tendría a
     dónde escribir.
+
+    El datastore llega hasta la última fila del mapa aunque `modbus.register_count` diga
+    menos. El PLC escribe sólo las filas `plc` del mapa, y sólo si hay quien las reciba
+    (`on_write`).
     """
-    return SharedModbusServer(config, blocked_reason=REGISTER_MAP_ERROR)
+    return SharedModbusServer(config, blocked_reason=REGISTER_MAP_ERROR,
+                              max_addr=SCHEMA.max_addr(), write_ranges=SCHEMA.write_ranges(),
+                              on_write=on_write)
 
 
 def _build_inference_fields(results: list) -> dict:

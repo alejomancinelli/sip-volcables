@@ -21,7 +21,10 @@ que resuelve este módulo es la regla, no el dibujo:
     puede quedar congelado en pantalla con su último veredicto. El período es el mayor
     entre el `interval_s` del pipeline y el tiempo que pasó entre sus dos últimos
     resultados en esa cámara: con `interval_s` en 0 y un modelo que tarda dos segundos, el
-    configurado solo lo daría por muerto entre una inferencia y la siguiente.
+    configurado solo lo daría por muerto entre una inferencia y la siguiente. **Un pipeline
+    que mide a pedido cuenta sólo el configurado**: entre sus resultados pasa lo que tarda
+    alguien en pedir el siguiente, que no dice nada de su salud, y con pedidos espaciados
+    su última medición quedaría en pantalla tres veces ese tiempo.
   - **Lo que la planta cortó se olvida en el acto.** `forget()` borra el par —su resultado
     y su período—: es lo que hace quien cablea cuando una compuerta corta los frames, para
     que el overlay se vaya en el frame siguiente y no tres períodos después.
@@ -68,23 +71,32 @@ class FrameComposer:
     Último resultado de cada par (cámara, pipeline) y el último frame mostrado por cámara.
 
     `interval_s_by_pipeline` es el período configurado entre resultados de cada pipeline;
-    uno que no figura cuenta sólo con el período observado y el piso.
+    uno que no figura cuenta sólo con el período observado y el piso. `on_request` son los
+    pipelines que miden a pedido, para los que el período observado no cuenta.
     """
 
-    def __init__(self, interval_s_by_pipeline: dict[str, float] | None = None):
+    def __init__(self, interval_s_by_pipeline: dict[str, float] | None = None,
+                 on_request: frozenset[str] = frozenset()):
         self._interval_s_by_pipeline: dict[str, float] = {}
-        self.set_intervals(interval_s_by_pipeline or {})
+        self._on_request: frozenset[str] = frozenset()
+        self.set_intervals(interval_s_by_pipeline or {}, on_request)
         # (cámara, pipeline) -> (resultado sin frames, instante en que llegó, segundos desde
         # el resultado anterior del par; 0 si es el primero)
         self._latest: dict[tuple[str, str], tuple[InferenceResult, float, float]] = {}
         self._shown_timestamp_s: dict[str, float] = {}
 
-    def set_intervals(self, interval_s_by_pipeline: dict[str, float]):
-        """Reemplaza los períodos configurados. Lo guardado se conserva."""
+    def set_intervals(self, interval_s_by_pipeline: dict[str, float],
+                      on_request: frozenset[str]):
+        """
+        Reemplaza los períodos configurados y los pipelines a pedido. Lo guardado se conserva.
+
+        `on_request` no tiene default: olvidarlo vaciaría en silencio el conjunto.
+        """
         self._interval_s_by_pipeline = {
             pipeline_slot: max(0.0, float(interval_s))
             for pipeline_slot, interval_s in interval_s_by_pipeline.items()
         }
+        self._on_request = frozenset(on_request)
 
     def compose(self, result: InferenceResult, annotated_bgr: np.ndarray, now_s: float,
                 painter_by_pipeline: Mapping[str, Painter]) -> np.ndarray | None:
@@ -160,5 +172,7 @@ class FrameComposer:
 
     def _is_stale(self, pipeline_slot: str, added_s: float, gap_s: float,
                   now_s: float) -> bool:
-        period_s = max(self._interval_s_by_pipeline.get(pipeline_slot, 0.0), gap_s)
+        period_s = self._interval_s_by_pipeline.get(pipeline_slot, 0.0)
+        if pipeline_slot not in self._on_request:
+            period_s = max(period_s, gap_s)
         return now_s - added_s > max(_STALE_MIN_S, _STALE_FACTOR * period_s)

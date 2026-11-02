@@ -156,6 +156,7 @@ from system.license.manager import LicenseManager                        # noqa:
 from system.license.request import save_request                          # noqa: E402
 from system.logger import logger                                         # noqa: E402
 from system.modbus.registers import REGISTERS, SCHEMA                    # noqa: E402
+from system.modbus.schema import PRODUCER_CONFIG, PRODUCER_PLC           # noqa: E402
 from system.modbus.server import SharedModbusServer                      # noqa: E402
 from system.system_monitor import SystemMonitor                          # noqa: E402
 from system.telemetry.persistence import PersistenceThread               # noqa: E402
@@ -179,8 +180,10 @@ _CONFIG_WATCH_INTERVAL_MS = 1000 # cada cuánto se mira si cambió el config.yam
 _HEARTBEAT_MAX = 65535           # el registro es uint16: el contador da la vuelta ahí
 
 # Los nombres del mapa cargado, como en `main.py`: el de cada instalación declara lo que
-# lee su PLC y no tiene por qué traer todo lo que esto mide.
-_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS)
+# lee su PLC y no tiene por qué traer todo lo que esto mide. Las filas `plc` y `config`
+# tienen otro dueño: el PLC y `SCHEMA.mirror_batch()`.
+_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
+                            if reg.producer not in (PRODUCER_PLC, PRODUCER_CONFIG))
 _SERVER_STOP_TIMEOUT_S = 5.0     # espera al hilo del servidor Modbus al cerrar
 
 
@@ -605,6 +608,7 @@ class _DemoApp(QObject):
         # KeyError y el ciclo entero se cae.
         registers = SCHEMA.encode_batch(
             {name: value for name, value in values.items() if name in _REGISTER_NAMES})
+        registers.update(SCHEMA.mirror_batch(self._config))
         self._modbus.update_block(registers)
         self._window.diagnostics_view.update_modbus_values(registers)
 

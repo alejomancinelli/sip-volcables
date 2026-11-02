@@ -1,0 +1,75 @@
+# Mapa de la prueba de escritura del PLC (.claude/plans/plc-commands.md): filas
+# `producer: plc` con `min_value` / `max_value`, que escribe el PLC, y filas
+# `producer: config`, umbrales del config que el equipo publica para el HMI y que el PLC
+# sólo lee. Lo carga `load_registers()` como a cualquier mapa: si deja de cargar, lo que
+# se rompió es el esquema.
+#
+# Los dos bloques son los del plan: 40001-40100 lo escribe el equipo y el PLC lo lee
+# —los umbrales publicados incluidos—, y 40101-40150 lo escribe el PLC.
+#
+# Para la maquinaria todo lo que escribe el PLC es una variable. `measure_seq` es un
+# contador que la app de la prueba lee como evento: cada número nuevo pide una medición.
+#
+# Los huecos son a propósito: 102-104, 107 y 109-114 no los declara ninguna fila, y una
+# escritura que caiga ahí —sola o como parte de un FC16 más largo— tiene que dar 0x02 sin
+# escribir nada. Lo mismo una escritura sobre cualquier fila del bloque de lectura.
+
+# ── Lo que escribe el equipo, en el bloque que el PLC lee: 40001-40100 ──
+
+# Umbrales del config que el equipo publica para el HMI.
+
+- addr: 10
+  name: max_load_y_px_camera_1
+  desc: Altura del límite de carga en la cámara 1
+  producer: config
+  config_key: process.max_load_y_px.camera_1
+  unit: px
+
+- addr: 11
+  name: pipeline_1_min_result_confidence_pct
+  desc: Confianza media mínima de un resultado del pipeline 1
+  producer: config
+  config_key: inference.pipelines.pipeline_1.min_result_confidence_pct
+  unit: '%'
+
+- addr: 12
+  name: min_load_pct
+  desc: Carga mínima; por debajo se reporta como insuficiente
+  producer: config
+  config_key: process.min_load_pct
+  unit: '%'
+  scale: 10
+
+- addr: 81
+  name: heartbeat
+  desc: Heartbeat / watchdog — cambia en cada ciclo mientras la app viva
+  producer: health
+
+# ── Lo que escribe el PLC: 40101-40150 ──
+
+- addr: 101
+  name: measure_seq
+  desc: Contador de disparo — el PLC lo incrementa (1-65535) para pedir una medición
+  producer: plc
+
+- addr: 105
+  name: event_active
+  desc: El PLC avisa que hay un evento en curso (1) o no (0)
+  producer: plc
+  is_bool: true
+
+- addr: 106
+  name: product_code
+  desc: Código del producto que está pasando por la línea
+  producer: plc
+  min_value: 0
+  max_value: 999
+
+- addr: 108
+  name: belt_speed_mps
+  desc: Velocidad de la cinta que mide el PLC
+  producer: plc
+  unit: m/s
+  scale: 100
+  min_value: 0
+  max_value: 10

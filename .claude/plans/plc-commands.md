@@ -1,453 +1,362 @@
-# Plan: el PLC escribe — disparo de medición, umbrales del proceso y variables
+# Plan: el PLC escribe — disparo de medición y variables
 
-**Estado: diseño, sin código.** Branch `machinery/plc-commands`, sobre `main` (v0.9.0, con
-las compuertas de frames y la palabra de estado por pipeline ya adentro).
+**Estado: implementado, en v0.10.0.** Falta probarlo contra un PLC de verdad. Branch
+`machinery/plc-commands`, sobre `main` (v0.9.0, con las compuertas de frames y la palabra de
+estado por pipeline).
 
-Este documento está escrito para que otra instancia lo tome sin haber visto la
-conversación que lo originó: el porqué de cada decisión está acá y no por referencia. Se
-implementa por pasos (§9) y **cada paso se valida antes de empezar el siguiente**.
+**El PLC no escribe el config.** La primera versión de este plan lo dejaba cambiar umbrales del
+proceso, y se descartó el 2026-10-22 (ver «Lo que se descartó», al final). La configuración es
+sólo de la interfaz y del archivo, y un umbral viaja en un solo sentido: del equipo al PLC,
+para que el HMI lo muestre (§5.3).
+
+El porqué de cada decisión está acá y no por referencia, para que se pueda retomar sin la
+conversación que lo originó.
 
 ---
 
 ## 1. Qué se quiere
 
-Hoy el PLC sólo lee (40001-40100). Se quiere que también escriba, en **50 registros**, y
-**sólo para tres cosas**:
+Antes el PLC sólo leía (40001-40100). Ahora también escribe, en **50 registros**, y **sólo para
+dos cosas**:
 
-1. **Disparar una medición de un ciclo**, descartando la que esté en curso si la hay.
-2. **Cambiar un umbral del proceso.** El valor nuevo queda en `config.yaml` y se ve en la
-   interfaz, igual que si lo hubiera cambiado el operador.
-3. **Mandar una variable que use un pipeline.** Por ejemplo, «empieza un evento»: el
-   pipeline ya está habilitado y cargado, pero no infiere hasta que el PLC lo dice.
+1. **Disparar una medición.** El disparo también puede venir de una entrada de GPIO. Qué se
+   hace con esa medición —guardarla para calibrar, compararla— es del fork; la maquinaria le
+   da cómo enterarse del disparo y cómo pedir la medición (§5.1).
+2. **Mandar una variable**, que se usa de dos formas:
+   - **para decidir si se infiere**: «el proceso está OK, empezá a inferir». El pipeline ya
+     está cargado, pero no infiere hasta que el PLC lo dice;
+   - **para calcular con ella**: la velocidad de la cinta, para sincronizar dos cámaras o
+     pasar de carga a toneladas por hora; un código de producto que elige qué límites del
+     config aplica el analyzer.
 
-**El PLC no prende ni apaga nada**: ni pipelines, ni cámaras, ni protocolos, ni el overlay,
-ni el dataset. Eso se configura desde la interfaz o el archivo, como hoy. No es una
-convención: el esquema rechaza al cargar una fila escribible que apunte fuera de lo
-permitido (§5.2), así que un mapa que lo intente no arranca.
+Y en el otro sentido, que ya estaba en el esquema y no estaba cableado: **el equipo publica
+umbrales del config** para que el HMI los muestre (§5.3).
 
-**El operador tiene preferencia sobre el PLC**, cambie el valor desde la interfaz o
-editando el archivo. Cómo se resuelve cada choque está en P7 y P8.
+**El PLC no prende ni apaga nada y no escribe el config**: ni pipelines, ni cámaras, ni
+protocolos, ni el overlay, ni el dataset, ni un umbral. No es una convención: el esquema sólo
+deja escribir las filas `producer: plc`, que no apuntan a ninguna clave del config.
 
-Todo esto es **maquinaria**: el cómo vive en el template y cada fork declara en su
-`register_map.yaml` qué filas escribibles usa. **El mapa es el interruptor**: un fork sin
-filas escribibles se comporta exactamente como hoy, sin ninguna clave de config nueva.
+Todo esto es **maquinaria**, y **el mapa es el interruptor**: un fork sin filas `plc` se
+comporta como antes, sin ninguna clave de config nueva.
 
 ## 2. Qué direcciones escribe el PLC
 
-**40101-40150** (registros 101-150), a continuación del bloque de lectura y con la misma
-regla **reg N ⇔ 4000N**.
+**40101-40150** (registros 101-150), a continuación del bloque de lectura y con la misma regla
+**reg N ⇔ 4000N**. No hay filas definidas: cada fork declara las suyas.
 
 | Bloque | Quién escribe | Qué |
 |---|---|---|
-| 40001-40100 | el equipo | lo de hoy, más las respuestas a lo que escribe el PLC (§2.2) |
-| 40101-40150 | el PLC | disparos, variables y umbrales (§2.1) |
+| 40001-40100 | el equipo | lo de antes, más los umbrales publicados (§5.3) |
+| 40101-40150 | el PLC | variables, que el fork lee como nivel o como evento (§4) |
 
 Por qué ahí y no en un rango aparte como 41001:
 
-- **Un solo datastore y una sola regla.** No hay offset nuevo que traducir entre el
-  código, la documentación y el PLC.
+- **Un solo datastore y una sola regla**, sin offset nuevo que traducir.
 - **Cada bloque entra en una sola petición.** FC03 lee hasta 125 registros y FC16 escribe
-  hasta 123: los 50 del bloque de escritura se escriben de una vez, y el PLC los puede
-  releer con un FC03 para confirmar.
+  hasta 123.
 - **`register_count` no hay que acordarse de subirlo.** El servidor expone
-  `max(modbus.register_count, SCHEMA.max_addr())`, así que el datastore llega hasta la última
-  fila declarada y nada más: un fork que usa tres registros de escritura no expone cincuenta.
+  `max(modbus.register_count, SCHEMA.max_addr())`: llega hasta la última fila declarada y nada
+  más, así que un fork que usa tres registros de escritura no expone cincuenta.
 
-Los sub-bloques reparten los 50 según lo que usa un proyecto típico, que es poco: uno o dos
-pipelines con ciclo, un par de señales de evento y los umbrales de `process:`. Si un fork
-necesita otro reparto, mueve los límites en su mapa: son documentación, no código.
+El PLC escribe un disparo con un FC06 cuando quiere medir, y las variables de forma cíclica,
+con un FC16 sobre todas: así un reinicio del equipo se repara solo en el ciclo siguiente (P4).
 
-### 2.1 Bloque de escritura, 40101-40150
+**El equipo no contesta lo que escribe el PLC** (decidido el 2026-10-22). El PLC lee los
+valores de forma continua, y el disparo existe para **guardar** esa medición (§5.1), no para
+que el PLC espere su resultado. Se descartaron `app_session_id` —el latido ya delata un
+reinicio—, un `done_seq` por pipeline y bits nuevos en la palabra del pipeline. Un fork que
+necesite confirmar el disparo agrega su `done_seq` como una fila más, en su rango 3-50.
 
-| Reg | Nombre | Qué | Persiste |
-|---|---|---|---|
-| 40101-40104 | `pipeline_N_trigger_seq`, en 100+N | disparo del pipeline N (hasta 4), contador 1-65535 | no |
-| 40105-40114 | variables, con el nombre que elija el fork | lo que lee un pipeline (10) | no |
-| 40115-40150 | umbrales, con el nombre de su clave | espejo R/W de `config.yaml` (36) | sí |
+## 3. Problemas que había que resolver
 
-Cómo escribe el PLC cada sub-bloque, y por qué importa:
+Los números son los de la primera versión; P6, P7 y P8 eran de los umbrales y están en «Lo que
+se descartó».
 
-- **Disparos**: un FC06 cuando quiere medir.
-- **Variables**: de forma cíclica, un FC16 sobre 40105-40114. Así un reinicio del equipo se
-  repara solo en el ciclo siguiente del PLC (§3, P4).
-- **Umbrales**: **sólo al cambiar**. Un PLC que los reescribe cada ciclo deshace en
-  milisegundos lo que el operador cambie en la pantalla, y nada lo avisa. Va en la
-  documentación del integrador.
+**P1. El servidor era de sólo lectura por contrato.** → Sirve FC06 y FC16 **sólo sobre las
+filas `plc`**. Con un mapa sin ellas, sigue siendo de sólo lectura.
 
-### 2.2 Las respuestas, en el bloque de lectura
+**P2. pymodbus escribía a medias.** Su `async_OLD_setValues` (3.15) valida registro por
+registro *mientras* escribe: un FC16 que se mete en una fila ajena dejaba escrita la primera
+mitad. → El contexto valida la petición **entera** antes de tocar nada: 0x02 si alguna
+dirección no es escribible, 0x03 si algún valor cae fuera de su rango.
 
-Lo que el equipo contesta lo escribe el equipo, así que va donde el PLC ya lee: en
-40092-40097, que hoy está libre.
+**P3. Sondear pierde escrituras.** Comparar los registros una vez por segundo hace de dos
+disparos dentro del mismo segundo uno solo. → **Las escrituras entran por evento**: el
+contexto, bajo el lock con que escribe, llama a `on_write({addr: raw})`; el cableado lo deja en
+una `queue.SimpleQueue` y un QTimer de 100 ms en el hilo de la GUI la drena.
 
-| Reg | Nombre | Qué |
-|---|---|---|
-| 40092 | `app_session_id` | número al azar, distinto de 0, nuevo en cada arranque del equipo |
-| 40093 | `pipeline_1_state_bitfield` | la palabra que ya existe sin fila, con bits nuevos (§5.1) |
-| 40094 | `pipeline_1_done_seq` | el último disparo que se terminó de medir |
-| 40095-40096 | ídem `pipeline_2` | |
-| 40097 | reservado | |
+**P4. El datastore vive en RAM y arranca en 0.** → Por clase:
+  - **Disparos**: el 0 es «nunca disparó», así que el próximo número del PLC es nuevo. Uno que
+    cae durante el reinicio se pierde.
+  - **Variables**: vuelven a 0, así que **el 0 tiene que ser el reposo** —«no hay evento», «el
+    PLC no manda nada»— y el PLC las escribe de forma cíclica.
+  - **Umbrales publicados**: el equipo los escribe antes de levantar el servidor, así que el
+    PLC nunca lee un 0 que no es el valor.
 
-Alcanza para dos pipelines con disparo. Un fork con más toma las filas que necesite del
-final del rango 3-50, que es suyo; no se mueve nada de lo existente.
+**P5. Dos escritores sobre el mismo registro.** → **Un solo dueño por fila**: `encode()`
+levanta con un nombre `plc`, así que la app nunca escribe una, y el PLC no puede escribir una
+`config`.
 
-## 3. Problemas con la composición actual
-
-**P1. El servidor es de sólo lectura por contrato.** `_ReadOnlyHoldingRegisters.validate()`
-acepta sólo FC03, `test_writes_are_rejected` lo fija y `CLAUDE.md` lo tiene como decisión
-vigente. → Pasa a servir FC06 y FC16 **sólo sobre las filas escribibles del mapa**. **Cambiar
-ese test se confirma antes de tocarlo**; con un mapa sin filas escribibles el test original
-sigue valiendo tal cual.
-
-**P2. pymodbus escribiría a medias.** Su `async_OLD_setValues` (3.15) valida registro por
-registro *mientras* escribe: un FC16 que se mete en una fila no escribible deja escrita la
-primera mitad. → El contexto valida la petición **entera** antes de tocar nada: 0x02 si
-alguna dirección no es escribible, 0x03 si algún valor cae fuera del rango de su fila.
-Verificado en la fuente: el método devuelve `ExcCodes | None` y `register_message.py` lo
-convierte en `ExceptionResponse`.
-
-**P3. Sondear pierde escrituras.** El espejo que ya trae el esquema (`detect_plc_writes()`)
-compara una vez por segundo: dos disparos dentro del mismo segundo son uno, y una escritura
-que cae entre la detección y el `update_block()` del tick queda pisada. → **Las escrituras
-entran por evento**: el contexto, bajo el mismo lock con que escribe, deja `{addr: raw}` en
-una `queue.SimpleQueue`, y un QTimer de 100 ms en el hilo de la GUI la drena. Se borra
-`detect_plc_writes()`; `apply_plc_writes()` se queda, alimentado por la cola.
-
-**P4. El datastore vive en RAM y arranca en 0.** Si el equipo se reinicia, lo que escribió
-el PLC desaparece. → Por clase:
-  - **Disparos**: el 0 es «nunca disparó», así que el próximo número del PLC es nuevo. Un
-    disparo que cae durante el reinicio se pierde, y el PLC lo ve porque `done_seq` no llega.
-  - **Variables**: vuelven a 0. Por eso **una variable en 0 tiene que significar lo de
-    reposo** («no hay evento»), y por eso el PLC las escribe de forma cíclica.
-    `app_session_id` le dice al PLC que el equipo arrancó de nuevo.
-  - **Umbrales**: se persisten en el config y se re-espejan al arrancar, **antes de levantar
-    el servidor**, para que el PLC nunca lea un 0 que no es el valor.
-
-**P5. Dos escritores sobre el mismo registro.** El tick escribe por nombre: si algún día
-incluye una fila del PLC, le pisa el valor cada segundo. → **Un solo dueño por fila.** Las
-filas de disparo y de variables (`producer: plc`) no las escribe nunca la app, y lo
-garantiza el esquema: `encode()` levanta con un nombre `plc`. Los umbrales
-(`producer: config`) son el único espejo compartido, y con la cola de P3 quedan
-consistentes: si la app re-espeja X mientras está encolado el Y del PLC, el drenado aplica Y
-y el tick siguiente espeja Y.
-
-**P6. `process:` se lee una sola vez.** `hooks.build_hooks()` lo lee al armar el motor, así
-que un umbral del proceso escrito por el PLC no tendría efecto hasta reiniciar. → El motor
-gana `set_hooks(hooks)`, que reemplaza de una vez la referencia al `EngineHooks` congelado;
-asignar una referencia es atómico y el hilo de inferencia toma la nueva en el frame
-siguiente. Cuando un drenado aplica alguna clave `process.*`, el cableado llama
-`build_hooks(config)` **una vez** y se lo pasa a cada motor. Se reconstruyen todos juntos, así
-que se conserva el invariante de `hooks.py`: el annotator que dibuja un límite y el analyzer
-que mide contra él leen el mismo número.
-
-**P7. Desde la interfaz: la pantalla mostraría un valor viejo, y lo guardaría.**
-`ConfigView` guarda todas las pestañas desde los valores del formulario: si el PLC cambió un
-umbral después de que se cargó la pestaña, el próximo «Guardar» del operador escribe el
-valor viejo encima, sin aviso —y no por preferencia del operador, sino porque nunca vio el
-cambio—. → **La pantalla se actualiza con lo que escribió el PLC**, campo por campo, con el
-mismo recurso que ya usan `refresh_roi_fields()` y `refresh_lens_reference()`: recargar lo que
-cambió sin descartar lo que el operador esté editando en otro campo. **Si el operador tenía a
-medio editar justo ese campo, gana el operador**: el campo conserva lo que escribió, con una
-nota al lado con el valor que mandó el PLC. Mientras tanto la medición usa el del PLC, que es
-el único aplicado. Al guardar, el valor del operador va al config y se re-espeja al registro,
-así que el PLC relee algo distinto de lo que escribió, y esa es su señal. «Descartar» deja el
-del PLC. Lo que el operador cambia **después** de una escritura del PLC no es un choque: es un
-cambio posterior, y el último en el tiempo es el que vale para los dos lados.
-
-**P8. Desde el archivo: un guardado del PLC borraría lo que el operador editó a mano.** La app
-no vigila `config.yaml` —se lee al arrancar— y `ConfigManager.save()` reescribe el archivo
-**entero** desde la memoria. Si el operador edita el archivo con la app corriendo y después
-el PLC cambia un umbral, el guardado del PLC le borra todas sus ediciones sin que nada lo
-avise. Hoy pasa lo mismo con «Guardar» de la interfaz, pero ahí hay una persona que eligió
-guardar; acá lo dispararía la línea sola, a cualquier hora. → El guardado del PLC no usa
-`save()`: usa un `ConfigManager.save_keys(keys)` nuevo, que **relee el archivo, cambia sólo
-esas claves y lo escribe** (atómico y con `.bak`, como `save()`). Así lo que el operador editó
-a mano en otras claves queda en el archivo y toma efecto al reiniciar, como siempre. Si el
-operador editó a mano **la misma clave** —el archivo ya no tiene el valor que la app había
-leído—, gana el operador: la escritura del PLC no se aplica, el registro se re-espeja con el
-valor vigente y queda un aviso en el log. Además se persiste **sólo si el valor cambió**, y
-los guardados se agrupan: a lo sumo uno por segundo. Los comentarios del YAML se pierden igual
-que hoy. Va a `config.yaml` y no a un archivo aparte porque la corrida de imágenes sueltas
-(`offline.py`) lee el config: con los umbrales en otro lado, una imagen pasaría con valores
-que no son los de la línea.
-
-**P9. Un disparo nuevo con la ronda en curso.** Se pide descartar la medición en curso. El
-problema es el frame que ya estaba en el motor: su resultado llega después del descarte y el
-scheduler, que ya abrió la ronda nueva y está esperando, lo tomaría como el primero de ella.
-→ `push_frame()` gana un `tag` opcional que el motor copia al `InferenceResult`; el scheduler
-le pone a cada ronda un número propio y descarta en `on_result_ready()` los resultados con
-otro. Un resultado sin tag —el camino sin ciclo— no cambia.
+**P9. Un disparo con la ronda en curso.** Descartar la ronda obligaría a marcar cada frame con
+su ronda: el resultado que ya estaba en el motor llegaría después y se tomaría como el primero
+de la nueva. → **La maquinaria no descarta**: `request_round()` contesta False y no toca nada.
+Qué hacer con ese disparo es del fork (§5.1).
 
 **P10. Un frame «después del disparo» puede ser de antes.** En free-run el primer frame que
-llega después del disparo pudo haberse expuesto antes, y `frame_ready` no trae el instante
-de captura. → `inference.pipelines.<p>.trigger_settle_ms` (default: un período de frame al
-fps medido) descarta los frames que llegan antes de ese margen. La solución de fondo es el
-disparo de la cámara por hardware (§10).
+llega pudo haberse expuesto antes del disparo, y `frame_ready` no trae el instante de captura.
+→ Queda para el fork que lo necesite —un margen antes de pedir la ronda—; la solución de fondo
+es disparar la cámara (§9).
 
-**P11. El ack tiene que salir con los resultados.** Las métricas salen en el tick de 1 s,
-desde `_metrics_by_pair`. Si `done_seq` saliera por otro camino, el PLC podría ver el ack con
-los números de la medición anterior. → Al cerrar una ronda disparada, el cableado escribe
-**en un solo `update_block()`** las métricas del ciclo, la palabra del pipeline y `done_seq`.
-El servidor ya garantiza que un bloque se lee entero de antes o entero de después.
+**P12. Las compuertas no son para pipelines con ciclo**: con una cámara cortada, la ronda
+espera hasta su timeout. → Una variable corta los frames de un pipeline **sin ciclo**; en uno
+con ciclo, el equivalente es el disparo. El aviso de arranque que ya existía cubre el caso.
 
-**P12. Las compuertas no son para pipelines con ciclo.** Lo dice `_check_frame_gates()`: con
-una cámara cortada la ronda espera hasta su timeout. → Una variable corta los frames de un
-pipeline **sin ciclo**; en uno con ciclo, el equivalente es el disparo. El aviso de arranque
-que ya existe cubre el caso.
+**P13. La licencia no se saltea por Modbus.** → Un pipeline sin licencia no tiene hilo ni
+ronda, así que pedirle una medición no hace nada, y lo que el fork haga con una medición
+disparada pasa por los mismos caminos y las mismas reglas que cualquier otra.
 
-**P13. La licencia no se puede saltear por Modbus.** → Un pipeline sin licencia no tiene hilo
-y su disparo se contesta en el acto con «rechazado». Con `degrade` el disparo se mide, pero el
-ack sale con el bit «resultados retenidos»: sin él, el PLC leería como nueva una medición
-vieja.
+**P14. Modbus no tiene autenticación.** → Sólo las filas declaradas son escribibles, cada una
+con su rango. Cada cambio aplicado se loguea a INFO y cada rechazo a WARNING, los dos con tope
+(§6). **Sin lista de IPs, por ahora.**
 
-**P14. Modbus no tiene autenticación.** Cualquiera que llegue al puerto puede escribir. →
-Sólo las filas declaradas son escribibles, cada una con su rango, sólo sobre las claves de
-§5.2, y cada escritura aplicada se loguea a INFO con `nombre: viejo → nuevo`. Una lista de IPs
-permitidas queda como pregunta abierta (§8).
+**P15. El eco del FC06 relee con el código de la escritura.** `WriteSingleRegisterRequest`
+arma la respuesta con `async_getValues(fc=6, …)`, no con FC03: con un `validate()` que
+aceptara sólo FC03, el registro quedaba escrito y el PLC recibía 0x02, y reintentaba. (El FC16
+no relee.) → `validate()` acepta FC06 y FC16 sobre las filas escribibles, con un test que
+compara el eco con el valor escrito.
 
-## 4. Tres clases de registro escrito por el PLC
+## 4. Lo que escribe el PLC: variables, leídas como nivel o como evento
 
-| | Disparo | Variable | Umbral |
-|---|---|---|---|
-| `producer` | `plc` | `plc` | `config` |
-| Forma | contador de secuencia | valor, o 0/1 con `is_bool` | valor físico escalado, con rango |
-| Quién escribe el registro | sólo el PLC | sólo el PLC | los dos (espejo) |
-| Se persiste | no | no | sí, en `config.yaml` |
-| Se ve en la pantalla | tabla de Modbus | tabla de Modbus | tabla de Modbus **y** su campo de configuración |
-| Al reiniciar el equipo | 0 | 0 (reposo) | se re-espeja del config |
-| Cómo confirma el PLC | `done_seq` == su número | relee el registro | relee el registro |
+**Para la maquinaria todo es una variable** (decidido el 2026-10-22). Toda fila `plc` llega
+igual a `FrameSignals.plc`, sin sufijo que la trate distinto; la diferencia está en cómo la lee
+el fork:
 
-**Por qué un contador y no un bit para el disparo.** Con un bit el PLC escribe 1, espera el
-ack y escribe 0; si el equipo no vio el flanco, el disparo se pierde sin que nadie lo sepa.
-Con un contador hay una sola escritura, reescribir el mismo número no vuelve a disparar, y el
-ack es el mismo número de vuelta. El 0 queda reservado para «nunca disparó», así que el PLC
-cuenta de 1 a 65535 y vuelve a 1.
+| | Nivel (ON/OFF, un valor) | Evento (disparo) |
+|---|---|---|
+| Ejemplo | `process_ok`, `belt_speed_mps` | un contador que el PLC incrementa |
+| Dónde la lee el fork | una compuerta, por frame; el analyzer, en `result.signals` | `_on_signals_changed()`, cuando cambia (§5.1) |
+| Pregunta que contesta | ¿infiero ahora?, ¿con qué valor calculo? | ¿pasó algo desde la última vez? |
+| Al reiniciar el equipo | 0 (reposo) | 0 («nunca disparó») |
 
-## 5. Los tres casos de uso, en código
+**Un disparo es un contador y no un bit.** Con un bit el PLC escribe 1 y después 0, y si el
+equipo no vio el flanco, el disparo se pierde. Con un contador hay una sola escritura, y
+reescribir el mismo número no vuelve a disparar. El número viaja en `signals` y queda en el
+JSON de lo que se guardó, que es lo que empareja esa imagen con la referencia del PLC. El PLC
+cuenta de 1 a 65535 y vuelve a 1; es una recomendación para el integrador, no algo que se
+valide.
+
+## 5. Los casos de uso, en código
 
 ### 5.1 Disparar una medición
 
-Sirve tanto si la ronda la abre el reloj como si la abre sólo el PLC:
+**El disparo es del fork; la maquinaria le da tres piezas**, las que un fork no puede hacer
+sin tocarla:
+
+1. **Enterarse de que algo cambió.** `_on_signals_changed(previous, current)`, en el bloque del
+   fork de `main.py` y vacío en el template. Lo llama el cableado en el hilo de la GUI cada vez
+   que las señales cambian —una escritura del PLC o una lectura de GPIO distinta—, con la foto
+   de antes y la de ahora. Uno que levanta se avisa en el log y no frena el drenado.
+2. **Detectar el flanco**, con funciones de módulo sobre esas dos fotos: `gpio_rose` /
+   `gpio_fell` (un `READ_ERROR` en el medio no es un flanco), `plc_rose` / `plc_fell` y
+   `plc_changed` (cualquier cambio: un contador).
+3. **Pedir una medición ahora.** `CaptureScheduler.request_round(pipeline_slot) -> bool` abre
+   una ronda ya. Con `cycle_trigger: request` el pipeline mide **sólo** cuando se lo piden; con
+   `interval` (default) sigue midiendo por reloj y el pedido adelanta la ronda. Contesta False,
+   sin tocar nada, si hay una ronda en curso o si el pipeline no tiene ciclo (P9). «Tener
+   ciclo» pasa a ser `frames_per_cycle > 1 or cycle_trigger == "request"`: el permiso del
+   scheduler es lo que asegura que el frame sea posterior al pedido.
 
 ```yaml
 inference:
   pipelines:
-    pipeline_1:
-      frames_per_cycle: 5
-      cycle_trigger: interval     # interval (default): rondas por cycle_interval_s, y el
-                                  #   disparo abre una ya. plc: sólo el disparo abre rondas
-      trigger_settle_ms: 0        # 0 = un período de frame al fps medido
+    pipeline_2:
+      frames_per_cycle: 3
+      cycle_trigger: request      # interval (default): por reloj. request: sólo a pedido
 ```
 
-«Tener ciclo» (`_is_cycle()` y `has_measurement_cycle()`) pasa a ser
-`frames_per_cycle > 1 or cycle_trigger == "plc"`: un pipeline de un frame disparado también
-necesita el permiso del scheduler, que es lo que hace que el frame sea el de después del
-disparo y no cualquiera.
+**`cycle_trigger` no va a la pestaña de inferencia** (2026-10-22). Sin el
+`_on_signals_changed()` del fork un pipeline en `request` no mide nunca, así que ofrecerlo en
+la pantalla dejaría al operador elegir algo que no anda solo. Se edita en el archivo. De paso
+evita un cambio en caliente que el scheduler no maneja: de `request` a `interval` el pipeline
+quedaba esperando un pedido hasta reiniciar.
 
-Al drenar un `pipeline_N_trigger_seq` distinto del último visto, el cableado llama
-`scheduler.request_round(pipeline, seq)`:
+**Ejemplo para un fork**, que no es maquinaria:
 
-- **Con una ronda en curso**, la descarta sin emitir —un ciclo vacío publica ceros, y esto no
-  es una medición en cero— y abre una nueva con número propio (P9). La palabra del pipeline
-  lo dice en el ack de la nueva.
-- Prende la captura si estaba apagada entre ciclos y descarta los frames de antes de
-  `trigger_settle_ms` (P10).
-- Junta `frames_per_cycle` por cámara, en ronda, como hoy.
-- Al cerrar la última cámara, un solo `update_block` con métricas, palabra y `done_seq = seq`
-  (P11).
-- Si no se puede medir —pipeline sin ciclo, sin modelo, sin licencia— contesta en el acto con
-  `done_seq = seq` y el bit de rechazo, en vez de dejar al PLC esperando su timeout.
-- Si vence `capture_timeout_s`, cierra con `done_seq = seq` y el bit de medición vacía: el PLC
-  siempre recibe una respuesta.
-
-```
-PLC                                   Equipo
- │ escribe trigger_seq = N ───────────► │ drenado: N nuevo → request_round(p, N)
- │                                      │ ¿ronda en curso? se descarta, sin publicar
- │                                      │ palabra: midiendo = 1
- │                                      │ espera trigger_settle_ms, junta los frames
- │ ◄─────────────────────────────────── │ UN update_block { métricas, palabra, done_seq = N }
- │ ve done_seq == N → lee resultados    │
+```python
+def _on_signals_changed(self, previous, current):
+    # Medir cuando el PLC incrementa su contador, o con un flanco de subida en DI1.
+    if (plc_changed(previous, current, "measure_seq")
+            or gpio_rose(previous, current, channel=1)):
+        if not self._scheduler.request_round("pipeline_2"):
+            logger.info("[Fork] Ronda en curso: el disparo se ignora.")
 ```
 
-Bits nuevos en `system/formats/pipeline_status.py`, a continuación del 6:
+Lo que queda del lado del fork:
 
-| Bit | Qué |
-|---|---|
-| 7 | midiendo un disparo |
-| 8 | la medición publicada reemplazó a una descartada por un disparo nuevo |
-| 9 | último disparo rechazado: sin ciclo, sin modelo o sin licencia |
-| 10 | última medición vacía: timeout o ningún resultado confiable |
-| 11 | resultados retenidos por la licencia |
+- **Guardar la medición.** Con `image_collector.mode: on_demand`, cada ronda de un pipeline con
+  ciclo ya se guarda, así que una ronda pedida queda en el dataset sin código, con `signals`
+  —el contador incluido— en su JSON. Guardar con el dataset apagado o sin deduplicación es del
+  fork.
+- **Un disparo con la ronda en curso**: ignorarlo, como arriba, o pedir la ronda en el
+  `cycle_complete` siguiente.
+- **Un frame posterior al disparo** (P10): esperar un período de frame antes de pedir la ronda.
+- **Disparos seguidos.** Dos dentro de un mismo drenado (100 ms) llegan como un solo cambio: un
+  contador que salta de N a N+2 fueron dos. Y cada frame lleva el número del momento en que
+  entró, así que con disparos más seguidos que una ronda, sus frames pueden llevar el del
+  siguiente: un fork que empareja contra referencias guarda el número del pedido en su
+  contexto del dataset.
 
-### 5.2 Cambiar un umbral del proceso
+```
+PLC / GPIO                          Equipo
+ │ escribe measure_seq = N ───────► │ drenado → _on_signals_changed(antes, ahora)
+ │                                  │   fork: plc_changed(...) → request_round("pipeline_2")
+ │                                  │ junta los frames de la ronda
+ │                                  │ cycle_complete → registros, telemetría, dataset
+ │ sigue leyendo los valores        │
+```
 
-Filas `producer: config` con dos campos nuevos en `Reg`: `min_value` y `max_value`, en la
-unidad física (no `min`/`max`, que taparían los builtins).
+### 5.2 Una variable
+
+Filas `producer: plc`, con el nombre, la escala y el rango que elija el fork:
 
 ```yaml
-- addr: 115
+- addr: 105
+  name: process_ok
+  desc: El PLC avisa que el proceso está OK y se puede inferir (1) o no (0)
+  producer: plc
+  is_bool: true
+
+- addr: 106
+  name: belt_speed_mps
+  desc: Velocidad de la cinta que mide el PLC
+  producer: plc
+  unit: m/s
+  scale: 100
+  min_value: 0
+  max_value: 10
+```
+
+Una variable llega a dos lugares, que contestan preguntas distintas.
+
+**¿Entra este frame al pipeline? — las compuertas.** El drenado arma un `FrameSignals` nuevo,
+con `plc` (nombre → valor decodificado), y lo reemplaza entero, así que los hilos de captura lo
+leen sin lock. El fork escribe su compuerta en `_build_frame_gates()`:
+
+```python
+def _build_frame_gates(self):
+    def while_process_ok(camera_slot, signals):
+        return signals.plc.get("process_ok") is True
+    return {"pipeline_2": while_process_ok}
+```
+
+El pipeline queda cargado y sin inferir mientras la variable está en 0, con todo lo que ya hace
+una compuerta: no gasta GPU, los registros quedan con su último valor, el overlay se va en el
+frame siguiente y el bit 6 de la palabra del pipeline lo dice.
+
+**¿Con qué valores se mide este frame? — la foto por frame.** Una compuerta no le pasa el valor
+a nadie. Para calcular con una variable, **cada frame lleva la foto de las señales del momento
+en que entró al motor**: `push_frame(frame, camera_slot, signals=...)`, que el motor copia a
+`InferenceResult.signals`. El analyzer, el annotator y el dataset la leen del resultado:
+
+```python
+def analyze(result: InferenceResult) -> dict:
+    speed_mps = result.signals.get("belt_speed_mps", 0.0)
+    return {"load_tph": load_area_m2(result) * density_t_m3 * speed_mps * 3600}
+```
+
+Que sea la foto del push importa: si la velocidad cambia mientras un frame se infiere, el
+resultado sale con la velocidad de **ese** frame, y el dataset guarda la que se usó. Con la
+foto y el instante de cada resultado, el fork puede además sincronizar dos cámaras sin que la
+maquinaria sepa qué es una cinta. El pipeline no la recibe —cambiaría el contrato de `_run()`—
+y no hace falta: lo que depende de una variable se decide en el analyzer o el classifier.
+
+**Un umbral no es una variable.** Lo que depende del producto —las recetas— va en el config,
+donde lo edita el operador, y el PLC manda **cuál** se usa (`product_code`), no **qué** dice.
+
+Un registro no tiene negativos —una temperatura bajo cero necesita un offset acordado— ni
+valores de más de 16 bits.
+
+### 5.3 Publicar un umbral para el HMI
+
+Filas `producer: config`: copian una clave del config al registro, con su escala, para que el
+HMI la muestre. Son de sólo lectura —una escritura da 0x02— y no llevan rango. **Van en el
+bloque de lectura**, lo natural es el rango 3-50 del fork.
+
+```yaml
+- addr: 10
   name: max_load_y_px_camera_1
   desc: Altura del límite de carga en la cámara 1
   producer: config
   config_key: process.max_load_y_px.camera_1
   unit: px
-  min_value: 0
-  max_value: 4000
-
-- addr: 116
-  name: pipeline_1_min_result_confidence_pct
-  desc: Confianza media mínima de un resultado del pipeline 1
-  producer: config
-  config_key: inference.pipelines.pipeline_1.min_result_confidence_pct
-  unit: '%'
-  min_value: 0
-  max_value: 100
 ```
 
-**Qué claves acepta el esquema**, y nada más —lo que hace cumplir §1—:
-
-- `process.*`, que es la sección de lo que se mide y la única cuya forma es del fork.
-- Los umbrales del resultado de un pipeline: `inference.pipelines.<p>.min_result_confidence_pct`
-  y `min_detections`.
-
-Una fila escribible con cualquier otra clave hace fallar `load_registers()` con el archivo y
-la fila, y el servidor no arranca, como con cualquier mapa roto. Quedan afuera a propósito
-los `enabled`, todo `cameras.*`, los protocolos, el overlay y el dataset; y también el
-`min_confidence_pct` de un modelo, porque con pesos protegidos lo pisa su metadata y el PLC
-escribiría un número que nadie usa.
-
-Camino de una escritura:
-
-1. El contexto valida dirección y rango, escribe bajo lock y encola `{115: 620}`.
-2. El drenado compara contra el archivo (P8): si el operador editó esa clave a mano, la
-   escritura se descarta y se avisa.
-3. `SCHEMA.apply_plc_writes()` hace `cfg.set()` sólo si el valor cambió.
-4. Si alguna clave fue `process.*`, se reconstruyen los hooks (P6). Las del pipeline las toma
-   el motor solo, en el frame siguiente, por el cambio de `revision`.
-5. Se agenda `save_keys()` agrupado (P8).
-6. `ui.refresh_config_keys(keys)` → `ConfigView` → la pestaña dueña de cada clave recarga ese
-   campo, salvo que el operador lo esté editando (P7). En headless es un no-op, como el resto
-   de la UI.
-7. El tick siguiente re-espeja el valor, que es lo que el PLC relee como confirmación.
-
-Para P7, `AbstractConfigTab` gana `refresh_keys(key_paths)`, y cada campo recuerda el valor
-con el que se cargó: si el que muestra es distinto, el operador lo está editando y no se
-toca. Las pestañas que el PLC toca de verdad —la del proceso y la de inferencia— lo
-implementan campo por campo; el default recarga la pestaña entera sólo si ninguno de sus
-campos está editado.
-
-### 5.3 Una variable para un pipeline
-
-Filas `producer: plc` en 40105-40114, con el nombre que elija el fork:
-
-```yaml
-- addr: 105
-  name: event_active
-  desc: El PLC avisa que hay un evento en curso (1) o no (0)
-  producer: plc
-  is_bool: true
-```
-
-Llegan a donde ya se decide si un frame entra a un pipeline: las **compuertas de frames**.
-`FrameSignals` gana el campo que su docstring ya anunciaba:
-
-```python
-@dataclasses.dataclass(frozen=True)
-class FrameSignals:
-    gpio_inputs: Mapping[int, int] = ...
-    plc: Mapping[str, object] = ...      # nombre de la fila -> valor decodificado
-```
-
-El drenado arma un `FrameSignals` nuevo y lo reemplaza entero, igual que hace hoy
-`_on_gpio_inputs_updated()`, así que los hilos de captura lo siguen leyendo sin lock. El fork
-escribe su compuerta en `_build_frame_gates()`:
-
-```python
-def _build_frame_gates(self):
-    def during_event(camera_slot, signals):
-        return signals.plc.get("event_active") == 1
-    return {"pipeline_2": during_event}
-```
-
-Con eso el pipeline queda cargado y sin inferir mientras la variable está en 0, y todo lo que
-ya hace una compuerta vale igual: no gasta GPU, los registros quedan con su último valor, el
-overlay se va en el frame siguiente y el bit 6 de la palabra del pipeline lo dice.
-
-**Hasta dónde llega una variable.** Una compuerta decide una sola cosa: si el frame de esa
-cámara entra o no a ese pipeline. Con la variable sólo en las compuertas, el PLC puede decir
-**cuándo** se infiere, pero no **cómo**. El pipeline (`_run(frame, camera_slot)`), el
-classifier, el analyzer y el annotator no la ven. Casos que eso deja afuera:
-
-- un código de producto que elige qué límites aplica el analyzer;
-- el número de la plataforma que está volcando, para que la métrica salga con su nombre;
-- una zona que el annotator dibuja sólo mientras el PLC la declara ocupada.
-
-Para esos, el frame lleva la foto de las variables del momento en que entró al motor:
-`push_frame(frame, camera_slot, signals=...)`, y el motor la copia a `InferenceResult.signals`.
-El analyzer, el annotator y el dataset la leen del resultado. Que sea la foto del push y no
-el valor de ese momento importa: si el PLC cambia el producto mientras un frame se infiere, el
-resultado sale medido con el producto de **ese** frame, y el dataset guarda el que se usó. El
-pipeline no la recibe sin cambiar el contrato de `_run()`, y no hace falta: lo que depende del
-producto se decide en el analyzer o el classifier.
-
-Si el valor es en realidad un parámetro fijo por un tiempo largo —la receta del turno—, va
-mejor como umbral (§5.2): queda en el config, se ve en la pantalla y sobrevive al reinicio.
-Queda como pregunta abierta (§8) porque ningún caso lo pide todavía.
+`main.py` publica `SCHEMA.mirror_batch(config)` antes de levantar el servidor (P4) y en cada
+tick, así que un cambio desde la interfaz llega al PLC en el segundo siguiente.
 
 ## 6. Qué se ve en la pantalla
 
-- **Tabla de Modbus** (diagnóstico): hoy muestra lo que escribe la app. El tick le suma las
-  filas del PLC, leídas del servidor con `get_register()`, así que disparos y variables se ven
-  junto al resto.
-- **Pestañas de configuración**: los umbrales, con el valor nuevo apenas se aplica, salvo en el
-  campo que el operador esté editando, que muestra la nota con el valor del PLC (P7).
-- **Log**: una línea por escritura aplicada (`max_load_y_px_camera_1: 600 → 620 (PLC)`) y una
-  por disparo descartado.
+- **Tabla de Modbus** (diagnóstico): suma las filas del PLC, leídas del servidor, junto al
+  resto.
+- **Log**: una línea por cambio aplicado (`belt_speed_mps: 1.2 → 1.5`), a lo sumo una cada
+  10 s por variable y con cuántos cambios se callaron; y un warning por escritura rechazada, a
+  lo sumo uno por minuto por dirección y motivo.
 
 ## 7. Lo que no se hace
 
-Prender o apagar cualquier cosa desde el PLC, ajustar la cámara (decisión vigente), tocar el
-overlay o el dataset, umbrales de modelo, coils, FC23 y valores de 32 bits.
+Prender o apagar cualquier cosa desde el PLC, escribir el config o un umbral, ajustar la
+cámara, tocar el overlay o el dataset, umbrales de modelo, coils, FC23 y valores de 32 bits.
 
-## 8. Preguntas abiertas
+## 8. Cómo se hizo
 
-- ¿Las variables también tienen que llegar al analyzer y al annotator (§5.3), o alcanza con
-  las compuertas?
-- ¿Hace falta una lista de IPs que pueden escribir por TCP? Requiere un spike: pymodbus 3.15 no
-  le pasa la conexión al contexto.
-- ¿El disparo también puede venir de una entrada de GPIO? Es el mismo `request_round()`; sólo
-  cambia quién lo llama.
+Cinco pasos, cada uno validado antes del siguiente:
 
-## 9. Pasos
+1. **Esquema.** `producer: plc` con `min_value` / `max_value`, `decode()` público y `encode()`
+   que levanta con una fila `plc`. Sólo las filas `plc` son escribibles; las `config` quedaron
+   de sólo lectura, sin claves permitidas ni campo `apply`.
+2. **Servidor.** Validación de la petición entera, 0x02 / 0x03, escritura y `on_write` bajo el
+   lock, el eco del FC06 (P15), el warning con tope y `register_count` derivado del mapa.
+3. **Variables.** El drenado, `FrameSignals.plc`, el log, la foto por frame, las variables en el
+   JSON del dataset, las filas del PLC en la tabla de Modbus y los umbrales publicados. La
+   prueba manual `manual_test/modbus_write/app_with_plc.py` levanta la app con cámaras mock y
+   una compuerta, y `plc_client.py --app` corre los casos contra ella.
+4. **Disparo.** `_on_signals_changed()`, los flancos, `cycle_trigger` y `request_round()`. La
+   prueba manual agrega un pipeline que mide a pedido y comprueba que un número nuevo deje un
+   JSON en el dataset con ese número en `signals`.
+5. **Mapa y documentos.** Ejemplos comentados en `register_map.yaml`, `export_map.py` con
+   columnas de acceso y rango, `docs/plc_commands.md` para el integrador, `CLAUDE.md` y
+   `README.md`, y la versión a 0.10.0.
 
-Cada paso termina con `ci/check.py` en verde y se valida antes de seguir.
+En la revisión posterior lo escribible pasó a decirse en un solo lugar: el esquema expone
+`plc_regs()`, `write_range()` —la regla del rango, en unidad física— y `write_ranges()` —el
+crudo por dirección—, y el servidor recibe sólo eso y `on_write`. Además salieron de
+`main.py` las dos piezas que no son cableado: `FrameSignals`, `FrameGate` y los flancos a
+`system/frame_signals.py`, y la cola, el drenado y el log de las variables a `PlcVariables`
+(`system/modbus/plc_variables.py`), que la prueba manual del servidor usa igual que la app.
 
-1. **Esquema.** `producer: plc`, `min_value`/`max_value`, las claves permitidas de §5.2,
-   `writable_addrs()`, `is_valid_raw()`, `decode()` público, `encode()` que levanta con una fila
-   `plc`. Se borra `detect_plc_writes()`. Tests en `test/modbus/test_schema.py`.
-2. **Servidor.** `_ReadOnlyHoldingRegisters` → `_HoldingRegisters(writable, is_valid_raw,
-   on_write)`: validación de la petición entera, 0x02 / 0x03, escritura y `on_write` bajo el
-   lock. `register_count` derivado del mapa. El servidor sigue sin conocer el mapa: recibe el
-   conjunto y las dos funciones del cableado. P1 se confirma acá.
-3. **Umbrales.** Espejo antes de arrancar el servidor, drenado, `apply_plc_writes()` desde la
-   cola, `InferenceThread.set_hooks()`, `ConfigManager.save_keys()` con el choque contra el
-   archivo, guardado agrupado, `refresh_keys()` en las pestañas con la nota del campo editado.
-4. **Variables.** `FrameSignals.plc` y las filas del PLC en la tabla de Modbus.
-5. **Disparo.** `cycle_trigger`, `request_round()` con descarte, `tag` en `push_frame()` y en el
-   resultado, `trigger_settle_ms`, los bits 7-11, el bloque atómico de P11,
-   `app_session_id`.
-6. **Mapa y documentos.** Filas de 40092-40097 y ejemplos comentados de 40101-40150 en
-   `register_map.yaml`; `export_map.py` con columnas de acceso y rango; `docs/modbus_map.*`
-   regenerado; `docs/plc_commands.md` para el integrador (cómo escribe cada sub-bloque, el
-   handshake, qué pasa en un reinicio); `manual_test/modbus_write/` con un cliente pymodbus que
-   cambia un umbral, prende una variable y dispara contra la app corriendo; `CLAUDE.md` (la
-   decisión de sólo lectura cambia; contratos). Sube la versión.
+## 9. Relación con otros planes
 
-## 10. Relación con otros planes
+- **Captura por trigger de software** (diseñada y diferida, ver `CLAUDE.md`): ésa dispara la
+  *cámara*; éste dispara la *medición* sobre una cámara en free-run. Se componen: con trigger
+  de cámara, el margen de P10 deja de hacer falta.
+- **Compuertas de frames** (en `main`): una variable del PLC es una señal más para ellas.
 
-- **Captura por trigger de software** (`CLAUDE.md` la da por diseñada en
-  `.claude/plans/software-trigger-capture.md`, pero ese archivo no está en el repo): ése
-  dispara la *cámara*; éste dispara la *medición* sobre una cámara en free-run. Se componen:
-  con trigger de cámara, `trigger_settle_ms` deja de hacer falta.
-- **Compuertas de frames** (en `main`): una variable del PLC es una señal más para ellas, y por
-  eso el caso 3 casi no necesita código nuevo.
+## Lo que se descartó
+
+**Umbrales del proceso escritos por el PLC** (filas `config` escribibles sobre `process.*` y
+los umbrales del resultado de un pipeline). Se diseñó y se descartó el 2026-10-22, antes de
+escribir su código, por lo que obligaba a resolver:
+
+- **P6. `process:` se lee una sola vez**, al armar el motor, y sus números quedan adentro del
+  classifier, el analyzer y el annotator. Aplicarlo en caliente pedía reconstruir los tres
+  juntos, conservar el estado de un analyzer —las medias móviles arrancarían de cero—, decidir
+  qué hacer si la fábrica rechaza el valor, y una medición de N frames mitad con un valor y
+  mitad con otro.
+- **P7. La pantalla mostraría un valor viejo, y lo guardaría** si el operador no vio el cambio.
+- **P8. Un guardado del PLC borraría lo que el operador editó a mano**, porque `save()`
+  reescribe el archivo entero.
+
+Sin un segundo escritor del config, «el operador tiene preferencia» deja de ser una regla que
+hacer cumplir. Lo que se pierde es que el PLC cambie un umbral: lo cambia el operador y el PLC
+lo lee publicado (§5.3). Lo que cambia con el producto se resuelve con recetas en el config y el
+código de producto como variable (§5.2).

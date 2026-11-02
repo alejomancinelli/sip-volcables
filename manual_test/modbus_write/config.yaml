@@ -1,0 +1,152 @@
+# Config de la prueba de escritura del PLC, separada del config.yaml de la app.
+#
+# La usan los dos lados de la prueba, y nunca a la vez —toman el mismo puerto—:
+#
+#   writable_server.py   el servidor Modbus solo, sin cámaras ni inferencia. Lee `modbus:` y
+#                        las claves de los umbrales que publica.
+#   app_with_plc.py      la app entera, con esta carpeta como instalación: este config, el
+#                        `register_map.yaml` de al lado, y los logs y el dataset en `data/`.
+#
+# El equipo publica los umbrales en 40010-40012 para que el PLC los lea; el PLC no los
+# escribe, y este archivo no se toca.
+#
+# El puerto va distinto al de la app y al de manual_test/modbus/ (5502), así que se puede
+# correr con cualquiera de las dos andando.
+
+project:
+  client: Prueba Manual
+  project_id: plc_write
+
+system:
+  app_name: Prueba de escritura del PLC
+  device_id: banco_de_pruebas
+  log_level: INFO
+  paths:
+    logs: ./data/logs
+    dataset: ./data/dataset
+
+ui:
+  enabled: true
+  language: es
+  dark_mode: true
+
+video:
+  http:
+    enabled: false
+  rtsp:
+    enabled: false
+
+process:
+  max_load_y_px:
+    camera_1: 430               # px — se dibuja en el anotado y se publica en 40010
+  min_load_pct: 60.0            # % — se publica en 40012, con una décima
+
+inference:
+  overlay:
+    enabled: true
+    draw_boxes: true
+    draw_masks: true
+    draw_labels: true
+    draw_roi: true
+    draw_timestamp: true
+  pipelines:
+    # En tiempo real, con una compuerta: infiere sólo mientras `event_active` está en 1.
+    pipeline_1:
+      enabled: true
+      type: default
+      feature: core
+      cameras: [camera_1]
+      interval_s: 0.5           # una inferencia cada medio segundo
+      min_detections: 0
+      min_result_confidence_pct: 30   # se publica en 40011
+      frames_per_cycle: 1       # las compuertas son para pipelines sin ciclo
+    # A pedido: mide sólo cuando el PLC escribe un número nuevo en `measure_seq`.
+    pipeline_2:
+      enabled: true
+      type: default
+      feature: core
+      cameras: [camera_2]
+      interval_s: 0.0
+      min_detections: 0
+      min_result_confidence_pct: 0
+      frames_per_cycle: 3       # una medición son tres frames
+      cycle_trigger: request    # sólo `request_round()`, que pide `app_with_plc.py`
+      capture_timeout_s: 10
+  models:
+    model_1:
+      type: mock
+      path: ''
+      min_confidence_pct: 0
+      max_side_px: 0
+      class_names: [grueso, medio, fino]
+      params:
+        detection_count: 6
+        with_masks: true
+
+# A pedido: guarda cada medición de `pipeline_2`, que es la que dispara el PLC. Su JSON trae
+# en `signals` las variables del PLC del momento de la medición, el contador incluido, que
+# es lo que la empareja con la referencia del PLC.
+image_collector:
+  enabled: true
+  cameras: []
+  mode: on_demand
+  interval_min_s: 10
+  interval_max_s: 20
+  max_images: 30
+  min_free_space_gb: 1
+  save_original: false
+  save_annotated: true
+  save_inference_json: true
+  dedup:
+    enabled: false
+
+telemetry:
+  influxdb:
+    enabled: false
+  mqtt:
+    enabled: false
+
+modbus:
+  slave_id: 1                   # el unit id que usa plc_client.py
+  register_count: 100           # el datastore llega igual hasta la última fila del mapa
+  tcp:
+    enabled: true
+    host: 127.0.0.1             # 0.0.0.0 para escribir desde un PLC o un poller en la red
+    port: 5503
+  rtu:
+    enabled: false              # la prueba es por TCP; el RTU es el mismo contexto
+
+gpio:
+  enabled: false
+
+cameras:
+  camera_1:
+    name: Cinta
+    enabled: true
+    brand: mock
+    model: mock
+    driver: mock
+    address: ''
+    rotation: null
+    acquisition:
+      fps_limit: 10
+      exposure_time_us: 25000
+      gain: 1.0
+    roi:
+      enabled: false
+    illumination_min: 0
+  camera_2:
+    name: Báscula
+    enabled: true
+    brand: mock
+    model: mock
+    driver: mock
+    address: ''
+    rotation: null
+    acquisition:
+      fps_limit: 10
+      exposure_time_us: 25000
+      gain: 1.0
+    roi:
+      enabled: false
+    illumination_min: 0

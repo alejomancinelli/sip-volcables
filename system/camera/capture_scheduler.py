@@ -47,14 +47,23 @@ Qué fija el contrato:
     motor descartó dejan el ciclo colgado para siempre mientras el heartbeat sigue latiendo.
   - **El scheduler no toca las cámaras**: pide por `capture_wanted` y el cableado aplica.
     Un subsistema de nivel 3 no llama a otro.
-  - **Qué es «tener ciclo» se decide en un solo lugar**: `has_measurement_cycle()`, la
-    función de módulo que también consulta quien necesita saberlo sin un scheduler —la
-    pestaña de dataset, para no ofrecer un modo que no guardaría nada—.
+  - **Qué es «tener ciclo» se decide en un solo lugar**: `has_measurement_cycle()`, que
+    también consulta sin un scheduler la pestaña de dataset, para no ofrecer un modo que no
+    guardaría nada. Es medir de a varios frames **o medir a pedido**.
+  - **Una ronda también se puede pedir** con `request_round()`, cuando la planta lo dice —un
+    contador del PLC, un flanco de GPIO—. Con `cycle_trigger: request` el pipeline mide
+    **sólo** a pedido, y por eso tiene ciclo aunque sea de un frame: el permiso es lo que
+    asegura que el frame sea posterior al pedido. Con `interval`, el default, sigue midiendo
+    por reloj y el pedido adelanta la ronda. **Un pedido no interrumpe nada**: con una ronda
+    en curso contesta False sin tocarla, porque descartarla obligaría a marcar cada frame con
+    su ronda —el resultado que ya estaba en el motor llegaría después—. Qué hacer con ese
+    pedido es del fork.
 
 Vive en el hilo de la GUI, que es donde Qt entrega las señales de los hilos de captura y
 de inferencia, así que su estado no necesita lock.
 """
 
+import math
 import time
 from dataclasses import replace
 
@@ -70,6 +79,11 @@ _DEFAULT_FRAMES_PER_CYCLE = 1
 _DEFAULT_CYCLE_INTERVAL_S = 0.0    # 0 = la ronda siguiente arranca apenas termina la anterior
 _DEFAULT_CAPTURE_TIMEOUT_S = 30.0
 
+# Vocabulario de `inference.pipelines.<slot>.cycle_trigger`: quién abre las rondas.
+CYCLE_TRIGGER_INTERVAL = "interval"    # el reloj, cada `cycle_interval_s`; un pedido la adelanta
+CYCLE_TRIGGER_REQUEST = "request"      # sólo `request_round()`
+CYCLE_TRIGGERS = (CYCLE_TRIGGER_INTERVAL, CYCLE_TRIGGER_REQUEST)
+
 # Sufijo de `summarize_metrics` que ya aporta `average_metrics` con el nombre limpio. El
 # nombre limpio es el que va al PLC, así que el duplicado se descarta.
 _MEAN_SUFFIX = "_mean"
@@ -77,15 +91,22 @@ _MEAN_SUFFIX = "_mean"
 # Motivo con el que sale un ciclo del que no se pudo medir nada.
 REASON_EMPTY_CYCLE = "empty_cycle"
 
+_NO_REVISION = object()    # todavía no se leyó nada del config
 
-def _is_cycle(frames_per_cycle: object) -> bool:
-    """La regla de «tener ciclo»: más de un frame por medición. Un valor vacío es 1."""
-    return max(1, int(frames_per_cycle or _DEFAULT_FRAMES_PER_CYCLE)) > 1
+
+def _is_cycle(frames_per_cycle: object, cycle_trigger: object = CYCLE_TRIGGER_INTERVAL) -> bool:
+    """
+    La regla de «tener ciclo»: más de un frame por medición, o medir a pedido. Un
+    `frames_per_cycle` vacío es 1.
+    """
+    return (max(1, int(frames_per_cycle or _DEFAULT_FRAMES_PER_CYCLE)) > 1
+            or cycle_trigger == CYCLE_TRIGGER_REQUEST)
 
 
 def has_measurement_cycle(config_manager: ConfigManager) -> bool:
     """
-    True si algún pipeline habilitado de `inference.pipelines` mide de a varios frames.
+    True si algún pipeline habilitado de `inference.pipelines` tiene ciclo: mide de a
+    varios frames o a pedido.
 
     Uno deshabilitado no cuenta aunque declare ciclo: no produce resultados, así que no
     hay ciclo que cierre ni guardado que pedir.
@@ -95,7 +116,8 @@ def has_measurement_cycle(config_manager: ConfigManager) -> bool:
         if not config_manager.get(f"{prefix}.enabled", True):
             continue
         if _is_cycle(config_manager.get(f"{prefix}.frames_per_cycle",
-                                        _DEFAULT_FRAMES_PER_CYCLE)):
+                                        _DEFAULT_FRAMES_PER_CYCLE),
+                     config_manager.get(f"{prefix}.cycle_trigger", CYCLE_TRIGGER_INTERVAL)):
             return True
     return False
 
@@ -158,16 +180,32 @@ class CaptureScheduler(QObject):
                         for slot in pipeline_slots}
         self._capture_enabled: dict[str, bool] = {}
         self._running = False
+        # {pipeline_slot: (frames_per_cycle, cycle_trigger)}, válido mientras no cambie la
+        # `revision` del config.
+        self._settings: dict[str, tuple[int, object]] = {}
+        self._settings_revision: object = _NO_REVISION
+        for slot in pipeline_slots:
+            trigger = self._cycle_settings(slot)[1]
+            if trigger not in CYCLE_TRIGGERS:
+                logger.warning(
+                    f"[Scheduler] {slot}: cycle_trigger {trigger!r} no es uno de "
+                    f"{list(CYCLE_TRIGGERS)}. Se mide por reloj ({CYCLE_TRIGGER_INTERVAL}).")
 
     # ── API pública ──────────────────────────────────────────────────────────
 
     def start(self):
-        """Abre la primera ronda de cada pipeline. Idempotente."""
+        """
+        Abre la primera ronda de cada pipeline. Idempotente.
+
+        Uno que mide a pedido arranca sin ronda: la primera la abre `request_round()`.
+        """
         if self._running:
             return
         self._running = True
-        for cycle in self._cycles.values():
+        for pipeline_slot, cycle in self._cycles.items():
             self._open_round(cycle)
+            if self.is_on_request(pipeline_slot):
+                cycle.next_round_at_s = math.inf
         self._refresh_capture()
         logger.info(f"[Scheduler] Ciclo iniciado para {', '.join(self._cycles) or 'nada'}.")
 
@@ -199,8 +237,34 @@ class CaptureScheduler(QObject):
         self._refresh_capture()
 
     def is_cycled(self, pipeline_slot: str) -> bool:
-        """True si este pipeline mide de a varios frames y hay que forzarle el intervalo."""
-        return _is_cycle(self._read_frames_per_cycle(pipeline_slot))
+        """True si este pipeline mide de a varios frames o a pedido: el permiso es del ciclo."""
+        return _is_cycle(*self._cycle_settings(pipeline_slot))
+
+    def is_on_request(self, pipeline_slot: str) -> bool:
+        """True si este pipeline mide sólo cuando se lo piden (`cycle_trigger: request`)."""
+        return self._cycle_settings(pipeline_slot)[1] == CYCLE_TRIGGER_REQUEST
+
+    def request_round(self, pipeline_slot: str) -> bool:
+        """
+        Abre ya una ronda de ese pipeline. True si quedó abierta.
+
+        False, sin tocar nada, si hay una ronda en curso, si el pipeline no tiene ciclo —sin
+        ciclo cada frame ya es una medición— o si no es de este scheduler: uno sin licencia no
+        tiene hilo, así que tampoco tiene ronda. Con la ronda abierta y sin empezar —el reloj ya
+        la había abierto— contesta True: la medición que se pide es esa.
+
+        Prende la captura si estaba apagada entre mediciones. Lo llama el hilo de la GUI, como
+        todo lo de este objeto.
+        """
+        cycle = self._cycles.get(pipeline_slot)
+        if cycle is None or not self._running or not self.is_cycled(pipeline_slot):
+            return False
+        if cycle.is_waiting or cycle.results or cycle.camera_index > 0:
+            return False
+        cycle.next_round_at_s = min(cycle.next_round_at_s, time.monotonic())
+        self._refresh_capture()
+        logger.info(f"[Scheduler] {pipeline_slot}: ronda pedida.")
+        return True
 
     def take_frame(self, camera_slot: str, pipeline_slot: str) -> bool:
         """
@@ -239,7 +303,7 @@ class CaptureScheduler(QObject):
 
         cycle.is_waiting = False
         cycle.results.append(result)
-        if len(cycle.results) >= self._read_frames_per_cycle(result.pipeline_slot):
+        if len(cycle.results) >= self._cycle_settings(result.pipeline_slot)[0]:
             self._close_camera(cycle, result.pipeline_slot)
 
     def get_status(self) -> dict:
@@ -254,7 +318,7 @@ class CaptureScheduler(QObject):
             pipelines[pipeline_slot] = {
                 "camera": cycle.camera_slot,
                 "collected": len(cycle.results),
-                "frames_per_cycle": self._read_frames_per_cycle(pipeline_slot),
+                "frames_per_cycle": self._cycle_settings(pipeline_slot)[0],
                 "waiting": cycle.is_waiting,
             }
         return {"running": self._running, "pipelines": pipelines}
@@ -295,9 +359,12 @@ class CaptureScheduler(QObject):
         cycle.is_waiting = False
         cycle.camera_index += 1
         if cycle.camera_index >= len(cycle.camera_slots):
-            interval_s = float(self._read_option(pipeline_slot, "cycle_interval_s",
-                                                 _DEFAULT_CYCLE_INTERVAL_S) or 0.0)
-            cycle.next_round_at_s = time.monotonic() + max(0.0, interval_s)
+            if self.is_on_request(pipeline_slot):
+                cycle.next_round_at_s = math.inf    # la siguiente, cuando la pidan
+            else:
+                interval_s = float(self._read_option(pipeline_slot, "cycle_interval_s",
+                                                     _DEFAULT_CYCLE_INTERVAL_S) or 0.0)
+                cycle.next_round_at_s = time.monotonic() + max(0.0, interval_s)
             self._open_round(cycle)
         self._refresh_capture()
 
@@ -399,9 +466,27 @@ class CaptureScheduler(QObject):
             return tuple(str(slot) for slot in declared)
         return tuple(self._config.get("cameras", {}) or {})
 
-    def _read_frames_per_cycle(self, pipeline_slot: str) -> int:
-        return max(1, int(self._read_option(pipeline_slot, "frames_per_cycle",
-                                            _DEFAULT_FRAMES_PER_CYCLE) or 1))
+    def _cycle_settings(self, pipeline_slot: str) -> tuple[int, object]:
+        """
+        `(frames_per_cycle, cycle_trigger)` del pipeline: la forma de su ciclo.
+
+        Se consulta en el camino de cada frame —desde los hilos de captura y desde la GUI—,
+        así que se relee sólo cuando cambia la `revision` del config. Sin lock, como el caché
+        del motor: dos hilos que vean cambiar la revisión arman cada uno el suyo, y el que
+        pierde sólo leyó de más. Un config sin `revision` —un doble de test— se lee una vez.
+        """
+        revision = getattr(self._config, "revision", None)
+        settings = self._settings
+        if revision != self._settings_revision:
+            settings = {}
+            self._settings = settings
+            self._settings_revision = revision
+        if pipeline_slot not in settings:
+            frames = max(1, int(self._read_option(pipeline_slot, "frames_per_cycle",
+                                                  _DEFAULT_FRAMES_PER_CYCLE) or 1))
+            trigger = self._read_option(pipeline_slot, "cycle_trigger", CYCLE_TRIGGER_INTERVAL)
+            settings[pipeline_slot] = (frames, trigger)
+        return settings[pipeline_slot]
 
     def _read_option(self, pipeline_slot: str, key: str, default: object) -> object:
         return self._config.get(f"inference.pipelines.{pipeline_slot}.{key}", default)

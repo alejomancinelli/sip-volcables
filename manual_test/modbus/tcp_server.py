@@ -41,8 +41,8 @@ Qué mirar:
       servidor ni diez ceros que parezcan mediciones.
     - Pedir la misma lectura con otra función: FC01, FC02 y FC04 tienen que dar
       0x02. El mapa se sirve sólo por FC03.
-    - Intentar escribir cualquier registro (FC06, FC16) también da 0x02: el mapa es
-      de sólo lectura, la app escribe desde adentro.
+    - Intentar escribir cualquier registro (FC06, FC16) también da 0x02: este servidor
+      no declara filas `plc`. La escritura del PLC se prueba en `manual_test/modbus_write/`.
     - Consultar con otro unit id —2 en vez del 1 del config— tiene que dar 0x0B
       (gateway target device failed to respond), no un timeout: en punto a punto
       conviene decirle al integrador que el id está mal.

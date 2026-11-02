@@ -7,6 +7,7 @@ import asyncio
 import signal
 import threading
 import time
+from types import MappingProxyType
 
 import numpy as np
 import pytest
@@ -22,9 +23,14 @@ from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.hooks import EngineHooks
 from system.inference.result import InferenceResult
 from system.modbus import registers
+from system.modbus.plc_variables import PlcVariables
+from system.modbus.schema import (
+    PRODUCER_CONFIG, PRODUCER_HEALTH, PRODUCER_PLC, Reg, RegisterSchema,
+)
 from system.modbus.server import STATUS_DISABLED, STATUS_ERROR
 
 _EXIT_CODE = 3
+_FC_WRITE_SINGLE = 6
 
 
 class _MockConfig:
@@ -265,6 +271,7 @@ class _FrameSink:
         self.annotated_clients = annotated_clients
         self._cameras = cameras
         self.pushed: list = []
+        self.signals: list = []           # la foto de las variables de cada push al motor
         self.annotated: list = []
 
     def has_annotated_clients(self, camera_slot: str) -> bool:
@@ -276,8 +283,9 @@ class _FrameSink:
     def has_camera(self, camera_slot: str) -> bool:
         return not self._cameras or camera_slot in self._cameras
 
-    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
+    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False, signals=None):
         self.pushed.append((frame_bgr, camera_slot, ignore_interval))
+        self.signals.append(signals)
 
     def has_raw_clients(self, camera_slot: str) -> bool:
         return self.raw_clients
@@ -349,6 +357,22 @@ class TestFramePath:
         frame = np.zeros((4, 4, 3), np.uint8)
         app._on_frame_captured(frame, "camera_1")
         assert engine.pushed == [(frame, "camera_1", False)]
+
+    def test_the_frame_takes_the_plc_variables_with_it(self):
+        """La foto de las variables viaja al motor y de ahí a `InferenceResult.signals`."""
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        app._frame_signals = main.FrameSignals(plc=MappingProxyType({"belt_speed_mps": 1.5}))
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert engine.signals == [{"belt_speed_mps": 1.5}]
+
+    def test_a_cycled_engine_also_gets_the_plc_variables(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=("pipeline_1",))
+        app._frame_signals = main.FrameSignals(plc=MappingProxyType({"product_code": 7}))
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert engine.signals == [{"product_code": 7}]
 
     def test_an_engine_only_gets_its_own_cameras(self):
         """Dos pipelines repartiéndose cámaras: un frame ajeno ni se le ofrece."""
@@ -811,7 +835,6 @@ class TestFrameGates:
     def test_new_inputs_replace_the_snapshot_instead_of_changing_it(self):
         """Lo leen los hilos de captura sin lock: modificarlo en el lugar los dejaría a medias."""
         app = _build_frame_application()
-        app._gpio_inputs = {}
         app._on_gpio_inputs_updated({1: 1})
         before = app._frame_signals
         app._on_gpio_inputs_updated({1: 0})
@@ -1158,7 +1181,7 @@ def _build_gpio_application(monkeypatch, **overrides):
     })
     app = main.Application.__new__(main.Application)
     app._gpio = gpio_control.GpioController(config)
-    app._gpio_inputs = {}
+    app._frame_signals = main.FrameSignals()
     return app
 
 
@@ -1190,6 +1213,179 @@ class TestGpioRegisters:
     def test_an_analyzer_metric_cannot_overwrite_them(self, monkeypatch):
         names = set(_build_gpio_application(monkeypatch)._build_gpio_registers())
         assert names <= main._HEALTH_REGISTER_NAMES
+
+
+# Un mapa con lo que escribe el PLC: un disparo, una variable booleana, una con rango y una
+# con escala, más una fila de la app y un umbral publicado.
+_PLC_MAP = RegisterSchema([
+    Reg(81, "heartbeat", "Latido", PRODUCER_HEALTH),
+    Reg(10, "max_load_y_px", "Límite", PRODUCER_CONFIG, config_key="process.max_load_y_px"),
+    Reg(101, "pipeline_1_trigger_seq", "Disparo", PRODUCER_PLC),
+    Reg(105, "process_ok", "Proceso OK", PRODUCER_PLC, is_bool=True),
+    Reg(106, "product_code", "Producto", PRODUCER_PLC, min_value=0, max_value=999),
+    Reg(108, "belt_speed_mps", "Velocidad", PRODUCER_PLC, unit="m/s", scale=100,
+        min_value=0, max_value=10),
+])
+
+
+def _build_plc_application():
+    """`Application` sin `__init__`, con las variables del PLC y las señales en reposo."""
+    app = main.Application.__new__(main.Application)
+    app._plc_variables = PlcVariables(_PLC_MAP)
+    app._frame_signals = main.FrameSignals(plc=app._plc_variables.rest_values())
+    return app
+
+
+class TestPlcVariables:
+    """El cableado del drenado: lo que escribe el PLC llega a las señales de los frames."""
+
+    def test_a_write_reaches_the_frame_signals(self):
+        app = _build_plc_application()
+        app._plc_variables.on_write({105: 1, 108: 150})
+        app._on_plc_writes_tick()
+        assert app._frame_signals.plc["process_ok"] is True
+        assert app._frame_signals.plc["belt_speed_mps"] == pytest.approx(1.5)
+
+    def test_rewriting_the_same_value_keeps_the_same_signals(self):
+        app = _build_plc_application()
+        before = app._frame_signals
+        app._plc_variables.on_write({106: 0})
+        app._on_plc_writes_tick()
+        assert app._frame_signals is before
+
+    def test_the_signals_are_replaced_and_never_modified(self):
+        """Los hilos de captura las leen sin lock: la foto vieja tiene que seguir igual."""
+        app = _build_plc_application()
+        before = app._frame_signals
+        app._plc_variables.on_write({106: 42})
+        app._on_plc_writes_tick()
+        assert app._frame_signals is not before
+        assert before.plc["product_code"] == 0
+
+    def test_a_plc_write_keeps_the_gpio_inputs(self):
+        app = _build_plc_application()
+        app._on_gpio_inputs_updated({1: 1})
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert dict(app._frame_signals.gpio_inputs) == {1: 1}
+
+    def test_a_gpio_reading_keeps_the_plc_variables(self):
+        app = _build_plc_application()
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        app._on_gpio_inputs_updated({1: 1})
+        assert app._frame_signals.plc["process_ok"] is True
+
+
+class TestPlcServerWiring:
+    def test_the_plc_writes_only_its_rows(self, monkeypatch):
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        monkeypatch.setattr(main, "REGISTER_MAP_ERROR", "")
+        server = main._build_modbus_server(_MockConfig(), on_write=lambda writes: None)
+        simulator = server._simulator
+        assert simulator.validate(_FC_WRITE_SINGLE, 105 - 1, 1)
+        assert simulator.validate(_FC_WRITE_SINGLE, 101 - 1, 1), "un contador de disparo"
+        assert not simulator.validate(_FC_WRITE_SINGLE, 10 - 1, 1), "un umbral publicado"
+        assert not simulator.validate(_FC_WRITE_SINGLE, 81 - 1, 1)
+
+    def test_without_anyone_to_receive_them_nothing_is_writable(self, monkeypatch):
+        """Aceptar escrituras que nadie aplica sería peor que rechazarlas."""
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        server = main._build_modbus_server(_MockConfig())
+        assert not server._simulator.validate(_FC_WRITE_SINGLE, 105 - 1, 1)
+
+    def test_the_datastore_reaches_the_last_row_of_the_map(self, monkeypatch):
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        assert main._build_modbus_server(_MockConfig()).register_count >= 108
+
+    def test_a_metric_cannot_take_a_plc_or_published_row(self):
+        """Las dos tienen otro dueño: el PLC, y el config que publica `mirror_batch()`."""
+        assert not {reg.name for reg in registers.REGISTERS
+                    if reg.producer in (PRODUCER_PLC, PRODUCER_CONFIG)} & main._REGISTER_NAMES
+
+
+def _watch_signals(app) -> list:
+    """Reemplaza el hook del fork por uno que anota (antes, ahora) en cada llamada."""
+    calls: list = []
+    app._on_signals_changed = lambda previous, current: calls.append((previous, current))
+    return calls
+
+
+class TestSignalsChanged:
+    """El aviso al fork: una vez por cambio, con la foto de antes y la de ahora."""
+
+    def test_a_plc_write_calls_it_with_both_snapshots(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        before = app._frame_signals
+        app._plc_variables.on_write({101: 7})
+        app._on_plc_writes_tick()
+        assert calls == [(before, app._frame_signals)]
+        assert calls[0][1].plc["pipeline_1_trigger_seq"] == 7
+
+    def test_several_writes_in_one_tick_are_one_call(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._plc_variables.on_write({101: 7})
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert len(calls) == 1
+
+    def test_rewriting_the_same_value_does_not_call_it(self):
+        """El PLC escribe sus variables en cada ciclo: eso no es un evento."""
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._plc_variables.on_write({106: 0})
+        app._on_plc_writes_tick()
+        assert calls == []
+
+    def test_a_new_gpio_reading_calls_it(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._on_gpio_inputs_updated({1: 1})
+        assert len(calls) == 1
+        assert dict(calls[0][1].gpio_inputs) == {1: 1}
+
+    def test_the_same_gpio_reading_does_not_call_it(self):
+        """El polling trae la misma lectura en cada vuelta."""
+        app = _build_plc_application()
+        app._on_gpio_inputs_updated({1: 1})
+        calls = _watch_signals(app)
+        before = app._frame_signals
+        app._on_gpio_inputs_updated({1: 1})
+        assert calls == []
+        assert app._frame_signals is before
+
+    def test_the_new_signals_are_in_place_before_the_call(self):
+        """Lo que el fork pida desde ahí ya se mide con las señales nuevas."""
+        app = _build_plc_application()
+        seen = []
+        app._on_signals_changed = lambda previous, current: seen.append(
+            app._frame_signals is current)
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert seen == [True]
+
+    def test_a_failing_hook_warns_and_keeps_the_new_signals(self, caplog):
+        app = _build_plc_application()
+
+        def broken(previous, current):
+            raise RuntimeError("roto")
+
+        app._on_signals_changed = broken
+        app._plc_variables.on_write({105: 1})
+        with caplog.at_level("WARNING"):
+            app._on_plc_writes_tick()
+        assert "_on_signals_changed falló: roto" in caplog.text
+        assert app._frame_signals.plc["process_ok"] is True
+
+    def test_the_template_hook_takes_the_change_without_failing(self, caplog):
+        app = _build_plc_application()
+        app._plc_variables.on_write({101: 7})
+        with caplog.at_level("WARNING"):
+            app._on_plc_writes_tick()
+        assert "_on_signals_changed" not in caplog.text
+        assert app._frame_signals.plc["pipeline_1_trigger_seq"] == 7
 
 
 class _StopRecorder:

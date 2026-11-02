@@ -4,8 +4,15 @@ Esquema de registros Modbus — maquinaria genérica, reutilizable entre proyect
 Define el tipo `Reg` (una fila del mapa) y `RegisterSchema`, que deriva de una
 lista de `Reg` todo lo que el resto del sistema necesita: la codificación de cada
 valor físico a su holding register, las descripciones para la UI y la
-documentación, la lista de registros a releer del servidor, y el espejo
-lectura/escritura del bloque de configuración dinámica.
+documentación, la lista de registros a releer del servidor, la copia de valores del
+config que se publica al PLC, y qué puede escribir el PLC.
+
+**El PLC escribe sólo las filas `plc`**, que no apuntan a ninguna clave del config. Cada
+una tiene su rango (`write_range()`, de `min_value` / `max_value` en la unidad física), y el
+servidor rechaza lo que caiga afuera con `write_ranges()`. **El config no lo
+escribe nunca**: las filas `config` son la copia de un valor de `config.yaml` —un umbral del
+proceso— que la app publica para que el PLC o un HMI lo muestren, y son de sólo lectura como
+el resto del mapa. La configuración es de la interfaz y del archivo.
 
 Este módulo no conoce ningún registro puntual: la lista concreta se carga de un
 archivo YAML con `load_registers()` y vive en `system/modbus/register_map.yaml`.
@@ -36,8 +43,12 @@ UINT16_MAX = 0xFFFF
 # Quién escribe cada fila; determina cómo la trata el sistema.
 PRODUCER_INFERENCE = "inference"   # lo escribe el productor de resultados de inferencia
 PRODUCER_HEALTH = "health"         # lo escribe el ciclo de métricas de hardware y cámara
-PRODUCER_CONFIG = "config"         # espejo R/W de config.yaml; lo maneja este esquema
-PRODUCERS = (PRODUCER_INFERENCE, PRODUCER_HEALTH, PRODUCER_CONFIG)
+PRODUCER_CONFIG = "config"         # copia de un valor de config.yaml; la publica este esquema
+PRODUCER_PLC = "plc"               # lo escribe sólo el PLC
+PRODUCERS = (PRODUCER_INFERENCE, PRODUCER_HEALTH, PRODUCER_CONFIG, PRODUCER_PLC)
+
+# Campos que sólo tienen sentido en una fila `config`: una fila `plc` no va al config.
+_CONFIG_ONLY_FIELDS = ("config_key", "default")
 
 
 def to_plc_address(addr: int) -> str:
@@ -67,11 +78,14 @@ class Reg:
 
     `producer` indica quién escribe el registro; los valores válidos son los
     `PRODUCER_*` de este módulo. Las filas `config` son las únicas que este
-    esquema escribe por su cuenta (`mirror_batch` / `detect_plc_writes` /
-    `apply_plc_writes`); las demás las rellena su productor.
+    esquema arma por su cuenta (`mirror_batch`), copiando su clave del config; las
+    `plc` las escribe sólo el PLC, y `encode()` se niega a codificarlas; las demás
+    las rellena su productor.
 
-    Los campos `config_key`, `default`, `apply` y `mirror_from_config` sólo aplican
-    a filas con `producer: config`.
+    `config_key` —obligatorio— y `default` sólo aplican a filas con `producer: config`.
+    `min_value` y `max_value` sólo a las `plc`: el rango en la
+    unidad física, ambos incluidos. Sin ellos el rango es el del registro entero; una
+    fila `is_bool` acepta 0 y 1.
     """
     addr: int                          # dirección Modbus 1-based
     name: str                          # id corto y único: "cpu_usage_pct"
@@ -83,13 +97,73 @@ class Reg:
     # ── Sólo filas producer="config" ──
     config_key: str | None = None      # ruta punteada en config.yaml
     default: object = 0                # default para cfg.get al espejar
-    apply: str | None = None           # hook especial de escritura; si es None → cfg.set
-    mirror_from_config: bool = True    # False = el valor viene de afuera del config
+    # ── Sólo filas que escribe el PLC (producer="plc") ──
+    min_value: float | None = None     # mínimo aceptado, en la unidad física
+    max_value: float | None = None     # máximo aceptado, en la unidad física
 
 
 # Campos que `load_registers` acepta en cada entrada del YAML.
 _REG_FIELDS = frozenset(f.name for f in fields(Reg))
 _REQUIRED_FIELDS = ("addr", "name", "desc", "producer")
+
+
+def write_range(reg: Reg) -> tuple[float, float]:
+    """
+    Lo que el PLC puede escribir en una fila `plc`, en la unidad física: (mínimo, máximo),
+    ambos incluidos.
+
+    Es la regla única del rango: sin `min_value` es 0, sin `max_value` es el registro
+    entero, y una fila `is_bool` acepta 0 y 1. La validación del servidor y la tabla del
+    integrador salen de acá, así que no pueden discrepar.
+    """
+    if reg.is_bool:
+        return 0, 1
+    low = 0 if reg.min_value is None else reg.min_value
+    high = UINT16_MAX / reg.scale if reg.max_value is None else reg.max_value
+    return low, high
+
+
+def _raw_range(reg: Reg) -> tuple[int, int]:
+    """`write_range()` en crudo, ya escalado."""
+    if reg.is_bool:
+        return 0, 1
+    low, high = write_range(reg)
+    return to_uint16(low, reg.scale), to_uint16(high, reg.scale)
+
+
+def _check_plc_fields(entry: dict) -> str | None:
+    """
+    Qué tiene de malo una entrada en lo que toca al PLC, o None si nada.
+
+    Una fila escribible mal declarada no es un error del integrador que se descubre en la
+    planta, es un mapa que no carga.
+    """
+    producer = entry["producer"]
+    has_range = [key for key in ("min_value", "max_value") if key in entry]
+
+    # En una fila que el PLC no escribe, el rango no lo controlaría nadie, y la tabla del
+    # integrador diría que sí.
+    if has_range and producer != PRODUCER_PLC:
+        return f"{has_range} sólo van en filas que escribe el PLC (producer: plc)."
+    if has_range and entry.get("is_bool"):
+        return "una fila is_bool ya tiene su rango, 0 y 1: sobran min_value / max_value."
+
+    scale = entry.get("scale", 1)
+    for key in has_range:
+        value = entry[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"{key} tiene que ser un número, no {value!r}."
+        # Fuera de esto `to_uint16` satura, y el rango aceptado no sería el declarado.
+        if not 0 <= value * scale <= UINT16_MAX:
+            return f"{key} = {value} no entra en un registro con escala x{scale}."
+    if len(has_range) == 2 and entry["min_value"] > entry["max_value"]:
+        return f"min_value ({entry['min_value']}) es mayor que max_value ({entry['max_value']})."
+
+    if producer == PRODUCER_PLC:
+        config_fields = [key for key in _CONFIG_ONLY_FIELDS if key in entry]
+        if config_fields:
+            return f"una fila plc no va al config: sobra(n) {config_fields}."
+    return None
 
 
 def load_registers(map_path: str) -> list[Reg]:
@@ -101,9 +175,12 @@ def load_registers(map_path: str) -> list[Reg]:
     entradas devuelve una lista vacía, que es un mapa válido: hay proyectos que
     todavía no publican nada.
 
-    Levanta ValueError con el archivo y la fila si una entrada está incompleta,
-    tiene una clave desconocida o un `producer` fuera del vocabulario. Preferimos
-    romper al arrancar antes que servirle al PLC un mapa a medias.
+    Levanta ValueError con el archivo y la fila si una entrada está incompleta —una
+    fila `config` sin `config_key` incluida—, tiene una clave desconocida, un `producer`
+    fuera del vocabulario, o una fila
+    escribible por el PLC mal declarada: un rango que no entra en el registro, o una
+    fila `plc` que apunta al config. Preferimos romper al arrancar antes que servirle
+    al PLC un mapa a medias.
     """
     with open(map_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
@@ -134,6 +211,13 @@ def load_registers(map_path: str) -> list[Reg]:
         if not isinstance(entry["addr"], int) or entry["addr"] < 1:
             raise ValueError(f"{location}: addr tiene que ser un entero >= 1 (base-1).")
 
+        problem = _check_plc_fields(entry)
+        if problem:
+            raise ValueError(f"{location} ({entry['name']}): {problem}")
+        # Sin clave no hay qué publicar, y nadie más escribe esa fila: el PLC leería 0.
+        if entry["producer"] == PRODUCER_CONFIG and not entry.get("config_key"):
+            raise ValueError(f"{location} ({entry['name']}): una fila config necesita config_key.")
+
         registers.append(Reg(**entry))
 
     return registers
@@ -159,6 +243,7 @@ class RegisterSchema:
                 raise ValueError(f"Nombre de registro duplicado: {r.name!r}")
             self._by_addr[r.addr] = r
             self._by_name[r.name] = r
+        self._raw_ranges = {r.addr: _raw_range(r) for r in self.plc_regs()}
 
     # ── Índices de sólo lectura ──────────────────────────────────────────────
 
@@ -175,29 +260,52 @@ class RegisterSchema:
         """Dirección más alta del mapa; 0 si el mapa está vacío."""
         return max(self._by_addr, default=0)
 
-    def readback_addrs(self) -> list[int]:
-        """
-        Direcciones cuyo `producer` es `inference`.
-
-        Son las que no viajan en el batch de salud, así que quien quiera mostrar el
-        mapa completo tiene que releerlas del servidor en vez de esperarlas por señal.
-        """
-        return [r.addr for r in self.registers if r.producer == PRODUCER_INFERENCE]
-
     def config_regs(self) -> list[Reg]:
-        """Filas del bloque de configuración dinámica (espejo R/W)."""
+        """Filas que copian un valor del config para que el PLC lo lea."""
         return [r for r in self.registers if r.producer == PRODUCER_CONFIG]
+
+    def plc_regs(self) -> list[Reg]:
+        """Filas que escribe el PLC, y ninguna otra."""
+        return [r for r in self.registers if r.producer == PRODUCER_PLC]
+
+    def write_ranges(self) -> dict[int, tuple[int, int]]:
+        """
+        {addr: (mínimo, máximo) crudos} de las filas `plc`: lo que el servidor deja escribir.
+
+        Crudo para que el servidor compare sin decodificar en su hilo.
+        """
+        return dict(self._raw_ranges)
 
     # ── Codificación escalar ─────────────────────────────────────────────────
 
     def encode(self, name: str, value: object) -> int:
-        """Codifica un valor físico al holding register de `name`, con su escala."""
-        return self._encode(self._by_name[name], value)
+        """
+        Codifica un valor físico al holding register de `name`, con su escala.
+
+        Levanta ValueError con una fila `plc`: tiene un solo dueño, y que la app la
+        escribiera pisaría lo que mandó el PLC en el tick siguiente sin que nada lo avise.
+        """
+        return self._encode(self._app_reg(name), value)
 
     def encode_batch(self, values: dict[str, object]) -> dict[int, int]:
         """{nombre: valor físico} → {addr: valor crudo}, listo para `update_block`."""
-        return {self._by_name[name].addr: self._encode(self._by_name[name], value)
+        return {self._app_reg(name).addr: self._encode(self._app_reg(name), value)
                 for name, value in values.items()}
+
+    def decode(self, name: str, raw: int) -> object:
+        """
+        El valor físico de un registro crudo: lo inverso de `encode()`.
+
+        Un `is_bool` vuelve como bool y una fila con escala como float. Sirve para todas
+        las filas, también las `plc`: leerlas es justamente lo que hace la app con ellas.
+        """
+        return self._decode(self._by_name[name], raw)
+
+    def _app_reg(self, name: str) -> Reg:
+        reg = self._by_name[name]
+        if reg.producer == PRODUCER_PLC:
+            raise ValueError(f"{name} la escribe sólo el PLC: la app no la codifica.")
+        return reg
 
     def _encode(self, reg: Reg, value: object) -> int:
         if reg.is_bool:
@@ -211,77 +319,17 @@ class RegisterSchema:
             return raw / reg.scale
         return raw
 
-    # ── Espejo de configuración (config.yaml → registros) ────────────────────
+    # ── Copia del config para el PLC (config.yaml → registros) ───────────────
 
     def mirror_batch(self, config_manager) -> dict[int, int]:
         """
-        Valores a escribir para las filas `config` respaldadas por config.yaml.
+        {addr: valor crudo} de las filas `config`, leído de config.yaml.
 
-        Excluye las de origen externo (`mirror_from_config: false`), que su sitio
-        productor rellena por su cuenta.
+        Es el único sentido: el PLC o un HMI leen el umbral vigente, y lo cambia sólo la
+        interfaz o el archivo.
         """
-        out: dict[int, int] = {}
-        for r in self.config_regs():
-            if r.mirror_from_config and r.config_key:
-                out[r.addr] = self._encode(r, config_manager.get(r.config_key, r.default))
-        return out
-
-    # ── Detección y aplicación de escrituras del PLC ─────────────────────────
-
-    def detect_plc_writes(self, server, last_pushed: dict[int, int]) -> dict[int, int]:
-        """
-        Detecta escrituras del PLC comparando el valor ACTUAL del servidor contra lo
-        que la app escribió por ÚLTIMA vez (`last_pushed`) — NO contra el espejo
-        recién calculado. La distinción es clave:
-
-          - PLC escribió el registro → server != last_pushed → sí es escritura del
-            PLC; se aplica a config.
-          - La app cambió config → server == last_pushed (el PLC no lo tocó), aunque
-            el espejo nuevo difiera → NO es del PLC; sólo se re-espeja.
-
-        Comparar contra el espejo confundiría un cambio hecho desde la app con una
-        escritura del PLC, y el valor viejo del registro terminaría pisando el valor
-        nuevo de config.
-
-        En el primer ciclo `last_pushed` está vacío → no detecta nada (prime natural;
-        el datastore arranca en 0 y no hay con qué comparar todavía).
-        Devuelve {addr: valor crudo del PLC}.
-        """
-        writes: dict[int, int] = {}
-        for r in self.config_regs():
-            if r.addr not in last_pushed:
-                continue
-            current = server.get_register(r.addr)
-            if current != last_pushed[r.addr]:
-                writes[r.addr] = current
-        return writes
-
-    def apply_plc_writes(self, config_manager, writes: dict[int, int],
-                         hooks: dict, batch: dict[int, int]) -> bool:
-        """
-        Aplica las escrituras del PLC: al hook que la fila declare en `apply`, o a
-        config.yaml (`cfg.set`) en el caso normal.
-
-        También hace ECO del valor crudo del PLC en `batch`, para que el
-        `update_block` posterior conserve ese valor en vez de reescribir el que la
-        app había calculado antes de detectar el cambio; si no, el ciclo siguiente
-        lo volvería a confundir con una escritura nueva del PLC.
-
-        Devuelve True si alguna fila respaldada por config cambió → conviene `save()`.
-        Las filas con hook suelen persistir por su cuenta.
-        """
-        needs_save = False
-        for addr, raw in writes.items():
-            reg = self._by_addr[addr]
-            if reg.apply:
-                hook = hooks.get(reg.apply)
-                if hook is not None:
-                    hook(self._decode(reg, raw))
-            elif reg.config_key:
-                config_manager.set(reg.config_key, self._decode(reg, raw))
-                needs_save = True
-            batch[addr] = raw
-        return needs_save
+        return {r.addr: self._encode(r, config_manager.get(r.config_key, r.default))
+                for r in self.config_regs()}
 
 
 def default_map_path() -> str:
