@@ -142,16 +142,29 @@ mismo nombre: no hay traducción en el camino.
 | `ram_used_mb`, `ram_total_mb` | MB |
 | `disk_free_gb` | GB |
 | `power_w` | W, siempre float |
+| `overcurrent_count` | eventos de sobrecorriente desde el arranque |
+| `engine_<motor>_active` | 0 / 1 — el motor de la Jetson se usó hace poco |
+| `engine_<motor>_mhz` | MHz mientras está activo; 0 si no |
 
 **Cada campo tiene un tipo fijo.** InfluxDB fija el tipo de un campo con el primer punto
 que lo escribe y rechaza el que después llega con otro. Todos los de esta serie son
 enteros salvo `power_w`, que es float venga de los rails de la Jetson, de nvidia-smi o del
 0.0 sin sensor: es `SystemMonitor` el que lo garantiza.
 
-**Ojo con los dos anidados.** `get_metrics()` devuelve `net_mbps` como
-`{iface: {rx_mbps, tx_mbps}}` y `temps_c` como `{zona: °C}`, y **los fields de Influx son
-escalares**: un dict no entra. La red sale en su propia serie, `network`, y filtrar por
-tipo sería la forma silenciosa de perder el tráfico entero.
+**Ojo con los anidados.** `get_metrics()` devuelve `net_mbps` como
+`{iface: {rx_mbps, tx_mbps}}`, `engines` como `{motor: {is_active, mhz}}` y `temps_c` como
+`{zona: °C}`, y **los fields de Influx son escalares**: un dict no entra. La red sale en su
+propia serie, `network`, y los motores se aplanan —`engine_vic_active`—; filtrar por tipo
+sería la forma silenciosa de perder el tráfico entero.
+
+**Los motores** son los de la Jetson: `vic`, `nvenc`, `nvdec`, `nvjpg`, `nvjpg1`, `ofa`,
+`nvdla0`, `pva0`, según el módulo. Fuera de una Jetson no hay ningún campo `engine_*`.
+- `engine_<motor>_active` es un entero y no un booleano: su **media en una ventana es la
+  fracción del tiempo que el motor estuvo en uso**, que es lo que sirve graficar.
+- No es carga en %. Sale de sysfs sin root, y «activo» quiere decir «usado en los últimos
+  segundos»: el kernel tarda en suspenderlo.
+- Un `overcurrent_count` que sube es que el módulo recortó relojes para protegerse. Las
+  métricas de ese momento no valen como rendimiento normal.
 
 `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
 `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard
@@ -200,7 +213,7 @@ para que un panel elija qué mira filtrando tags y no leyendo nombres de campo:
 | `kind` | `stat` | Campos | Sobre qué |
 |---|---|---|---|
 | `count` | — | `result_count`, `invalid_count`, `sample_count`, `invalid_reason` | la muestra |
-| `time` | `mean`, `max` | `total_ms` y `<model_slot>_ms` por etapa | todos los resultados |
+| `time` | `mean`, `max` | `total_ms`, `<model_slot>_ms` por etapa y `cycle_ms` | todos los resultados |
 | `result` | `mean`, `std`, `min`, `max` | `confidence_pct`, `detection_count` y las métricas del analyzer | sólo los confiables |
 
 - `result_count` son los resultados de la muestra; `invalid_count`, cuántos no eran una
@@ -223,6 +236,14 @@ Qué se agrega sobre qué no es un detalle: lo medido **sólo sobre los confiabl
 promediar la confianza de un descarte da un número que no significa nada; la latencia
 **sobre todos**, porque un descarte también gastó su pasada. La latencia lleva el máximo
 porque un pico es lo que se quiere ver, y el promedio lo esconde.
+
+`total_ms` mide lo que tarda un frame en el motor —preprocesado, etapas y filtros—; no
+incluye la espera en la cola ni el analyzer, el dibujado y la publicación. `cycle_ms` es el
+tiempo real entre un frame y el siguiente **de la misma cámara**, así que sí los incluye, y
+con varias cámaras en un pipeline suma además el turno de las otras: dos cámaras con 100 ms
+por frame dan un ciclo de unos 200 ms por cámara. Cuenta todo frame que el motor procesa,
+también el descartado por poca luz. La primera muestra de una cámara no tiene frame
+anterior y no entra: sin ningún período en la muestra, el campo no sale.
 
 **La iluminación no está acá**: sale por cámara en la serie `camera`, que ya es el brillo
 del ROI que mide la inferencia.

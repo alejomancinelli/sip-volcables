@@ -31,6 +31,10 @@ Lo que hay que tener en la cabeza para leerlo:
     - ram_total_mb (integer, MiB)
     - disk_free_gb (integer, GiB libres en `system_monitor.disk_path`)
     - power_w (float, W; 0.0 sin sensor)
+    - overcurrent_count (integer, eventos de sobrecorriente desde el arranque)
+    - engine_\<motor\>_active (integer, 0/1 — el motor de la Jetson se usó hace poco; su
+      media en una ventana es la fracción del tiempo en uso) — sólo en una Jetson
+    - engine_\<motor\>_mhz (integer, MHz mientras está activo; 0 si no) — sólo en una Jetson
 
 - network — tráfico de red; 1 punto por interfaz por segundo
   - tags:
@@ -81,6 +85,8 @@ Lo que hay que tener en la cabeza para leerlo:
   - `kind=time` — 2 puntos, tag `stat` = `mean` | `max`, sobre todos los resultados; fields:
     - total_ms (float, la pasada entera: recorte, etapas y filtros)
     - \<model_slot\>_ms (float) — uno por etapa: `model_1_ms`
+    - cycle_ms (float, el período de la cámara: de un frame al siguiente de la misma
+      cámara; no sale si la muestra trae sólo el primer frame)
   - `kind=result` — 4 puntos, tag `stat` = `mean` | `std` | `min` | `max`, sólo sobre los
     confiables; fields, todos float:
     - confidence_pct
@@ -99,15 +105,15 @@ Un segundo de un equipo con dos cámaras, un pipeline de una etapa sobre `camera
 con `eth0` y `wlan0`. Los timestamps son en nanosegundos.
 
 ```text
-system,device=planta_01 cpu_usage_pct=34i,gpu_usage_pct=61i,cpu_temp_c=52i,gpu_temp_c=48i,ram_used_mb=5120i,ram_total_mb=15823i,disk_free_gb=212i,power_w=14.6 1793620800000000000
+system,device=planta_01 cpu_usage_pct=34i,gpu_usage_pct=61i,cpu_temp_c=52i,gpu_temp_c=48i,ram_used_mb=5120i,ram_total_mb=15823i,disk_free_gb=212i,power_w=14.6,overcurrent_count=0i 1793620800000000000
 network,device=planta_01,interface=eth0 rx_mbps=38.2,tx_mbps=4.1 1793620800000000000
 network,device=planta_01,interface=wlan0 rx_mbps=0.0,tx_mbps=0.0 1793620800000000000
 camera,device=planta_01,camera=camera_1 connected=1i,capture_enabled=1i,misconfigured=0i,fps_estimated=9.8,temperature_c=41.5,illumination_pct=63i,lens_state=0i,lens_sharpness_pct=97i 1793620800000000000
 camera,device=planta_01,camera=camera_2 connected=0i,capture_enabled=1i,misconfigured=0i,fps_estimated=0.0,temperature_c=0.0,illumination_pct=0i,lens_state=2i,lens_sharpness_pct=0i 1793620800000000000
 services,device=planta_01 modbus_tcp=1i,modbus_rtu=0i,video_http=1i,video_rtsp=0i,influxdb=1i,mqtt=0i 1793620800000000000
 inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=count result_count=5i,invalid_count=1i,invalid_reason="dark_frame",sample_count=4i 1793620800812000000
-inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=time,stat=mean total_ms=41.7,model_1_ms=39.9 1793620800812000000
-inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=time,stat=max total_ms=58.3,model_1_ms=55.0 1793620800812000000
+inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=time,stat=mean total_ms=41.7,model_1_ms=39.9,cycle_ms=101.2 1793620800812000000
+inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=time,stat=max total_ms=58.3,model_1_ms=55.0,cycle_ms=118.6 1793620800812000000
 inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=result,stat=mean confidence_pct=82.4,detection_count=3.25,count_person=3.25,fraction_person_pct=100.0 1793620800812000000
 inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=result,stat=std confidence_pct=3.1,detection_count=0.43,count_person=0.43,fraction_person_pct=0.0 1793620800812000000
 inference,device=planta_01,camera=camera_1,pipeline=pipeline_1,kind=result,stat=min confidence_pct=78.0,detection_count=3.0,count_person=3.0,fraction_person_pct=100.0 1793620800812000000

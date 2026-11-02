@@ -150,7 +150,7 @@ def _print_sources(config: ConfigManager, metrics: dict):
 
     print(f"  nvidia-smi      {shutil.which(sm._NVIDIA_SMI) or 'ausente'}")
     print(f"  disco           '{config.get('system_monitor.disk_path')}', "
-          f"relativo a {sm._PROJECT_ROOT}")
+          f"relativo a {sm.DATA_DIR}")
     print(f"  interfaces      {', '.join(metrics['net_mbps']) or 'ninguna'}")
 
 

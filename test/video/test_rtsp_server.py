@@ -158,6 +158,72 @@ class TestLaunchString:
         launch = _build_launch_string("h264_sw")
         assert launch.index("videoscale") < launch.index("x264enc")
 
+    @pytest.mark.parametrize("codec", ["h264_hw", "h265_hw"])
+    def test_the_hardware_path_does_no_conversion_on_the_cpu(self, codec):
+        """El VIC escala y convierte: videoconvert y videoscale costaban la mitad del CPU."""
+        launch = _build_launch_string(codec)
+        assert "videoconvert" not in launch
+        assert "videoscale" not in launch
+
+    @pytest.mark.parametrize("codec", ["h264_hw", "h265_hw"])
+    def test_the_hardware_scale_filter_is_the_vic_into_nvmm(self, codec):
+        launch = _build_launch_string(codec)
+        assert (f"! nvvidconv interpolation-method={rtsp._NVVIDCONV_BILINEAR} "
+                f"! capsfilter name={rtsp._SCALE_CAPS_NAME} caps=\"{rtsp._NVMM_CAPS}\"") in launch
+        assert "width=" not in launch
+
+    @pytest.mark.parametrize("codec, keyframe", [
+        ("h264_sw", "key-int-max=10"),
+        ("h265_sw", "key-int-max=10"),
+        ("h264_hw", "iframeinterval=10 idrinterval=10"),
+        ("h265_hw", "iframeinterval=10 idrinterval=10"),
+    ])
+    def test_there_is_one_keyframe_per_second(self, codec, keyframe):
+        """Un cliente que se conecta a mitad de stream espera, como mucho, un segundo."""
+        assert keyframe in _build_launch_string(codec, fps=10)
+
+    @pytest.mark.parametrize("codec, bitrate", [
+        ("h264_sw", "bitrate=4000 "),
+        ("h265_sw", "bitrate=4000 "),
+        ("h264_hw", "bitrate=4000000 "),
+        ("h265_hw", "bitrate=4000000 "),
+    ])
+    def test_the_bitrate_goes_in_each_encoder_unit(self, codec, bitrate):
+        """x264 y x265 lo piden en kbit/s; NVENC, en bit/s."""
+        assert bitrate in _build_launch_string(codec, bitrate_kbps=4000)
+
+    @pytest.mark.parametrize("codec", list(rtsp._CODEC_PIPELINES))
+    def test_a_zero_bitrate_leaves_the_encoder_default(self, codec):
+        assert "bitrate=" not in _build_launch_string(codec, bitrate_kbps=0)
+
+    def test_mjpeg_takes_no_bitrate(self):
+        assert "bitrate=" not in _build_launch_string("mjpeg", bitrate_kbps=4000)
+
+
+class TestPrepareFrame:
+    def test_the_cpu_path_takes_the_bgr_frame_as_it_is(self):
+        frame = np.zeros((4, 6, 3), np.uint8)
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=False)
+        assert prepared is frame
+        assert caps_format == "BGR"
+
+    def test_the_jetson_path_gets_bgrx(self):
+        """nvvidconv no acepta BGR empaquetado: el cuarto canal es relleno."""
+        frame = np.zeros((4, 6, 3), np.uint8)
+        frame[..., 0], frame[..., 1], frame[..., 2] = 10, 20, 30
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=True)
+        assert caps_format == "BGRx"
+        assert prepared.shape == (4, 6, 4)
+        np.testing.assert_array_equal(prepared[..., :3], frame)
+
+    @pytest.mark.parametrize("is_nvmm", [False, True])
+    def test_a_gray_frame_goes_as_gray8_on_both_paths(self, is_nvmm):
+        """Declararlo BGR haría que el buffer no mida lo que dice el caps."""
+        frame = np.zeros((4, 6), np.uint8)
+        prepared, caps_format = rtsp._prepare_frame(frame, is_nvmm=is_nvmm)
+        assert prepared is frame
+        assert caps_format == "GRAY8"
+
 
 class _FakeGLibError(Exception):
     """Lo que levanta `Gst.parse_launch` cuando falta un elemento."""
@@ -442,16 +508,26 @@ class TestFramePacer:
         store.update(_RAW_1, _frame())
         assert _FramePacer(store, _RAW_1, 25).get_next().duration_ns == 40_000_000
 
-    def test_the_pts_advances_one_duration_per_frame(self):
-        """Framerate fijo: es lo que declara el caps y lo que espera el reproductor."""
+    def test_the_pts_starts_at_zero_and_never_goes_back(self):
         store = _FrameStore()
         pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
         stamps = []
         for marker in range(3):
             store.update(_RAW_1, _frame(marker))
-            stamps.append(pacer.get_next())
-        duration_ns = stamps[0].duration_ns
-        assert [timed.pts_ns for timed in stamps] == [0, duration_ns, 2 * duration_ns]
+            stamps.append(pacer.get_next().pts_ns)
+        assert stamps[0] == 0
+        assert stamps[0] < stamps[1] < stamps[2]
+
+    def test_the_pts_follows_the_clock_when_a_frame_arrives_late(self):
+        """El anotado llega al ritmo de la inferencia: por contador, el reproductor se traba."""
+        store = _FrameStore()
+        pacer = _FramePacer(store, _RAW_1, 20)          # período de 50 ms
+        store.update(_RAW_1, _frame(1))
+        first = pacer.get_next()
+        time.sleep(0.2)
+        store.update(_RAW_1, _frame(2))
+        second = pacer.get_next()
+        assert second.pts_ns - first.pts_ns >= 190_000_000     # lo que pasó, no 1/fps
 
     def test_only_the_newest_frame_is_sent(self):
         """Always-fresh: lo que se acumuló mientras se codificaba no se emite atrasado."""
@@ -461,27 +537,26 @@ class TestFramePacer:
             store.update(_RAW_1, _frame(marker))
         assert _marker_of(pacer.get_next().frame_bgr) == 3
 
-    def test_the_same_frame_is_not_sent_twice(self, monkeypatch):
-        """Sin frame nuevo no se empuja: repetir cuesta encoder y ancho de banda."""
-        monkeypatch.setattr(rtsp, "_KEEPALIVE_S", 30.0)
+    def test_the_same_frame_is_not_sent_before_its_period_is_due(self):
+        """Sin frame nuevo no se repite antes de tiempo: el stream no sale más rápido que su `fps`."""
         store = _FrameStore()
-        pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
-        store.update(_RAW_1, _frame())
-        assert pacer.get_next() is not None
+        pacer = _FramePacer(store, _RAW_1, 10)          # período de 100 ms
+        store.update(_RAW_1, _frame(4))
+        pacer.get_next()
+        started_s = time.monotonic()
+        repeated = pacer.get_next()
+        assert _marker_of(repeated.frame_bgr) == 4
+        assert time.monotonic() - started_s >= 0.09
 
-        threading.Timer(0.15, store.close).start()
-        assert pacer.get_next() is None      # esperó al siguiente, no reenvió
-
-    def test_the_last_frame_is_resent_after_the_keepalive(self, monkeypatch):
-        """Una cámara que se cayó tiene que dejar al reproductor con imagen, no colgado."""
-        monkeypatch.setattr(rtsp, "_KEEPALIVE_S", 0.05)
+    def test_the_last_frame_is_repeated_every_period_without_new_ones(self):
+        """Una cámara lenta o caída deja al reproductor con imagen y al ritmo declarado."""
         store = _FrameStore()
-        pacer = _FramePacer(store, _RAW_1, _FAST_FPS)
+        pacer = _FramePacer(store, _RAW_1, 20)          # período de 50 ms
         store.update(_RAW_1, _frame(4))
         first = pacer.get_next()
-        second = pacer.get_next()
-        assert _marker_of(second.frame_bgr) == 4
-        assert second.pts_ns == first.pts_ns + first.duration_ns
+        repeats = [pacer.get_next() for _ in range(3)]
+        assert [_marker_of(timed.frame_bgr) for timed in repeats] == [4, 4, 4]
+        assert repeats[-1].pts_ns - first.pts_ns >= 140_000_000
 
     def test_a_faster_camera_does_not_speed_up_the_stream(self):
         """El ritmo lo pone el `fps` declarado: de más frames se descartan."""
@@ -502,6 +577,55 @@ class TestFramePacer:
         store.update(_ANNOTATED_1, _frame(2))
         assert _marker_of(raw.get_next().frame_bgr) == 1
         assert _marker_of(annotated.get_next().frame_bgr) == 2
+
+
+class _FakeMountPoints:
+    def __init__(self):
+        self.paths = []
+
+    def add_factory(self, path: str, _factory: object):
+        self.paths.append(path)
+
+
+class _FakeRtspServer:
+    """`GstRtspServer.RTSPServer` reducido a lo que usa `_create_server`."""
+
+    def __init__(self):
+        self.mounts = _FakeMountPoints()
+        self.attached_to = "nunca"
+
+    def set_address(self, _address: str):
+        pass
+
+    def set_service(self, _service: str):
+        pass
+
+    def get_mount_points(self) -> _FakeMountPoints:
+        return self.mounts
+
+    def attach(self, context: object) -> int:
+        self.attached_to = context
+        return 1
+
+
+class TestCreateServer:
+    @pytest.fixture
+    def server(self, monkeypatch) -> RtspVideoServer:
+        monkeypatch.setattr(rtsp, "GstRtspServer",
+                            type("_GstRtspServer", (), {"RTSPServer": _FakeRtspServer}),
+                            raising=False)
+        monkeypatch.setattr(rtsp, "_StreamFactory", lambda *_args: object(), raising=False)
+        return RtspVideoServer(_MockConfig())
+
+    def test_it_is_attached_to_the_context_of_its_own_loop(self, server):
+        """
+        `attach(None)` lo enganchaba al contexto global de GLib: el socket aceptaba la
+        conexión pero nadie contestaba el primer pedido, salvo que Qt atendiera ese
+        contexto desde el hilo de la interfaz.
+        """
+        context = object()
+        created = server._create_server("0.0.0.0", 8554, context)
+        assert created.attached_to is context
 
 
 class TestLifecycle:

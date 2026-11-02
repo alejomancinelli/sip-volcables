@@ -79,7 +79,10 @@ Los valores son de ejemplo; los nombres y los tipos son los reales.
   "cpu_usage_pct": 34, "gpu_usage_pct": 61,
   "cpu_temp_c": 52, "gpu_temp_c": 58,
   "ram_used_mb": 3820, "ram_total_mb": 16384,
-  "disk_free_gb": 214, "power_w": 18.4,
+  "disk_free_gb": 214, "power_w": 18.4, "overcurrent_count": 0,
+  "engine_vic_active": 1, "engine_vic_mhz": 448,
+  "engine_nvdec_active": 1, "engine_nvdec_mhz": 716,
+  "engine_nvenc_active": 0, "engine_nvenc_mhz": 0,
   "time": 1757340012.412
 }
 ```
@@ -134,7 +137,7 @@ analyzer de un fork, y el resto es de la maquinaria. Los mensajes de `stat` `std
 {
   "device": "vision_01", "camera": "camera_1", "pipeline": "pipeline_1",
   "kind": "time", "stat": "max",
-  "total_ms": 241.0, "detector_ms": 212.4,
+  "total_ms": 241.0, "detector_ms": 212.4, "cycle_ms": 497.5,
   "time": 1757340012.180
 }
 {

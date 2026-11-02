@@ -46,6 +46,12 @@ los pipelines sobre una carpeta de imágenes y deja el resultado en una carpeta 
 Cómo se preparan los videos y cómo se lee el resultado está en
 [docs/offline_testing.md](docs/offline_testing.md).
 
+Lo que se calibra en la puesta en marcha —una escala, un umbral contra muestras pesadas—
+son calibradores del fork, subcomandos del mismo ejecutable (`main.py --calibrate
+<nombre>`) con un lanzador cada uno en el entregable. Cómo se usan en la planta está en
+[docs/calibration.md](docs/calibration.md); cómo se escribe uno, en
+[calibration/README.md](calibration/README.md).
+
 ## Cómo se crea el repo del proyecto
 
 Una aclaración de vocabulario antes: en este repo y en `CLAUDE.md`, **«fork» significa
@@ -157,7 +163,9 @@ trae:
 1. **Crear el repo** como arriba y copiar el wheel de stapipy a `packages/`. En la PC, el
    venv lo arma `setup/venv-setup/venv-setup.ps1 -Dev`, que instala además lo de
    desarrollo y activa los hooks de git —no viajan con el clon—. En la Jetson, en este
-   orden: `setup/jetson/setup-jetson.sh` (lo de sistema), el SDK de la cámara con
+   orden: `setup/jetson/setup-jetson.sh` (lo de sistema; en la planta, con
+   `--power-mode=20W --clocks-at-boot --headless-boot` o lo que se haya medido para ese
+   módulo), el SDK de la cámara con
    `setup/cameras/linux/`, y `setup/venv-setup/venv-setup.sh`, que instala además el
    framework de `setup/jetson/` y termina corriendo `verify_env.py`. Cambiar la identidad
    del proyecto:
@@ -247,6 +255,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `ui/views/config/<otra>_tab.py` | otra sección propia, más **una línea** en `_TAB_CLASSES` |
 | `test/` | un test por archivo nuevo, espejando el árbol |
 | `manual_test/<tema>/` | verificaciones con hardware, con su `config.yaml` al lado |
+| `calibration/<tool>/` | una herramienta de puesta en marcha que produce valores del config, con su `README.md` para quien calibra, más **una línea** en `calibration/registry.py`: con eso es un subcomando de `main.py` y un lanzador del entregable. La jerarquía y las reglas, en [calibration/README.md](calibration/README.md) |
 | `docs/` | notas de puesta en marcha, protocolos nuevos |
 
 ### Maquinaria: no se edita

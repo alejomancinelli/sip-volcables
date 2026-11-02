@@ -11,6 +11,17 @@ Uso — con el intérprete del venv, no con el `python` del PATH:
 Acepta una ruta de config como argumento (`main.py otro-config.yaml`); sin argumento usa
 el `config.yaml` de la raíz del repo.
 
+**`--calibrate <nombre> [opciones]` abre un calibrador en vez de la app**, y es la forma en
+que las herramientas de puesta en marcha llegan a una planta donde sólo está el compilado:
+
+    .venv/bin/python main.py --calibrate mesh      # y las opciones de ese calibrador
+
+Qué calibradores hay lo dice `calibration/registry.py`, y lo que sigue al nombre lo parsea
+el calibrador: este archivo no conoce ninguno. No son programas aparte porque así reciben
+el config de la instalación ya resuelto —como scripts sueltos cada uno elegiría el suyo, y
+compilado el programa y los datos están en carpetas distintas—, y porque todo lo que usan
+ya está adentro de este ejecutable.
+
 **Modo headless.** Con `--headless`, o con `ui.enabled: false` en el config, no se crea
 ninguna ventana: es el modo de un equipo en gabinete sin monitor, de un servicio que
 arranca con el sistema, y de un contenedor sin X11. El flag manda sobre el config, para
@@ -92,6 +103,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
+from calibration.registry import run_tool as run_calibration_tool
 from system import paths
 from system.camera.capture_scheduler import CaptureScheduler, has_measurement_cycle
 from system.camera.capture_thread import CaptureThread
@@ -199,13 +211,13 @@ _INFERENCE_COUNT_FIELDS = ("result_count", "invalid_count", "invalid_reason", "s
 # Uno de conteo, uno por estadístico de la latencia y uno por estadístico de lo medido.
 _INFERENCE_POINTS_PER_PAIR = 1 + len(_TIME_STATS) + len(analysis.SUMMARY_SUFFIXES)
 
-# Métricas de hardware que van directo a fields. `net_mbps` y `temps_c` no están porque
-# son dicts anidados y un field de Influx es escalar: la red sale en su propia serie, con
-# la interfaz en un tag, y las zonas térmicas no se publican. Filtrar por tipo, en cambio,
-# perdería la red sin avisar.
+# Métricas de hardware que van directo a fields. `net_mbps`, `engines` y `temps_c` no
+# están porque son dicts anidados y un field de Influx es escalar: la red sale en su propia
+# serie, con la interfaz en un tag, los motores se aplanan y las zonas térmicas no se
+# publican. Filtrar por tipo, en cambio, perdería la red sin avisar.
 _SYSTEM_METRIC_KEYS = (
     "cpu_usage_pct", "gpu_usage_pct", "cpu_temp_c", "gpu_temp_c",
-    "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w",
+    "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w", "overcurrent_count",
 )
 
 _LOG_FILENAME = "app.log"
@@ -2035,6 +2047,11 @@ def _parse_args(argv: list) -> argparse.Namespace:
                         help="ruta del config.yaml; por defecto el de la raíz del repo")
     parser.add_argument("--headless", action="store_true",
                         help="no abrir la ventana; también se puede con ui.enabled: false")
+    # `REMAINDER`: el nombre y todo lo que sigue van al calibrador tal cual. Las opciones
+    # de cada uno son suyas, y repetirlas acá obligaría a editar este archivo por cada una.
+    parser.add_argument("--calibrate", nargs=argparse.REMAINDER, default=None,
+                        metavar="NOMBRE ...",
+                        help="abrir un calibrador en vez de la app; lo que sigue va a él")
     return parser.parse_args(argv)
 
 
@@ -2148,9 +2165,14 @@ def _build_inference_times(results: list) -> dict[str, dict]:
     La latencia de una muestra por estadístico: `{"mean": {...}, "max": {...}}`.
 
     Los campos son `total_ms` —la pasada entera— y `<model_slot>_ms` por etapa, así que un
-    pipeline de dos etapas publica tres y se ve cuál se llevó el tiempo.
+    pipeline de dos etapas publica tres y se ve cuál se llevó el tiempo. Al lado va
+    `cycle_ms`, el período de la cámara: del arranque de un frame al del siguiente.
     """
-    samples_ms: dict[str, list] = {"total": [float(r.inference_time_ms) for r in results]}
+    samples_ms: dict[str, list] = {
+        "total": [float(r.inference_time_ms) for r in results],
+        # El primer frame de una cámara no tiene anterior: su 0 no es un período.
+        "cycle": [float(r.cycle_time_ms) for r in results if r.cycle_time_ms > 0],
+    }
     for result in results:
         for model_slot, elapsed_ms in (result.stage_times_ms or {}).items():
             samples_ms.setdefault(str(model_slot), []).append(float(elapsed_ms))
@@ -2178,12 +2200,22 @@ def _build_system_fields(metrics: dict) -> dict:
     """
     Métricas de hardware como fields de Influx: sólo las escalares.
 
-    La red no va acá: sale en su propia serie, de `_build_network_points()`. `temps_c`
-    no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
+    La red no va acá: sale en su propia serie, de `_build_network_points()`.
+
+    `engines` llega como `{motor: {is_active, mhz}}` y se abre en campos con el nombre del
+    motor adentro —los motores son los de la Jetson y no cambian entre equipos—:
+    `engine_vic_active` como 0/1 y no como booleano, porque su media en una ventana es la
+    fracción del tiempo que el motor estuvo en uso, y `engine_vic_mhz`.
+
+    `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
     `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard
     que tenga que andar en los dos.
     """
-    return {key: metrics[key] for key in _SYSTEM_METRIC_KEYS if key in metrics}
+    fields = {key: metrics[key] for key in _SYSTEM_METRIC_KEYS if key in metrics}
+    for engine, state in (metrics.get("engines") or {}).items():
+        fields[f"engine_{engine}_active"] = int(bool(state.get("is_active", False)))
+        fields[f"engine_{engine}_mhz"] = int(state.get("mhz", 0))
+    return fields
 
 
 def _build_network_points(metrics: dict) -> list[tuple[str, dict]]:
@@ -2210,6 +2242,13 @@ def main(argv: list | None = None) -> int:
     # Después del log y antes de cualquier subsistema: los que usan un secreto lo leen
     # del entorno cuando arrancan, y de qué se cargó tiene que quedar constancia.
     load_env_file()
+
+    # Un calibrador es otro programa que comparte este ejecutable: arma su propia ventana si
+    # la necesita, así que se despacha antes de que este archivo arme la suya. Y antes de la
+    # licencia, porque la puesta en marcha viene antes que ella —la solicitud se genera en
+    # este mismo equipo— y un calibrador no publica nada que haya que restringir.
+    if args.calibrate is not None:
+        return _exit(run_calibration_tool(config, args.calibrate), config)
 
     # Antes de Qt y de cualquier subsistema, para que el veredicto quede en el log pase lo
     # que pase después. Un equipo sin licencia utilizable YA NO aborta acá: abre igual, en

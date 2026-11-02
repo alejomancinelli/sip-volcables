@@ -144,6 +144,8 @@ ui/
     camera_grid.py      N paneles, con foco y modo crudo/anotado
   dialogs/
     roi_dialog.py       dibujar el ROI con el mouse sobre el frame en vivo
+    level_dialog.py     marcar una altura —una línea horizontal— sobre el frame en vivo; la
+                        pide una pestaña con `open_level_requested`, igual que el ROI
     gpio_dialog.py      entradas y salidas digitales
   styles/               dark.qss y light.qss
   icons/                logos y el .ico de la ventana

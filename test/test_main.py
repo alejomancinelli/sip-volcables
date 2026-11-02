@@ -63,6 +63,46 @@ class TestExit:
         assert calls == ["shutdown", "exit"]
 
 
+class TestCalibrate:
+    """
+    `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del
+    calibrador, y este archivo no lo interpreta.
+    """
+
+    def test_the_name_and_the_rest_of_the_line_go_through_untouched(self):
+        args = main._parse_args(["--calibrate", "mesh", "--samples", "a.csv", "--headless"])
+        assert args.calibrate == ["mesh", "--samples", "a.csv", "--headless"]
+        assert not args.headless
+
+    def test_the_config_path_still_comes_first(self):
+        args = main._parse_args(["otro.yaml", "--calibrate", "mesh"])
+        assert args.config == "otro.yaml"
+        assert args.calibrate == ["mesh"]
+
+    def test_without_it_the_app_opens(self):
+        assert main._parse_args([]).calibrate is None
+
+    def test_it_runs_before_the_license_and_qt(self, monkeypatch):
+        """
+        La puesta en marcha viene antes que la licencia, y el calibrador arma su propia
+        ventana: ni una cosa ni la otra tienen que existir cuando corre.
+        """
+        config = _MockConfig()
+        calls = []
+        monkeypatch.setattr(main, "ConfigManager", lambda path: config)
+        monkeypatch.setattr(main, "_setup_logging", lambda cfg: None)
+        monkeypatch.setattr(main, "load_env_file", lambda: None)
+        monkeypatch.setattr(main, "_exit", lambda code, cfg: code)
+        monkeypatch.setattr(main, "LicenseManager", lambda cfg: pytest.fail("licencia"))
+        monkeypatch.setattr(main, "QApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "QCoreApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "run_calibration_tool",
+                            lambda cfg, argv: calls.append((cfg, argv)) or _EXIT_CODE)
+
+        assert main.main(["--calibrate", "mesh", "--x", "1"]) == _EXIT_CODE
+        assert calls == [(config, ["mesh", "--x", "1"])]
+
+
 class TestUnlicensedCamera:
     """El status que el cableado publica por una cámara que la licencia deja afuera."""
 
@@ -240,6 +280,47 @@ class TestHardwarePoints:
         assert main._build_network_points({"cpu_usage_pct": 34}) == []
 
 
+class TestSystemFields:
+    def _metrics(self, **overrides) -> dict:
+        metrics = {
+            "cpu_usage_pct": 20, "gpu_usage_pct": 35, "power_w": 11.8,
+            "overcurrent_count": 0, "net_mbps": {}, "temps_c": {"cpu-thermal": 47.0},
+            "engines": {},
+        }
+        metrics.update(overrides)
+        return metrics
+
+    def test_each_engine_opens_into_two_scalar_fields(self):
+        fields = main._build_system_fields(self._metrics(engines={
+            "vic": {"is_active": True, "mhz": 512},
+            "nvenc": {"is_active": False, "mhz": 0},
+        }))
+        assert fields["engine_vic_active"] == 1
+        assert fields["engine_vic_mhz"] == 512
+        assert fields["engine_nvenc_active"] == 0
+        assert fields["engine_nvenc_mhz"] == 0
+
+    def test_active_is_an_integer_so_its_mean_is_a_fraction_of_time(self):
+        fields = main._build_system_fields(self._metrics(engines={
+            "vic": {"is_active": True, "mhz": 512}}))
+        assert type(fields["engine_vic_active"]) is int
+
+    def test_the_overcurrent_count_is_published(self):
+        assert main._build_system_fields(self._metrics(overcurrent_count=3))[
+            "overcurrent_count"] == 3
+
+    def test_no_field_is_a_dict(self):
+        """Un field de Influx es escalar: un dict anidado no puede llegar al backend."""
+        fields = main._build_system_fields(self._metrics(
+            engines={"vic": {"is_active": True, "mhz": 512}},
+            net_mbps={"eth0": {"rx_mbps": 1.0, "tx_mbps": 2.0}}))
+        assert not any(isinstance(value, dict) for value in fields.values())
+
+    def test_outside_a_jetson_there_are_no_engine_fields(self):
+        fields = main._build_system_fields(self._metrics())
+        assert not any(name.startswith("engine_") for name in fields)
+
+
 class TestInferenceFields:
     """
     Los fields de un punto de telemetría de inferencia.
@@ -367,6 +448,23 @@ class TestInferencePoints:
         points = self._by_tags([cycle])
         assert [points[(("kind", "result"), ("stat", stat))]["load_pct"]
                 for stat in ("mean", "std", "min", "max")] == [50.0, 10.0, 40.0, 60.0]
+
+
+class TestCycleTimeFields:
+    """El período de la cámara se agrega sin contar el 0 del primer frame."""
+
+    def _results(self, cycle_times_ms: tuple) -> list:
+        return [InferenceResult(camera_slot="camera_1", cycle_time_ms=value)
+                for value in cycle_times_ms]
+
+    def test_the_first_frame_without_a_previous_one_is_left_out(self):
+        times = main._build_inference_times(self._results((0.0, 100.0, 300.0)))
+        assert (times["mean"]["cycle_ms"], times["max"]["cycle_ms"]) == (200.0, 300.0)
+
+    def test_without_any_period_there_is_no_field(self):
+        times = main._build_inference_times(self._results((0.0,)))
+        assert not [name for stat in times.values() for name in stat
+                    if name.startswith("cycle")]
 
 
 class _FrameSink:

@@ -133,11 +133,17 @@ def _build_raw_frame(camera_slot: str, frame_index: int) -> np.ndarray:
                               (_FRAME_HEIGHT_PX, _NOISE_WIDTH_PX, 3), dtype=np.uint8)
     frame_bgr[:, :_NOISE_WIDTH_PX] = noise
 
-    cv2.putText(frame_bgr, f"{camera_slot} raw #{frame_index}", (40, 110),
-                cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 0, 0), 5)
-    cv2.putText(frame_bgr, datetime.now().strftime("%H:%M:%S.%f")[:-3], (40, 200),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 0), 4)
+    _put_outlined_text(frame_bgr, f"{camera_slot} raw #{frame_index}", (40, 110), 2.2)
+    _put_outlined_text(frame_bgr, datetime.now().strftime("%H:%M:%S.%f")[:-3], (40, 200), 1.6)
     return frame_bgr
+
+
+def _put_outlined_text(frame_bgr: np.ndarray, text: str, origin_px: tuple[int, int],
+                       scale: float):
+    """Texto blanco con borde negro: se lee sobre la banda de ruido y sobre el gradiente."""
+    cv2.putText(frame_bgr, text, origin_px, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 10)
+    cv2.putText(frame_bgr, text, origin_px, cv2.FONT_HERSHEY_SIMPLEX, scale,
+                (255, 255, 255), 4)
 
 
 def _build_annotated_frame(camera_slot: str, cycle: int) -> np.ndarray:

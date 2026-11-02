@@ -66,6 +66,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
           model_key.py        de dónde sale la clave con la que se abren esos pesos
           model_factory.py    único archivo que conoce las clases concretas
           mock_model.py       detecciones sintéticas, sin framework
+          yolo_model.py       YOLO de ultralytics en TensorRT: yolo_det, yolo_seg, yolo_cls
+          tensorrt_runtime.py un .engine abierto desde bytes; lo único que toca la GPU
           null_model.py       lo que devuelve la fábrica ante una config inválida
         abstract_pipeline.py  maquinaria de las etapas: las crea, las carga y las cronometra
         pipeline.py           los pipelines concretos; es lo que cambia en cada instalación
@@ -76,6 +78,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         composer.py           nivel 1 — un anotado por cámara con los overlays de sus pipelines
         annotations.py        nivel 1 — dibujos propios de la planta; se reescribe en cada fork
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
+        geometry.py           nivel 1 — una máscara contra una altura y la distancia entre dos
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
@@ -117,11 +120,16 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         camera_factory.py     único archivo que conoce las clases concretas
         basler_driver.py      pypylon
         st_driver.py          stapipy (Sentech / Omron)
-        rtsp_driver.py        cámara IP por RTSP, con FFmpeg de OpenCV
+        rtsp_driver.py        cámara IP por RTSP
         video_file_driver.py  video grabado en loop, al ritmo del reloj, como cámara en vivo
+        decoder.py            quién decodifica a esos dos: OpenCV por CPU o NVDEC + VIC
         mock_driver.py        frames sintéticos, sin hardware
         null_driver.py        lo que devuelve la fábrica ante una config inválida
         camera_catalog.py     modelos por fabricante, para la UI
+      jetson/                 la Jetson leída sin root; fuera de una, todo vacío y sin excepciones
+        board.py              módulo, L4T, modo de potencia, relojes fijados y sobrecorriente
+        capabilities.py       qué motor anda de verdad: un pipeline corto por motor
+        tegrastats.py         carga del VIC, NVENC, NVDEC, NVJPG, DLA y la memoria
       image/                  operaciones sobre un frame; no saben de dónde salió
         enhance.py            gamma para mirar; factor de brillo lineal por cámara para medir
         undistort.py          corrección de lente; va en el preprocessor del motor
@@ -139,7 +147,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         diagnostics/          hardware, Modbus, video, licencia y logs
       widgets/                form, status_chip, log_table, realtime_chart,
                               camera_panel (una cámara), camera_grid (N, con foco)
-      dialogs/                roi_dialog, gpio_dialog
+      dialogs/                roi_dialog, level_dialog, gpio_dialog
       styles/                 dark.qss y light.qss, espejados regla por regla
 
     test/                     espeja el árbol de arriba; conftest.py en la raíz
@@ -150,6 +158,13 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       offline_inference/      corre los pipelines sobre una carpeta de imágenes; salida fechada
       modbus_write/           el PLC escribe: el servidor solo, la app entera con una
                               compuerta y una medición a pedido, y un cliente que hace de PLC
+    calibration/              herramientas de puesta en marcha que producen valores del config;
+                              una carpeta por calibrador, con su README para quien calibra.
+                              La jerarquía y las reglas, en `calibration/README.md`
+      registry.py             la tabla de calibradores; de ahí salen el subcomando, el build
+                              y el lanzador. Vacía en el template
+      model_export/           exporta un .pt de ultralytics a .engine, cuadrado o rectangular
+      jetson_accelerators/    qué motores tiene la Jetson y cuánto CPU libera cada etapa en ellos
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
@@ -165,6 +180,10 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               mqtt.md (la misma estructura, en tópicos y JSON),
                               model_protection.md (cómo se protege y se reemplaza un modelo),
                               offline_testing.md (video grabado e imágenes sueltas),
+                              calibration.md (cómo se calibra un equipo en la puesta en
+                              marcha, con los calibradores del fork),
+                              jetson.md (los aceleradores: qué parámetros los controlan, qué
+                              le hacen a la imagen y cómo exportar los engines),
                               plc_commands.md (qué escribe el PLC y cómo, para el
                               integrador) y tests.md (el índice de la suite, generado)
     recordings/               videos que el driver `video_file` reproduce; no se versionan
@@ -254,6 +273,10 @@ Son punteros: el contrato vive en el archivo, no acá.
   pide y se renueva está en `docs/licensing.md`.
 - **Configuración** — `system/config_manager.py`: rutas punteadas, copias en la
   entrega, config de rescate.
+- **Calibrador** — `calibration/registry.py`: los campos de una fila y qué arma cada uno;
+  el calibrador expone `run(config, argv) -> int`. Las reglas que sigue —rutas desde
+  `DATA_DIR`, reporte en `out/`, cuándo escribe el config y cuándo propone— están en
+  `calibration/README.md`.
 - **Pestaña de configuración** — `ui/views/config/abstract_tab.py`: `TITLE_KEY`,
   `load()` y `save()`, y la regla de que `save()` no persiste el archivo.
 - **Área central del monitor** — `ui/views/monitor_view.py`: `set_content()` es el punto
@@ -315,10 +338,30 @@ Lo que no se deduce leyendo un archivo suelto:
   `InferenceThread.process()`, sin arrancar el hilo. Un segundo camino de inferencia
   podría dar distinto que el primero, y una imagen que pasa la prueba no diría nada de la
   línea. Por eso lo del fork que entra al motor vive en `hooks.py` y no en `main.py`.
+- **El tamaño al que sale el video decodificado es de la cámara, no del decodificador.**
+  `cameras.<slot>.decode` elige quién decodifica una cámara RTSP o un video —`cpu` o
+  `nvdec`, que es NVDEC más el VIC de la Jetson— y a qué tamaño sale el frame. En `nvdec`
+  reduce el VIC y en `cpu` un `cv2.resize`, los dos bilineales, así que cambiar de backend
+  cambia quién trabaja y no lo que ve la app. Para la app la cámara pasa a ser de ese tamaño:
+  el ROI, el dataset y los streams quedan en él. Reducir es lo que ahorra: NVDEC a tamaño
+  completo apenas gana, porque copiar el frame grande a numpy cuesta casi lo que
+  decodificarlo. `nvdec` en un equipo que no lo tiene no cae a la CPU: la cámara no abre y
+  el log dice por qué, porque una planta que cuenta con el VIC no puede pasar a gastar CPU
+  sin que se note. El default es `cpu`.
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
   necesita GStreamer instalado en el equipo.
+- **Un calibrador es un subcomando del ejecutable, no un programa aparte.** `main.py
+  --calibrate <nombre>` lo despacha antes de la ventana y de la licencia, y el entregable
+  lleva un lanzador por cada uno. Así llega compilado a una planta sin Python y lee el
+  config de la instalación ya resuelto; un `.exe` por herramienta sería otra compilación,
+  otro binario sin firmar para el antivirus y otro lugar que elige qué `config.yaml` leer.
+  Lo que dice qué calibradores hay es una tabla (`calibration/registry.py`) y no código en
+  la maquinaria, porque el primer fork que lo hizo tuvo que editar `main.py` y
+  `make_release.py` por cada herramienta. Sus entradas y reportes viven en
+  `calibration/<nombre>/` relativo a `DATA_DIR`, que compilado es `installation/` y
+  sobrevive a una actualización; en el repo no se versionan.
 - **Un hilo de inferencia por pipeline, no por cámara.** Las cámaras que comparten
   modelo comparten el hilo: entran por una cola con el último frame de cada una, y el
   hilo las atiende por turno. Así los pesos se cargan una sola vez y el acceso a la
@@ -683,8 +726,9 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   `system/inference/` (+1 línea en la fábrica), otra clase de pipeline en `pipeline.py`
   (+1 línea en `pipeline_factory.py`), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
-  (lo devuelve `_build_monitor_content()` de `main.py`), y lo que corresponda en `test/`,
-  `manual_test/` y `docs/`.
+  (lo devuelve `_build_monitor_content()` de `main.py`), un calibrador en
+  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), y lo que corresponda en
+  `test/`, `manual_test/` y `docs/`.
 - **De `main.py` se completan cuatro métodos**, los del bloque marcado: el widget del
   monitor, el contexto que se guarda con el dataset, las compuertas de frames y la
   reacción a un cambio de señal (`_on_signals_changed()`) —las dos últimas, vacías en el
@@ -733,8 +777,19 @@ La tabla completa, archivo por archivo, está en `README.md`.
   simulado. Lo que queda es de cada instalación: declarar en `gpio:` los offsets de su
   placa y verlos conmutar en el borne.
 - El modelo del proyecto. El template trae el mock —detecciones sintéticas, sin
-  framework— y el fork agrega el suyo en `system/inference/` registrándolo en la
-  fábrica; el pipeline y las métricas son los otros dos archivos que se reescriben.
+  framework— y los YOLO de ultralytics exportados a TensorRT (`yolo_det`, `yolo_seg`,
+  `yolo_cls`), que corren el engine sin ultralytics y cargan desde bytes. Lo que falta de
+  ellos es verlos andar en la Jetson con un engine de verdad: la suite prueba el pre y post
+  proceso, no la pasada por la GPU. Un modelo de otro framework lo agrega el fork en
+  `system/inference/models/` registrándolo en la fábrica; el pipeline y las métricas son
+  los otros dos archivos que se reescriben.
+- **De los motores de la Jetson, la app usa hoy el VIC y NVENC en los codecs `_hw` del
+  RTSP, y NVDEC + VIC para decodificar las cámaras RTSP y los videos** con
+  `decode.backend: nvdec`. La telemetría publica qué motor está en uso, leído de sysfs sin
+  root. La decodificación por NVDEC falta verla andar en la Jetson con una cámara de
+  verdad. Para un frame que ya está en numpy —el de una cámara GigE— el VIC y NVJPG no
+  convienen: copiarlo al motor y de vuelta cuesta más de lo que ahorran. Las mediciones y
+  el plan están en `.claude/plans/jetson-accelerators.md`.
 - La captura por trigger de software está diseñada y diferida en
   `.claude/plans/software-trigger-capture.md`.
 - **De la escritura del PLC falta la prueba contra un PLC de verdad.** Lo demás está y se

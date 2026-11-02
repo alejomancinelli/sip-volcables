@@ -36,6 +36,7 @@ _DEFAULT_CODEC = "h264_sw"
 
 _MAX_PORT = 65535
 _MAX_FRAME_WIDTH_PX = 8192
+_MAX_BITRATE_KBPS = 100_000
 _MAX_FPS = 240
 _MAX_CLAHE_CLIP = 8.0
 _MAX_GAMMA = 4.0
@@ -85,13 +86,16 @@ class VideoTab(AbstractConfigTab):
         self._rtsp_width = add_form_row(
             form, tr("video_frame_width"), build_spin_box(0, _MAX_FRAME_WIDTH_PX, 0)
         )
+        self._rtsp_bitrate = add_form_row(
+            form, tr("video_bitrate"), build_spin_box(0, _MAX_BITRATE_KBPS, 4000)
+        )
         self._rtsp_interfaces = add_form_row(
             form, tr("video_net_interfaces"), build_line_edit("", "eth0, eth1")
         )
         self._rtsp_log = add_check_row(form, tr("video_log_connections"), True)
         wire_enable_toggle(self._rtsp_enabled, [
             self._rtsp_port, self._rtsp_codec, self._rtsp_fps, self._rtsp_width,
-            self._rtsp_interfaces, self._rtsp_log,
+            self._rtsp_bitrate, self._rtsp_interfaces, self._rtsp_log,
         ])
         return box
 
@@ -122,6 +126,7 @@ class VideoTab(AbstractConfigTab):
         set_combo_data(self._rtsp_codec, self._config.get("video.rtsp.codec", _DEFAULT_CODEC))
         self._rtsp_fps.setValue(int(self._config.get("video.rtsp.fps", 15)))
         self._rtsp_width.setValue(int(self._config.get("video.rtsp.frame_width_px", 0)))
+        self._rtsp_bitrate.setValue(int(self._config.get("video.rtsp.bitrate_kbps", 0) or 0))
         self._rtsp_interfaces.setText(join_list(self._config.get("video.rtsp.net_interfaces", [])))
         self._rtsp_log.setChecked(bool(self._config.get("video.rtsp.log_connections", True)))
 
@@ -140,6 +145,7 @@ class VideoTab(AbstractConfigTab):
         self._config.set("video.rtsp.codec", self._rtsp_codec.currentData())
         self._config.set("video.rtsp.fps", self._rtsp_fps.value())
         self._config.set("video.rtsp.frame_width_px", self._rtsp_width.value())
+        self._config.set("video.rtsp.bitrate_kbps", self._rtsp_bitrate.value())
         self._config.set("video.rtsp.net_interfaces", split_list(self._rtsp_interfaces.text()))
         self._config.set("video.rtsp.log_connections", self._rtsp_log.isChecked())
 

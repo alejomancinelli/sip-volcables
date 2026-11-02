@@ -1,0 +1,40 @@
+# Config de export_engine.py: qué modelos de ultralytics se exportan a TensorRT y a qué
+# tamaño de entrada. Separada del config.yaml de la app.
+#
+# Se exporta en el mismo módulo Jetson y la misma versión de JetPack que va a correr el
+# engine: un .engine no se lleva de un equipo a otro.
+
+models:
+  person_det:
+    weights: models/det.pt        # el .pt entrenado; relativo a la raíz del repo
+    # true = la entrada tiene la relación de aspecto de lo que mira el modelo (abajo);
+    # false = cuadrada, como entrena ultralytics. Con un frame 16:9 el cuadrado es casi la
+    # mitad relleno, y en volcables el rectangular fue la mayor ganancia del lado del
+    # modelo, con las mismas detecciones. Los clasificadores van siempre cuadrados: se
+    # entrenan así.
+    rectangular: true
+    long_side_px: 640             # lado largo de la entrada; el imgsz con que se entrenó
+    # Lo que le llega al modelo: el frame decodificado (`cameras.<slot>.decode`) o, si la
+    # cámara usa ROI, el tamaño del ROI. De acá sale la relación de aspecto.
+    source_width_px: 640
+    source_height_px: 360
+    half: true                    # FP16: la mitad de memoria y más rápido que FP32
+    workspace_gb: 1               # tope de memoria del builder; sin tope, el NX de 8 GB se quedó sin RAM
+
+  stopper_seg:
+    weights: models/seg.pt
+    rectangular: true
+    long_side_px: 640
+    source_width_px: 640
+    source_height_px: 360
+    half: true
+    workspace_gb: 1
+
+  grain_cls:
+    weights: models/cls.pt
+    rectangular: false
+    long_side_px: 224
+    source_width_px: 640
+    source_height_px: 360
+    half: true
+    workspace_gb: 1

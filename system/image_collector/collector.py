@@ -92,7 +92,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -269,6 +269,8 @@ class ImageCollector:
         self._file_buffers: dict[str, deque] = {}
         self._recent_hashes: dict[str, deque] = {}
         self._buffers_ready = False
+        # Último instante con el que se nombró un archivo, por cámara (ver _stamp_for).
+        self._last_stamps: dict[str, datetime] = {}
 
         # Lo que publica get_stats(): se toca con su propio lock para que consultar el
         # estado no espere a una escritura.
@@ -563,9 +565,9 @@ class ImageCollector:
                 self._count("skipped")
                 return False
 
-            timestamp = job.captured_at.strftime(_TIMESTAMP_FORMAT)
-            filename = f"{job.camera_slot}_{timestamp}"
-            date_path = os.path.join(dataset_path, job.captured_at.strftime(_DATE_FORMAT))
+            stamp = self._stamp_for(job)
+            filename = f"{job.camera_slot}_{stamp.strftime(_TIMESTAMP_FORMAT)}"
+            date_path = os.path.join(dataset_path, stamp.strftime(_DATE_FORMAT))
             dir_annotated = os.path.join(date_path, _DIR_ANNOTATED, job.camera_slot)
             # La entrada del buffer apunta siempre a la ranura de original/, exista o no
             # ese archivo: es la clave con la que _evict_oldest reconstruye las tres rutas.
@@ -594,6 +596,23 @@ class ImageCollector:
             self._publish_save(job.captured_at)
             logger.debug(f"[ImageCollector] Guardado: {canonical_path}")
             return True
+
+    def _stamp_for(self, job: _SaveJob) -> datetime:
+        """
+        El instante que nombra los archivos de `job`: el de la captura, o un microsegundo
+        después del último de esa cámara si no es más nuevo. Se llama con el lock.
+
+        En Windows el reloj avanza de a un milisegundo o más, así que dos capturas
+        seguidas de la misma cámara pueden traer el mismo instante: con el mismo nombre,
+        la segunda pisaba a la primera y el dataset perdía una imagen sin avisar. Correrlo
+        un microsegundo mantiene el orden cronológico por nombre de archivo.
+        """
+        stamp = job.captured_at
+        last = self._last_stamps.get(job.camera_slot)
+        if last is not None and stamp <= last:
+            stamp = last + timedelta(microseconds=1)
+        self._last_stamps[job.camera_slot] = stamp
+        return stamp
 
     def _ensure_buffers_ready(self):
         """

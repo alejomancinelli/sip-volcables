@@ -54,6 +54,9 @@ class ConfigView(QWidget):
     # (slot de cámara, clave del config donde va el rectángulo, clave de idioma del título).
     # Lo manda la pestaña que lo pide: esta vista lo reenvía sin leerlo.
     open_roi_requested = Signal(str, str, str)
+    # (slot de cámara, clave del config donde va la altura, clave de idioma del título). Igual
+    # que el rectángulo: lo manda la pestaña que lo pide y esta vista lo reenvía sin leerlo.
+    open_level_requested = Signal(str, str, str)
     calibrate_lens_requested = Signal(str)  # slot de la cámara cuya óptica hay que calibrar
 
     def __init__(self, config_manager: ConfigManager, parent=None):
@@ -88,6 +91,11 @@ class ConfigView(QWidget):
             signal = getattr(tab, "open_roi_requested", None)
             if signal is not None:
                 signal.connect(partial(self._on_roi_requested, tab))
+        self._level_requester = None
+        for tab in self._tabs:
+            signal = getattr(tab, "open_level_requested", None)
+            if signal is not None:
+                signal.connect(partial(self._on_level_requested, tab))
         lens_tab = self._get_lens_health_tab()
         if lens_tab is not None:
             lens_tab.calibrate_requested.connect(self.calibrate_lens_requested)
@@ -132,6 +140,11 @@ class ConfigView(QWidget):
         if self._roi_requester is not None:
             self._roi_requester.reload_roi(camera_slot)
 
+    def refresh_level_fields(self, camera_slot: str):
+        """Recarga la altura tras cerrarse su diálogo, sólo en la pestaña que la pidió."""
+        if self._level_requester is not None:
+            self._level_requester.reload_level(camera_slot)
+
     def _build_button_row(self) -> QHBoxLayout:
         discard_button = QPushButton(tr("config_discard"))
         discard_button.setObjectName("discardButton")
@@ -166,6 +179,11 @@ class ConfigView(QWidget):
         """Recuerda quién pidió el rectángulo y reenvía el pedido tal cual."""
         self._roi_requester = tab
         self.open_roi_requested.emit(camera_slot, config_prefix, title_key)
+
+    def _on_level_requested(self, tab, camera_slot: str, config_key: str, title_key: str):
+        """Recuerda quién pidió la altura y reenvía el pedido tal cual."""
+        self._level_requester = tab
+        self.open_level_requested.emit(camera_slot, config_key, title_key)
 
     def _on_discard_clicked(self):
         self.reload()

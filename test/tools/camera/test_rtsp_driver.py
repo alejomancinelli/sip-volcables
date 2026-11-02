@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pytest
 
-from tools.camera import rtsp_driver
+from tools.camera import decoder, rtsp_driver
 from tools.camera.rtsp_driver import RtspDriver
 
 _STATUS_KEYS = {"connected", "capture_enabled", "temperature", "fps_estimated"}
@@ -113,7 +113,7 @@ def _driver(monkeypatch, *, address: str = "10.8.83.90/stream1", fps_limit: floa
     """Un driver con el stream doble ya cableado, listo para correr `_grab_loop`."""
     driver = RtspDriver({"address": address, "acquisition": {"fps_limit": fps_limit}})
     stream = _Stream(driver, **stream_kwargs)
-    monkeypatch.setattr(rtsp_driver.cv2, "VideoCapture", stream.open_capture)
+    monkeypatch.setattr(decoder.cv2, "VideoCapture", stream.open_capture)
     driver._grab_active = True
     return driver, stream
 
@@ -272,9 +272,9 @@ class TestGrabLoop:
 
         url, api_preference, params = stream.open_calls[0]
         assert url == driver._url
-        assert api_preference == rtsp_driver.cv2.CAP_FFMPEG
-        assert rtsp_driver.cv2.CAP_PROP_OPEN_TIMEOUT_MSEC in params
-        assert rtsp_driver.cv2.CAP_PROP_READ_TIMEOUT_MSEC in params
+        assert api_preference == decoder.cv2.CAP_FFMPEG
+        assert decoder.cv2.CAP_PROP_OPEN_TIMEOUT_MSEC in params
+        assert decoder.cv2.CAP_PROP_READ_TIMEOUT_MSEC in params
 
     def test_a_stream_that_does_not_open_leaves_the_driver_disconnected(self, monkeypatch):
         driver, stream = _driver(monkeypatch, opens=False, stop_after_sessions=1)

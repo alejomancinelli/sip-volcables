@@ -311,6 +311,9 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Frame width (px, 0 = native):",
                                "pt": "Largura do frame (px, 0 = nativo):"},
     "video_codec":            {"es": "Codec:",         "en": "Codec:",        "pt": "Codec:"},
+    "video_bitrate":          {"es": "Bitrate (kbit/s, 0 = el del encoder):",
+                               "en": "Bitrate (kbit/s, 0 = encoder default):",
+                               "pt": "Bitrate (kbit/s, 0 = padrão do encoder):"},
     "video_net_interfaces":   {"es": "Interfaces de red (vacío = todas):",
                                "en": "Network interfaces (empty = all):",
                                "pt": "Interfaces de rede (vazio = todas):"},
@@ -731,6 +734,18 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "Arraste com o mouse sobre a imagem para desenhar o ROI."},
     "roi_reset":              {"es": "Restablecer",    "en": "Reset",         "pt": "Restabelecer"},
     "roi_save":               {"es": "Guardar ROI",    "en": "Save ROI",      "pt": "Salvar ROI"},
+    "level_title":            {"es": "Marcar altura",  "en": "Mark height",   "pt": "Marcar altura"},
+    "level_box_coords":       {"es": "Altura (píxeles)",
+                               "en": "Height (pixels)",
+                               "pt": "Altura (pixels)"},
+    "level_y":                {"es": "Y (0 = arriba)", "en": "Y (0 = top)",   "pt": "Y (0 = topo)"},
+    "level_hint":             {"es": "Hacé click o arrastrá sobre la imagen para ubicar la "
+                                     "línea; es horizontal y cubre todo el ancho.",
+                               "en": "Click or drag on the image to place the line; it is "
+                                     "horizontal and spans the whole width.",
+                               "pt": "Clique ou arraste sobre a imagem para posicionar a "
+                                     "linha; é horizontal e cobre toda a largura."},
+    "level_save":             {"es": "Guardar altura", "en": "Save height",   "pt": "Salvar altura"},
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
     "dialog_close":           {"es": "Cerrar",         "en": "Close",         "pt": "Fechar"},
     "gpio_title":             {"es": "Entradas y salidas digitales",
