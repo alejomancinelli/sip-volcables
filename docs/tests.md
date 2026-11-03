@@ -646,7 +646,7 @@ Tests de las opciones con las que se llama a Nuitka.
 <details><summary>Tests</summary>
 
 - `TestExtraFlags`
-  - `test_the_template_adds_none`
+  - `test_they_are_added_and_nothing_else`
   - `test_what_the_fork_declares_ends_up_in_the_command`
   - `test_they_come_before_the_exclusions`
   - `test_the_machinery_flags_are_still_there`
@@ -654,7 +654,7 @@ Tests de las opciones con las que se llama a Nuitka.
 - `TestOptionalPackages`
   - `test_an_installed_package_is_included`
   - `test_a_missing_one_is_left_out`
-  - `test_the_fork_block_stays_empty_either_way`
+  - `test_it_does_not_need_the_fork_block`
   - `test_the_accelerated_build_leaves_it_loose`
 - `TestCalibrators`
   - `test_the_standalone_build_includes_them`
@@ -662,7 +662,7 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
-  - `test_excluding_nothing_is_the_default`
+  - `test_excluding_nothing_adds_no_flag`
 - `TestPlatform`
   - `test_windows_gets_the_executable_properties`
   - `test_linux_does_not`
