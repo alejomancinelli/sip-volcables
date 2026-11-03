@@ -18,12 +18,14 @@ cámara: el que se analiza y el que algún proceso mida aparte.
 Los dos se dibujan igual y sobre el mismo frame en vivo, así que lo único que cambia es
 dónde se guardan y cómo se titula la ventana. Sin esto, el segundo rectángulo se escribiría
 a mano en el `config.yaml`, que es justo lo que este diálogo existe para evitar.
+
+El video se puede pausar (`PauseButton`) para dibujar sobre un frame quieto.
 """
 
 import cv2
 import numpy as np
 from PySide6.QtCore import QPoint, QRect, Qt, Slot
-from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox,
     QVBoxLayout,
@@ -34,6 +36,7 @@ from system.config_manager import ConfigManager
 from ui import theme
 from ui.strings import tr
 from ui.widgets.form import add_hint_row
+from ui.widgets.pause_button import PauseButton
 
 _MIN_CANVAS_WIDTH_PX = 640
 _MIN_CANVAS_HEIGHT_PX = 400
@@ -95,8 +98,8 @@ class RoiDialog(QDialog):
 
     @Slot(object)
     def update_frame(self, frame_bgr: np.ndarray | None):
-        """Slot para la señal de frames de la cámara. Ignora un frame vacío."""
-        if frame_bgr is None or frame_bgr.size == 0:
+        """Slot para la señal de frames de la cámara. Ignora un frame vacío o en pausa."""
+        if frame_bgr is None or frame_bgr.size == 0 or self._pause_button.is_paused:
             return
         self._last_frame = frame_bgr
         self._canvas.set_frame(frame_bgr)
@@ -121,6 +124,7 @@ class RoiDialog(QDialog):
         reset_button = QPushButton(tr("roi_reset"))
         reset_button.setObjectName("resetButton")
         reset_button.clicked.connect(self._on_reset_clicked)
+        self._pause_button = PauseButton()
 
         cancel_button = QPushButton(tr("dialog_cancel"))
         cancel_button.setObjectName("cancelButton")
@@ -132,6 +136,7 @@ class RoiDialog(QDialog):
 
         row = QHBoxLayout()
         row.addWidget(reset_button)
+        row.addWidget(self._pause_button)
         row.addStretch()
         row.addWidget(cancel_button)
         row.addWidget(save_button)
@@ -186,6 +191,7 @@ class _RoiCanvas(QLabel):
         self._start: QPoint | None = None
         self._end: QPoint | None = None
         self._is_drawing = False
+        self._last_frame: np.ndarray | None = None
         self._scale_x = 1.0
         self._scale_y = 1.0
         self._offset_x_px = 0
@@ -204,6 +210,7 @@ class _RoiCanvas(QLabel):
         if frame_bgr.ndim == 2:
             frame_bgr = cv2.cvtColor(frame_bgr, cv2.COLOR_GRAY2BGR)
         frame_bgr = np.ascontiguousarray(frame_bgr)
+        self._last_frame = frame_bgr
         self._frame_height_px, self._frame_width_px = frame_bgr.shape[:2]
 
         image = QImage(frame_bgr.data, self._frame_width_px, self._frame_height_px,
@@ -230,6 +237,11 @@ class _RoiCanvas(QLabel):
         painter.end()
         self.setPixmap(canvas)
 
+    def resizeEvent(self, event: QResizeEvent):
+        """Redibuja el último frame al nuevo tamaño: en pausa no llega otro que lo haga."""
+        super().resizeEvent(event)
+        self._redraw()
+
     # ── Mouse ────────────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -242,6 +254,7 @@ class _RoiCanvas(QLabel):
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._is_drawing:
             self._end = event.position().toPoint()
+            self._redraw()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() != Qt.LeftButton or not self._is_drawing:
@@ -249,8 +262,14 @@ class _RoiCanvas(QLabel):
         self._end = event.position().toPoint()
         self._is_drawing = False
         self._emit_roi()
+        self._redraw()
 
     # ── Internos ─────────────────────────────────────────────────────────────
+
+    def _redraw(self):
+        """Vuelve a pintar el último frame: con el video en pausa, nadie más lo hace."""
+        if self._last_frame is not None:
+            self.set_frame(self._last_frame)
 
     def _get_roi_rect(self) -> QRect:
         """Recuadro a dibujar, en coordenadas del widget."""

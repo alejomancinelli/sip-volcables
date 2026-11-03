@@ -56,7 +56,10 @@ from system.logger import logger
 # —SQL, otro broker— es implementarlo en system/telemetry/backends/ y sumarlo acá.
 _DEFAULT_BACKEND_CLASSES = (InfluxDBBackend, MqttBackend)
 
-_QUEUE_MAXSIZE = 100      # puntos en vuelo; llena, se descarta el que llega
+# Puntos en vuelo; llena, se descarta el que llega. Sólo se llena mientras un backend
+# tiene la escritura bloqueada, y cada punto ocupa menos de 1 KB: 1000 son ~1 MB y
+# cubren 5 s trabados —el timeout HTTP de InfluxDB— hasta 200 puntos/s.
+_QUEUE_MAXSIZE = 1000
 _QUEUE_POLL_S = 0.5       # espera por punto, y latencia máxima de la parada
 _PUBLISH_INTERVAL_S = 10  # ventana de acumulación; el hilo drena la cola de continuo
 

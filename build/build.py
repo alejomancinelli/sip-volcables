@@ -11,9 +11,10 @@ en una Jetson con el mismo JetPack que la de la planta.
 
 **La forma cambia con la plataforma, y la decide `_ACCELERATED`.** En Windows el build es
 standalone: todo en una carpeta, sin Python en el equipo del cliente. En Linux es
-acelerado: se compila sólo lo nuestro —`system`, `tools`, `ui`— y lo de terceros viaja
-suelto en `program/site-packages`, porque en una Jetson el standalone de torch no termina
-con 8 GB y CUDA, TensorRT y el `python3.10` tienen que salir del JetPack igual. El porqué
+acelerado: se compila sólo lo nuestro —`system`, `tools`, `ui`, `calibration`— y lo de
+terceros viaja suelto en `program/site-packages`, porque en una Jetson el standalone de
+torch no termina con 8 GB y CUDA, TensorRT y el `python3.10` tienen que salir del JetPack
+igual. El porqué
 completo, y lo que se midió, está en el `README.md`.
 
 **Por qué es un script y no un comando en el README.** Dos motivos, y el primero es que
@@ -113,6 +114,12 @@ _DATA_DIRS = ("ui/styles", "ui/icons")
 # build acelerado no hace falta: viaja suelto con el resto de lo de terceros.
 _OPTIONAL_PACKAGES = ("gpiod",)
 
+# Los calibradores: `calibration/registry.py` los importa por nombre, y un import armado
+# con un string el análisis de Nuitka no lo sigue. Sin la opción el binario arranca igual,
+# y el lanzador del calibrador falla recién en la planta con un `ModuleNotFoundError`. Va
+# en las dos formas del build: en la acelerada, además, porque es código nuestro.
+_CALIBRATION_PACKAGE = "calibration"
+
 # Nuitka no compila para otra plataforma: el binario es de la máquina donde corre esto.
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -129,7 +136,7 @@ _ACCELERATED_BINARY = "main.bin"   # el nombre que le da Nuitka en Linux
 # `cryptography` NO va, aunque verifique la licencia: Nuitka 4.2.2 carga vacía su
 # extensión de Rust (PyO3, inicialización multifase) y ninguna licencia validaría nunca.
 # Suelta la cubre el autocontrol de `system/license/verify.py`.
-_OWN_PACKAGES = ("system", "tools", "ui")
+_OWN_PACKAGES = ("system", "tools", "ui", _CALIBRATION_PACKAGE)
 
 _ACCELERATED_FLAGS = (
     # Sin `site`, el intérprete no suma el `dist-packages` del sistema ni `~/.local`: lo de
@@ -185,6 +192,7 @@ def _flags(out_dir: str) -> list:
 
     flags += [f"--include-package={package}" for package in _OPTIONAL_PACKAGES
               if _is_installed(package)]
+    flags.append(f"--include-package={_CALIBRATION_PACKAGE}")
     flags += list(_EXTRA_FLAGS)
     flags += [f"--nofollow-import-to={package}" for package in _EXCLUDED]
     flags += [f"--include-data-dir={directory}={directory}" for directory in _DATA_DIRS]

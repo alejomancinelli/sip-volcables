@@ -782,6 +782,12 @@ class TestNetThroughput:
         clock.advance(1.0)
         assert list(monitored._read_net_mbps()) == ["eth0"]
 
+    def test_the_interfaces_are_known_before_the_first_reading(self, monkeypatch):
+        """El aviso de margen de la telemetría cuenta los puntos de red al arrancar."""
+        _net_source(monkeypatch, {"lo": _Counters(0, 0), "eth0": _Counters(0, 0),
+                                  "eth1": _Counters(0, 0)})
+        assert _monitor().get_interfaces() == ["eth0", "eth1"]
+
     def test_the_baseline_advances_on_every_call(self, monkeypatch):
         """La tasa es del último intervalo, no acumulada desde el arranque."""
         clock = _net_source(
@@ -855,6 +861,17 @@ class TestGetMetrics:
         assert metrics["gpu_usage_pct"] == 37
         assert metrics["gpu_temp_c"] == 54
         assert metrics["power_w"] == 22
+
+    def test_the_power_is_a_float_whatever_the_source(self, windows, monkeypatch, tmp_path):
+        """InfluxDB rechaza el campo que cambia de tipo: los rails dan float, nvidia-smi no."""
+        monkeypatch.setattr(sm.subprocess, "run", _FakeProbe("37, 54, 22.11"))
+        assert isinstance(windows.get_metrics()["power_w"], float)
+
+        monkeypatch.setattr(sm, "_POWER_GLOBS", ())
+        monkeypatch.setattr(sm, "_POWER_HWMON_GLOB", str(tmp_path / "missing"))
+        without_sensor = _monitor()
+        without_sensor._nvidia_smi_path = None
+        assert isinstance(without_sensor.get_metrics()["power_w"], float)
 
     def test_a_firmware_without_zones_reports_no_temperature(self, windows, monkeypatch):
         monkeypatch.setattr(sm.subprocess, "run", _FakeProbe(""))

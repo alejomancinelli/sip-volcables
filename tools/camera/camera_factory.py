@@ -31,6 +31,17 @@ _DRIVER_CLASSES: dict[str, type[AbstractCameraDriver]] = {
 REGISTERED_DRIVERS = tuple(_DRIVER_CLASSES)
 
 
+def can_cut_views(config_cam: dict) -> bool:
+    """
+    True si el driver de esa cámara decodifica video y puede cortar vistas del nativo.
+
+    Se contesta desde la sección de la cámara, sin abrir nada: el cableado lo necesita antes
+    de que ninguna cámara arranque. Un `driver` que falta o no está registrado no corta.
+    """
+    driver_class = _DRIVER_CLASSES.get(str(config_cam.get("driver") or "").strip().lower())
+    return driver_class is not None and driver_class.provides_views
+
+
 def create_camera(config_cam: dict) -> AbstractCameraDriver:
     """
     Devuelve el driver que corresponde al sub-diccionario de una cámara.

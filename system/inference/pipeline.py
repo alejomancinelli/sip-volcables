@@ -63,7 +63,13 @@ config.yaml; sin ella la fábrica devuelve un NullModel y esa etapa no detecta n
 import numpy as np
 
 from .abstract_pipeline import AbstractPipeline
-from .result import Detection
+from .result import ROI_STATE_NOK, ROI_STATE_OK, Detection
+
+# Las clases de `grain_cls`.
+FLOW_CLASS = "flow"
+NO_FLOW_CLASS = "no_flow"
+
+_PERSON_CLASS = "person"
 
 
 class Pipeline(AbstractPipeline):
@@ -77,4 +83,57 @@ class Pipeline(AbstractPipeline):
     model_slots = ("model_1",)
 
     def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
-        return self._run_stage("model_1", frame_bgr)
+        detections = self._run_stage("model_1", frame_bgr)
+        if self.is_synthetic:
+            # Demostración del recuadro pintado por el veredicto, sólo con el modelo
+            # sintético: con uno real el estado lo decide la lógica del proceso.
+            self._set_roi_state(ROI_STATE_OK if detections else ROI_STATE_NOK)
+        return detections
+
+
+class GrainFlowPipeline(AbstractPipeline):
+    """
+    ¿Cae grano del camión? Un clasificador sobre la vista de la tolva.
+
+    El veredicto es del frame entero, así que sale en el label `grain_flow` con la clase más
+    confiable y no como detección: una caja del tamaño del frame no dice nada. Sin
+    detecciones el label es `none`. El recuadro del ROI se pinta de OK con `flow` y de NOK con
+    `no_flow`; con `none` no dice nada.
+    """
+
+    model_slots = ("grain_cls",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        detections = self._run_stage("grain_cls", frame_bgr)
+        top = max(detections, key=lambda detection: detection.confidence_pct, default=None)
+        self._set_label("grain_flow", top.class_name if top is not None else "none")
+        if top is not None and top.class_name == FLOW_CLASS:
+            self._set_roi_state(ROI_STATE_OK)
+        elif top is not None and top.class_name == NO_FLOW_CLASS:
+            self._set_roi_state(ROI_STATE_NOK)
+        return []
+
+
+class PersonPipeline(AbstractPipeline):
+    """
+    Personas en la escena: una etapa de detección. La zona la juzgan el analyzer y el
+    annotator.
+
+    Devuelve sólo la clase `person`: el modelo puede ser un YOLO genérico que también
+    detecta autos y camiones, y esas cajas no tienen que dibujarse ni contarse.
+    """
+
+    model_slots = ("person_det",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        return [detection for detection in self._run_stage("person_det", frame_bgr)
+                if detection.class_name == _PERSON_CLASS]
+
+
+class StopperPipeline(AbstractPipeline):
+    """Calzas y ruedas, una cámara por lado: una etapa de segmentación."""
+
+    model_slots = ("stopper_seg",)
+
+    def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
+        return self._run_stage("stopper_seg", frame_bgr)

@@ -94,6 +94,51 @@ process:
   scale_px_per_mm: {}           # {camera_1: 3.2} — calibración; sin esto no hay medidas físicas
   max_load_y_px: {}             # {camera_1: 430} — altura del límite de carga de la cinta
   min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
+  # Caída de grano. Declarada, el anotado de cada cámara del grano lleva el estado de la
+  # descarga: un borde verde sólo si cae grano y no hay personas en la zona de exclusión,
+  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK.
+  grain_flow: {}
+  ramp_gate:
+    # La plataforma corta la medición. Estos pipelines miden con la plataforma horizontal y
+    # dejan de recibir frames cuando el PLC escribe `ramp_state` = 2 (inclinada): pasado ese
+    # ángulo el camión sale del ROI y el polvo vuelve la inferencia no confiable. Con 0 (sin
+    # información) siguen midiendo. Mientras está cortada no hay overlay, telemetría ni
+    # dataset de esos pipelines, y sus registros quedan con el último valor. Personas no va:
+    # la zona se vigila también durante el volteo. [] = ninguno cortado.
+    pipelines: [pipeline_1, pipeline_3]
+  person_safety:
+    # Zona de exclusión por cámara: un polígono en píxeles del frame de referencia —el que
+    # sale después del decodificador, así que cambiar su tamaño obliga a redibujarla—.
+    # Una persona cuenta si los pies —el centro del borde inferior de su caja— caen
+    # adentro. Una cámara sin zona cuenta a cualquier persona del frame.
+    exclusion_zone_px: {}       # {camera_3: [[x, y], [x, y], [x, y], ...]}
+  stopper_check:
+    # Calzas, por cámara: cada cámara de un pipeline `stopper_check` tiene su grupo en la
+    # pestaña Proceso, y la altura se marca ahí sobre el frame en vivo. Todo en píxeles del
+    # frame de referencia: cambiar el tamaño de salida del decodificador obliga a revisarlo.
+    #   - La calza está levantada si al menos `min_raised_px` píxeles de su máscara quedan
+    #     por encima de la fila `raised_y_px`: una línea horizontal de borde a borde.
+    #   - Con la calza levantada —antes no se juzga y el panel dice «--»—, la rueda la toca
+    #     si la distancia más corta entre las dos máscaras no pasa de `max_gap_px`. Entre
+    #     máscaras y no entre bbox: con la calza bajo la curva de la goma, los bbox se
+    #     solapan aunque haya aire entre las dos.
+    #   - Con `wheel_side` sólo cuenta la rueda de ese lado de la calza, en la imagen: elige
+    #     la rueda correcta con dos ejes a la vista, y una rueda sólo del otro lado deja el
+    #     contacto en NOK.
+    # Una cámara sin altura o sin distancia (o en null) tiene ese veredicto sin calibrar: el
+    # panel dice «--» y el borde queda en rojo.
+    raised_y_px:                # fila del frame, 0 = arriba
+      camera_1: 725
+      camera_2: 685
+    min_raised_px:              # sin valor, 50
+      camera_1: 50
+      camera_2: 50
+    max_gap_px:
+      camera_1: 50
+      camera_2: 50
+    wheel_side:                 # left | right | any; sin valor, any
+      camera_1: right
+      camera_2: left
   #
   # VARIOS PROCESOS. Una instalación con más de un proceso —cuatro cintas iguales, cada
   # una con su calibración— abre una sub-sección por proceso y declara qué cámaras mide
@@ -128,8 +173,10 @@ inference:
   # recorta el segundo, qué hace con lo que encontró el primero—. Acá va de dónde sale
   # cada modelo y qué cámaras entran a cada pipeline.
   #
-  # El ROI y el mínimo de iluminación son de la cámara y viven en su sección: se recorta
-  # y se mide antes de gastar una pasada del modelo.
+  # La cámara no tiene ROI: la región es de cada pipeline (`roi:` en su sección, abajo),
+  # porque dos modelos sobre la misma cámara miran partes distintas. Se recorta y se mide
+  # el brillo antes de gastar una pasada del modelo; el mínimo de iluminación sí es de la
+  # cámara (`cameras.<slot>.illumination_min`).
   overlay:
     # Dibujado del resultado sobre el frame. Sale una sola vez y el mismo array viaja a
     # la UI, al stream `annotated` y al dataset. La sección entera se edita sólo acá: la
@@ -139,21 +186,29 @@ inference:
     draw_boxes: true
     draw_masks: true            # sólo hace algo si el modelo devuelve máscaras
     draw_labels: true           # nombre de clase y confianza sobre cada caja
-    draw_roi: true              # recuadro de la zona que se analizó
-    draw_timestamp: true
+    # Recuadro de la región de cada pipeline, con su color y su nombre; de verde, rojo o
+    # amarillo si el pipeline declara un veredicto, y gris punteado si el resultado no vale.
+    draw_roi: true
+    # false = la hora la dibuja el proyecto (system/inference/hooks.py), del tamaño del
+    # frame y encima del borde de estado; la del motor tiene escala fija y en 2560 px queda
+    # escondida dentro del borde.
+    draw_timestamp: false
     font_scale: 0.6
-    thickness: 2
+    thickness: 4                # px de la línea de las cajas, en el frame que llega
     class_colors_bgr: []        # [[B,G,R], ...] por índice de clase; [] = paleta del módulo
   pipelines:
     # Una entrada por pipeline, numeradas pipeline_1 … pipeline_N. La clave es el slot:
     # es la identidad con la que el pipeline aparece en el resto del sistema.
     pipeline_1:
+      # Cómo lo llama el operador: es lo que muestran el diálogo de regiones y la pestaña
+      # Inferencia. Opcional; sin él se muestra el slot, que sigue siendo la identidad.
+      name: Flujo de grano
       enabled: true
       # Qué clase corre este slot: ver REGISTERED_PIPELINES en pipeline_factory.py.
       # Ausente = `default`. Dos slots del mismo tipo son dos hilos con sus propios pesos:
       # así se reparten cámaras entre hilos. Un tipo no registrado deja el pipeline sin
       # cargar, con resultados no confiables.
-      type: default
+      type: grain_flow
       # Qué addon comercial es este pipeline: UN nombre. Lo lee el subsistema de licencia
       # (`system/license/`) y un pipeline cuyo feature no está habilitado no se instancia.
       # Ausente = `core`, que es el pipeline normal y el que tiene toda instalación.
@@ -167,22 +222,59 @@ inference:
       # solo el cliente que no compró la vigilancia perdería también la medición que sí
       # pagó, porque el pipeline entero no arranca.
       feature: core
-      cameras: [camera_1]       # cámaras que entran a este hilo; [] = todas las que le pusheen
-      interval_s: 0.0           # período mínimo entre frames de una misma cámara; 0 = todos
+      cameras: [camera_3, camera_4]   # cámaras que entran a este hilo; [] = todas las que le pusheen
+      interval_s: 0.5           # período mínimo entre frames de una misma cámara; 0 = todos
       # Umbrales del resultado completo, no de cada detección: por debajo, el resultado se
       # emite igual pero marcado como no confiable, y sus números no se publican como
       # medición. El descarte por detección es del modelo (`min_confidence_pct`).
       min_detections: 0         # menos detecciones que esto = resultado no confiable
       min_result_confidence_pct: 0   # confianza media por debajo de esto = resultado no confiable
+      # Región de este pipeline, por cámara. Sin la cámara acá, en null o con
+      # `enabled: false`, el pipeline ve el frame completo. Se dibuja con el diálogo de
+      # regiones (pestaña Inferencia → «Editar regiones…»), y las coordenadas son del frame
+      # que entrega la cámara —el que se ve en pantalla—. `frame_width_px` /
+      # `frame_height_px` son el tamaño del frame sobre el que se dibujó: si el que llega es
+      # otro, el diálogo y el log avisan que el recuadro puede haber quedado corrido.
+      #
+      # En una cámara que decodifica video (`rtsp`, `video_file`) la región se corta del
+      # video NATIVO antes de reducirlo (tools/camera/decoder.py), así el modelo no pierde
+      # el detalle que la reducción le quita al frame, y sale ya a la entrada del modelo,
+      # leída del .engine. No se elige: lo decide la cámara. Con corrección de lente o
+      # ajuste de imagen se recorta del frame de referencia. Cambiar el rectángulo se aplica
+      # al reiniciar. El dataset de un pipeline con región guarda la región que vio, en una
+      # carpeta `<cámara>-<pipeline>`.
+      roi:
+        camera_3:
+          enabled: true
+          x_px: 206
+          y_px: 127
+          width_px: 209
+          height_px: 224
+          frame_width_px: 640
+          frame_height_px: 360
+        camera_4:
+          enabled: true
+          x_px: 251
+          y_px: 101
+          width_px: 229
+          height_px: 225
+          frame_width_px: 640
+          frame_height_px: 360
       # ── El ciclo de medición ──────────────────────────────────────────────
-      # El motor no lee ninguna de estas cuatro: emite un resultado por frame y no
-      # promedia. Las lee `system/camera/capture_scheduler.py`, que junta los N resultados
-      # y los agrega con `analysis.summarize_metrics` (media, desvío y rango) y
+      # El motor no lee ninguna de estas: emite un resultado por frame y no promedia. Las
+      # lee `system/camera/capture_scheduler.py`, que junta los N resultados y los agrega
+      # con `analysis.summarize_metrics` (media, desvío y rango) y
       # `analysis.pick_representative` (qué frame se guarda y se muestra).
       #
-      # Con `frames_per_cycle: 1` el scheduler es un pass-through y las otras tres no
-      # hacen nada: una aplicación en tiempo real no tiene ciclo que orquestar.
+      # Con `frames_per_cycle: 1` y `cycle_trigger: interval` el scheduler es un
+      # pass-through y las demás no hacen nada: una aplicación en tiempo real no tiene ciclo
+      # que orquestar.
       frames_per_cycle: 1       # imágenes que forman UNA medición; 1 = una por frame
+      # Quién abre las rondas. `interval`: el reloj, cada `cycle_interval_s`. `request`: sólo
+      # `request_round()`, que el fork llama cuando la planta lo pide —un contador del PLC,
+      # un flanco de GPIO— desde `_on_signals_changed()` de main.py. Con `request` el
+      # pipeline tiene ciclo aunque mida de a un frame: el medido es uno posterior al pedido.
+      cycle_trigger: interval
       cycle_interval_s: 0.0     # espera entre rondas; 0 = la siguiente arranca al terminar
       capture_timeout_s: 30     # un frame pedido que no vuelve en esto se da por perdido
       idle_cameras_between_cycles: false
@@ -192,18 +284,48 @@ inference:
       # imagen mientras tanto, así que viene apagado. Al prenderlo, `capture_timeout_s`
       # tiene que cubrir lo que la cámara tarda en rearmar la adquisición: si el primer
       # frame llega después del timeout, la ronda se queda esperando algo que no salió.
+    pipeline_2:
+      # Personas sobre las mismas dos cámaras que el grano, a su propio ritmo: es el caso
+      # del anotado combinado —las cajas de personas y el panel del grano juntos—. Sin
+      # región: mira la escena entera.
+      name: Seguridad de personas
+      enabled: true
+      type: person_safety
+      feature: person_safety
+      cameras: [camera_3, camera_4]
+      interval_s: 0.0
+      min_detections: 0
+      min_result_confidence_pct: 0
+      frames_per_cycle: 1
+      cycle_interval_s: 0.0
+      capture_timeout_s: 30
+      idle_cameras_between_cycles: false
+    pipeline_3:
+      # Calzas: una cámara por lado, sin otro pipeline encima.
+      name: Verificación de calza
+      enabled: true
+      type: stopper_check
+      feature: stopper_check
+      cameras: [camera_1, camera_2]
+      interval_s: 0.5
+      min_detections: 0
+      min_result_confidence_pct: 0
+      frames_per_cycle: 1
+      cycle_interval_s: 0.0
+      capture_timeout_s: 30
+      idle_cameras_between_cycles: false
   models:
     # Una entrada por modelo, numeradas model_1 … model_N. El slot es el nombre con el que
     # el pipeline pide el modelo en `model_slots`.
     #
-    # `type: mock` da detecciones sintéticas y deja el `path` vacío. Un modelo YOLO exportado
-    # a TensorRT se declara con `type: yolo_det`, `yolo_seg` o `yolo_cls` y `path` al .engine,
-    # que se exporta en la Jetson con manual_test/model_export/; el tamaño de entrada
-    # —cuadrado o rectangular— lo dice el engine, no este archivo, y `max_side_px` no aplica.
-    # Los .pt de entrenamiento esperan en models/.
-    model_1:
-      type: mock                # ver REGISTERED_MODELS en model_factory.py
-      path: ''                  # pesos del modelo; relativo a la raíz del repo
+    # Los tres corren sus engines TensorRT (`yolo_cls`, `yolo_det` y `yolo_seg`), con
+    # `path` al .engine exportado en la Jetson con manual_test/model_export/; el tamaño de
+    # entrada —cuadrado o rectangular— lo dice el engine, no este archivo, y
+    # `max_side_px` no aplica. Los .pt de entrenamiento esperan en models/. Con `type: mock`
+    # las detecciones son sintéticas y el `path` queda vacío.
+    grain_cls:
+      type: yolo_cls          # ver REGISTERED_MODELS en model_factory.py
+      path: models/cls_fp16.engine  # pesos del modelo; relativo a la raíz del repo
       # El dispositivo no se configura: la implementación usa la GPU si hay CUDA
       # disponible y cae a CPU si no. Elegirlo a mano sólo servía para dejar la
       # inferencia en CPU sin darse cuenta.
@@ -211,11 +333,25 @@ inference:
       max_side_px: 0            # lado mayor al que se reduce antes de inferir; 0 = nativo
       # Nombre por índice de clase; [] = 'class_<i>'. Los que traen los pesos le ganan. No
       # se edita desde la UI: un orden cambiado no da un error, invierte los porcentajes.
-      class_names: []
+      class_names: [no_flow, flow]
       params: {}                # extras propios del framework
       # En un proyecto que cuenta cientos de objetos `min_confidence_pct` va bajo a
       # propósito: el que juzga si el conjunto sirve es el umbral del pipeline, sobre la
       # confianza promediada.
+    person_det:
+      type: yolo_det
+      path: models/det_rect.engine
+      min_confidence_pct: 50
+      max_side_px: 0
+      class_names: [person]
+      params: {}
+    stopper_seg:
+      type: yolo_seg
+      path: models/seg_rect.engine
+      min_confidence_pct: 50
+      max_side_px: 0
+      class_names: [stopper, wheel]
+      params: {}
 
 image_collector:
   # Dataset de imágenes en `system.paths.dataset`, una carpeta por fecha y cámara:
@@ -224,13 +360,14 @@ image_collector:
   enabled: false                # se prende y se apaga en caliente
   cameras: []                   # slots que se guardan; [] = todas, también las que se agreguen
                                 # después. Con una lista, una cámara nueva no entra hasta sumarla
+  pipelines: [pipeline_1]      # de qué pipelines se guardan resultados; [] = todos
   # on_demand: cada guardado lo pide quien orquesta el ciclo de medición, una vez por
   # medición, que es lo que sirve cuando la inferencia corre cada varios minutos y la luz
   # se enciende solo para la captura; sin ningún pipeline con `frames_per_cycle` > 1 no
   # guarda nunca. interval: el recolector guarda por su cuenta un frame por cámara cada
   # tanto, para los proyectos que infieren de continuo. Cambiar el modo toma efecto al
   # reiniciar la aplicación.
-  mode: on_demand               # on_demand | interval
+  mode: interval                # on_demand | interval
   interval_min_s: 60            # solo en modo interval: ventana al azar entre guardados
   interval_max_s: 600           # iguales al mínimo = guardado periódico
   max_images: 10000             # tope por cámara; al llegar se borra el guardado más viejo
@@ -287,10 +424,9 @@ modbus:
   # el archivo que cambia en cada instalación. La copia para el integrador se genera
   # con `python -m system.modbus.export_map`.
   slave_id: 1                   # 1–247; el único unit id al que contesta el equipo
-  register_count: 100           # registros expuestos: 1–N, o 40001–4000N para el PLC.
-                                # No se edita desde la UI: lo decide el tamaño del mapa.
-                                # Tiene que cubrir la dirección más alta de
-                                # register_map.yaml, o esos registros no se publican.
+  register_count: 100           # mínimo de registros expuestos: 1–N, o 40001–4000N para
+                                # el PLC. El servidor llega igual hasta la última fila de
+                                # register_map.yaml. No se edita desde la UI.
   tcp:
     enabled: true
     host: 0.0.0.0               # interfaz por la que escucha; 0.0.0.0 = todas
@@ -323,10 +459,11 @@ gpio:
   initial_outputs: {}           # p. ej. {DO1: 1}
 
 lens_health:
-  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez del ROI de
-  # cada cámara —la varianza del Laplaciano, que el polvo sobre el vidrio hace caer— y
-  # prende el bit de lente sucio de la palabra de estado de esa cámara, que es el mismo
-  # que lee el PLC. No agrega registros: el bit ya existe en el mapa.
+  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez de la región
+  # de óptica de cada cámara (`cameras.<slot>.lens_health.roi`) —la varianza del
+  # Laplaciano, que el polvo sobre el vidrio hace caer— y prende el bit de lente sucio de
+  # la palabra de estado de esa cámara, que es el mismo que lee el PLC. No agrega
+  # registros: el bit ya existe en el mapa.
   #
   # LA REFERENCIA DE VIDRIO LIMPIO NO VA ACÁ. Es de cada cámara y vive en
   # `cameras.<slot>.lens_health.reference`, porque depende del lente, de la exposición y
@@ -348,16 +485,20 @@ lens_health:
 cameras:
   # Una entrada por cámara física, numeradas camera_1 … camera_N. La clave es el
   # slot: es la identidad con la que la cámara aparece en el resto del sistema.
+  #
+  # Las cuatro son cámaras IP por RTSP (`driver: rtsp`) de un servidor que reproduce
+  # grabaciones de la planta: la imagen es real pero no es la línea ahora. Para el video
+  # grabado leído del archivo está `driver: video_file` (ver docs/offline_testing.md).
   camera_1:
-    name: CAMERA_NAME           # texto que muestra la UI; se puede cambiar sin romper nada
+    name: Calza derecha        # texto que muestra la UI; se puede cambiar sin romper nada
     enabled: true               # false = conectada pero sin capturar (ver get_status)
-    brand: BRAND_NAME           # clave de CAMERA_CATALOG en camera_catalog.py
-    model: MODEL_NAME           # uno de los "models" de ese fabricante
-    driver: DRIVER_USED         # ver REGISTERED_DRIVERS en camera_factory.py
-    address: IP_ADDRESS         # IP o ID de GenTL según el driver
+    brand: rtsp                 # clave de CAMERA_CATALOG en camera_catalog.py
+    model: generic              # uno de los "models" de ese fabricante
+    driver: rtsp                # ver REGISTERED_DRIVERS en camera_factory.py
+    address: rtsp://10.8.51.1:8554/cam_1   # IP, ID de GenTL o ruta al video, según el driver
     rotation: null              # null | 90cw | 90ccw | 180
     acquisition:
-      fps_limit: 15
+      fps_limit: 10             # tope de frames por segundo; 0 = el fps del video (10)
       exposure_time_us: 25000
       gain: 1.0
     decode:
@@ -368,21 +509,26 @@ cameras:
       #
       # El tamaño es de la cámara y no del backend: con los dos en 0 sale al del video, y
       # con un tamaño lo reduce el VIC o la CPU, los dos bilineales. Para la app la cámara
-      # pasa a ser de ese tamaño, como si se le bajara la resolución: el ROI, el dataset y
-      # los streams quedan en él, y cambiarlo obliga a revisar el ROI y a recalibrar la
-      # nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
+      # pasa a ser de ese tamaño, como si se le bajara la resolución: las regiones, el
+      # dataset y los streams quedan en él, y cambiarlo obliga a revisar las regiones y a
+      # recalibrar la nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
       # que decodificar y reducir por CPU; NVDEC sin reducir ahorra poco.
-      backend: cpu              # cpu | nvdec | auto; se aplica al reiniciar
+      backend: auto             # cpu | nvdec | auto; se aplica al reiniciar
       width_px: 0               # 0 y 0 = tamaño del video
       height_px: 0
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
-    illumination_min: 50        # brillo medio mínimo del ROI 0–100
+    # Sin `roi`: la cámara no recorta, la región es de cada pipeline. El recorte de la propia
+    # cámara se hace en su interfaz, fuera de la app (docs/jetson.md §4.4.1).
+    illumination_min: 0         # brillo medio mínimo de la región de cada pipeline 0–100; 0 mientras se prueba con video
     lens_health:
+      # Dónde se mide la nitidez: una zona con textura fija y nítida, que no tiene que ver
+      # con lo que mira cada modelo. Se dibuja en la pestaña de óptica; apagada = el frame
+      # entero.
+      roi:
+        enabled: false
+        x_px: 0
+        y_px: 0
+        width_px: 0
+        height_px: 0
       # Referencia de vidrio limpio de ESTA cámara, contra la que se compara la nitidez
       # medida. La escribe la calibración desde la pantalla; a mano se toca sólo para
       # copiar la de un equipo gemelo. `variance: 0` = sin calibrar, y esa cámara queda
@@ -390,8 +536,9 @@ cameras:
       #
       # Se calibra con el lente recién limpiado y la cámara ya apuntada: lo que se está
       # guardando es el techo de nitidez de ese montaje. `conditions` deja constancia de
-      # con qué exposición, ganancia, rotación y ROI se midió — si después cambian, la
-      # pantalla avisa que el número puede haberse movido sin que el vidrio se ensucie.
+      # con qué exposición, ganancia, rotación y región de óptica se midió — si después
+      # cambian, la pantalla avisa que el número puede haberse movido sin que el vidrio se
+      # ensucie.
       reference:
         variance: 0.0         # varianza del Laplaciano con el lente limpio
         luma: 0.0             # nivel de gris medio de esa calibración, 0–255
@@ -403,7 +550,7 @@ cameras:
       # Intrínsecos del lente, para corregir la distorsión (tools/image/undistort.py). Son
       # del lente y del montaje, no del proceso. Con esto declarado, main.py le pasa al
       # motor el preprocessor y la imagen corregida pasa a ser el frame de referencia: la
-      # que ve el modelo, la que se anota y la que define el espacio del ROI.
+      # que ve el modelo, la que se anota y la que define el espacio de las regiones.
       camera_matrix: []         # 3x3; [] = sin corrección
       dist_coeffs: []           # 4, 5, 8, 12 o 14 coeficientes
     image_adjust:
@@ -416,7 +563,7 @@ cameras:
       # Entra por el mismo preprocessor que la corrección de lente, después de ella, así que
       # no es un ajuste de pantalla —eso es `video.display`—: cambia el frame de referencia.
       #   - el dataset guarda la imagen ajustada, así que se reentrena con eso;
-      #   - `illumination_min` y el brillo del ROI que sale al PLC se miden después del
+      #   - `illumination_min` y el brillo de la región que sale al PLC se miden después del
       #     ajuste: cambiar el factor obliga a revisar ese umbral;
       #   - la vista cruda sigue mostrando lo que entrega el sensor, y la anotada el frame
       #     ajustado.
@@ -424,3 +571,114 @@ cameras:
       # aplica al reiniciar, como todo lo de la cámara.
       brightness_factor: 1.0    # x0.1–x5.0, lineal y saturado en 255; 1.0 = sin cambio
       clahe_clip: 0.0           # contraste local 0–8; 0 = apagado
+  camera_2:
+    name: Calza izquierda
+    enabled: true
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_2
+    rotation: null
+    acquisition:
+      fps_limit: 10
+      exposure_time_us: 25000
+      gain: 1.0
+    decode:
+      backend: auto
+      width_px: 0
+      height_px: 0
+    illumination_min: 0
+    lens_health:
+      roi:
+        enabled: false
+        x_px: 0
+        y_px: 0
+        width_px: 0
+        height_px: 0
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0
+  camera_3:
+    name: Acoplado
+    enabled: true
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_3
+    rotation: null
+    acquisition:
+      fps_limit: 10
+      exposure_time_us: 25000
+      gain: 1.0
+    decode:
+      backend: auto
+      width_px: 640
+      height_px: 360
+    illumination_min: 0
+    lens_health:
+      roi:
+        enabled: false
+        x_px: 0
+        y_px: 0
+        width_px: 0
+        height_px: 0
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0
+  camera_4:
+    name: Chasis
+    enabled: true
+    brand: rtsp
+    model: generic
+    driver: rtsp
+    address: rtsp://10.8.51.1:8554/cam_4
+    rotation: null
+    acquisition:
+      fps_limit: 10
+      exposure_time_us: 25000
+      gain: 1.0
+    decode:
+      backend: auto
+      width_px: 640
+      height_px: 360
+    illumination_min: 0
+    lens_health:
+      roi:
+        enabled: false
+        x_px: 0
+        y_px: 0
+        width_px: 0
+        height_px: 0
+      reference:
+        variance: 0.0
+        luma: 0.0
+        dispersion_pct: 0.0
+        sample_count: 0
+        calibrated_at: ''
+        conditions: {}
+    calibration:
+      camera_matrix: []
+      dist_coeffs: []
+    image_adjust:
+      brightness_factor: 1.0
+      clahe_clip: 0.0

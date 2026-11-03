@@ -1,5 +1,6 @@
 """
-Pestaña de Modbus: la tabla de holding registers que publica el equipo.
+Pestaña de Modbus: la tabla de holding registers que publica el equipo y los que escribe
+el PLC.
 
 Las filas salen de `SCHEMA.descriptions()`, que es el mapa único cargado desde
 `register_map.yaml`: agregar o cambiar un registro allá se refleja acá solo, y no hay

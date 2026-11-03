@@ -11,6 +11,17 @@ Uso — con el intérprete del venv, no con el `python` del PATH:
 Acepta una ruta de config como argumento (`main.py otro-config.yaml`); sin argumento usa
 el `config.yaml` de la raíz del repo.
 
+**`--calibrate <nombre> [opciones]` abre un calibrador en vez de la app**, y es la forma en
+que las herramientas de puesta en marcha llegan a una planta donde sólo está el compilado:
+
+    .venv/bin/python main.py --calibrate mesh      # y las opciones de ese calibrador
+
+Qué calibradores hay lo dice `calibration/registry.py`, y lo que sigue al nombre lo parsea
+el calibrador: este archivo no conoce ninguno. No son programas aparte porque así reciben
+el config de la instalación ya resuelto —como scripts sueltos cada uno elegiría el suyo, y
+compilado el programa y los datos están en carpetas distintas—, y porque todo lo que usan
+ya está adentro de este ejecutable.
+
 **Modo headless.** Con `--headless`, o con `ui.enabled: false` en el config, no se crea
 ninguna ventana: es el modo de un equipo en gabinete sin monitor, de un servicio que
 arranca con el sistema, y de un contenedor sin X11. El flag manda sobre el config, para
@@ -61,9 +72,10 @@ Los seis puntos de extensión del motor, y de dónde sale cada uno:
     annotator       `system/inference/hooks.py`, con las factories de `annotations.py`
     annotate_gate   acá: se dibuja si lo mira la UI o un cliente del stream anotado
 
-**Qué toca el fork.** Los tres métodos del bloque «Lo que cambia en cada fork»: qué mira el
-operador, con qué parámetros quedó medido lo que se guarda y qué señales de la planta cortan
-los frames a un pipeline. Lo que entra al motor es de
+**Qué toca el fork.** Los cuatro métodos del bloque «Lo que cambia en cada fork»: qué mira
+el operador, con qué parámetros quedó medido lo que se guarda, qué señales de la planta
+cortan los frames a un pipeline y cómo se reacciona cuando una cambia
+(`_on_signals_changed()`). Lo que entra al motor es de
 `hooks.py`, que también usa la corrida de imágenes sueltas: armarlo acá lo dejaría en un
 solo lado de los dos. El resto es cableado genérico y se cross-portea sin editar.
 
@@ -83,7 +95,7 @@ import statistics
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import datetime, timezone
 from types import MappingProxyType
 
@@ -91,6 +103,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
 
+from calibration.registry import run_tool as run_calibration_tool
 from system import paths
 from system.camera.capture_scheduler import CaptureScheduler, has_measurement_cycle
 from system.camera.capture_thread import CaptureThread
@@ -98,6 +111,9 @@ from system.camera import lens_health
 from system.camera.lens_health import LensHealthMonitor
 from system.config_manager import ConfigManager
 from system.env import load_env_file
+from system.frame_signals import (  # noqa: F401 — los flancos, para `_on_signals_changed()`
+    FrameGate, FrameSignals, gpio_fell, gpio_rose, plc_changed, plc_fell, plc_rose,
+)
 from system.formats import (
     camera_health, com_status, gpio_status, pipeline_status, system_status,
 )
@@ -108,15 +124,20 @@ from system.inference.composer import FrameComposer
 from system.inference.engine import InferenceThread
 from system.inference.hooks import build_hooks
 from system.inference.pipeline_factory import create_pipeline
-from system.inference.preprocessing import build_preprocessor
+from system.inference.preprocessing import build_camera_views, build_preprocessor
+from system.inference.regions import select_pipeline_roi
+from system.inference.roi_migration import migrate_roi_config
 from system.inference.result import InferenceResult
 from system.license.manager import (
     PERPETUAL_DAYS_SENTINEL, RECHECK_INTERVAL_MS, LicenseManager, read_feature,
 )
 from system.license.request import WeakFingerprintError, save_request
 from system.logger import logger
+from system.modbus.plc_variables import DRAIN_INTERVAL_MS as PLC_DRAIN_INTERVAL_MS
+from system.modbus.plc_variables import PlcVariables
 from system.modbus.registers import LOAD_ERROR as REGISTER_MAP_ERROR, REGISTERS, SCHEMA
-from system.modbus.server import SharedModbusServer
+from system.modbus.schema import PRODUCER_CONFIG, PRODUCER_PLC
+from system.modbus.server import OnWrite, SharedModbusServer
 from system.system_monitor import SystemMonitor
 from system.telemetry.persistence import PersistenceThread
 from system.version import APP_VERSION
@@ -167,20 +188,35 @@ _SAMPLE_INTERVAL_S = _SAMPLE_INTERVAL_MS / 1000
 # una sola escritura lenta a InfluxDB alcanza para llenarla y empezar a descartar. Por eso
 # el arranque avisa, y por eso el aviso habla de tolerancia y no de tope.
 # Ver docs/influxdb.md.
-_TELEMETRY_STALL_SAFE_POINTS_PER_S = 10.0
-_TELEMETRY_QUEUE_POINTS = 100.0    # `_QUEUE_MAXSIZE` de persistence.py, para el aviso
+_TELEMETRY_STALL_SAFE_POINTS_PER_S = 100.0
+_TELEMETRY_QUEUE_POINTS = 1000.0   # `_QUEUE_MAXSIZE` de persistence.py, para el aviso
 
 # Measurements de las series de salud. Los nombres son el contrato con los dashboards:
 # renombrarlos rompe los paneles que ya consultan.
 _MEASUREMENT_SYSTEM = "system"
+_MEASUREMENT_NETWORK = "network"
 _MEASUREMENT_CAMERA = "camera"
 _MEASUREMENT_SERVICES = "services"
 _MEASUREMENT_INFERENCE = "inference"
 
+# Los tags que parten la serie `inference`; ver `_build_inference_points()`. Los valores
+# también son contrato: un panel filtra por `kind == "result"` y `stat == "max"`.
+_KIND_COUNT = "count"
+_KIND_TIME = "time"
+_KIND_RESULT = "result"
+_STAT_MEAN = "mean"
+_STAT_MAX = "max"
+# La latencia lleva media y máximo: un pico es lo que se quiere ver, y el promedio lo
+# esconde. Lo medido lleva los cuatro de `analysis.SUMMARY_SUFFIXES`.
+_TIME_STATS = (_STAT_MEAN, _STAT_MAX)
+_INFERENCE_COUNT_FIELDS = ("result_count", "invalid_count", "invalid_reason", "sample_count")
+# Uno de conteo, uno por estadístico de la latencia y uno por estadístico de lo medido.
+_INFERENCE_POINTS_PER_PAIR = 1 + len(_TIME_STATS) + len(analysis.SUMMARY_SUFFIXES)
+
 # Métricas de hardware que van directo a fields. `net_mbps`, `engines` y `temps_c` no
-# están porque son dicts anidados y un field de Influx es escalar: la red y los motores se
-# aplanan y las zonas térmicas no se publican. Filtrar por tipo, en cambio, perdería la red
-# sin avisar.
+# están porque son dicts anidados y un field de Influx es escalar: la red sale en su propia
+# serie, con la interfaz en un tag, los motores se aplanan y las zonas térmicas no se
+# publican. Filtrar por tipo, en cambio, perdería la red sin avisar.
 _SYSTEM_METRIC_KEYS = (
     "cpu_usage_pct", "gpu_usage_pct", "cpu_temp_c", "gpu_temp_c",
     "ram_used_mb", "ram_total_mb", "disk_free_gb", "power_w", "overcurrent_count",
@@ -202,34 +238,31 @@ _HEALTH_REGISTER_NAMES = frozenset({
     "gpio_inputs_bitfield", "gpio_outputs_bitfield",
 })
 
-# Todos los nombres del mapa cargado. `SCHEMA.encode_batch()` levanta KeyError con un
-# nombre que no existe, así que las métricas se filtran contra esto antes de codificar.
-_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS)
+# Los nombres del mapa que escribe el tick de registros. `SCHEMA.encode_batch()` levanta
+# KeyError con un nombre que no existe, así que las métricas se filtran contra esto antes de
+# codificar. Quedan afuera las filas que tienen otro dueño: las `plc` las escribe sólo el PLC
+# —codificarlas levanta—, y las `config` las publica `SCHEMA.mirror_batch()` desde el config,
+# así que una métrica que se llame igual no las pisa.
+_REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
+                            if reg.producer not in (PRODUCER_PLC, PRODUCER_CONFIG))
 
 _COLLECTOR_MODE_INTERVAL = "interval"
 
 _GATE_WARN_PERIOD_S = 10.0        # techo del aviso de una compuerta que falla, por pipeline
 
+# La plataforma, como la escribe el PLC (register_map.yaml): 0 sin información, 1 horizontal.
+_RAMP_STATE_NAME = "ramp_state"
+_RAMP_TILTED = 2
 
-@dataclasses.dataclass(frozen=True)
-class FrameSignals:
+
+def _is_ramp_not_tilted(camera_slot: str, signals: FrameSignals) -> bool:
     """
-    Lo que dice la planta en este instante, para las compuertas de frames.
+    Compuerta de la plataforma: corta sólo cuando el PLC dice que está inclinada.
 
-    Inmutable y entero a propósito: se arma uno nuevo cada vez que cambia una fuente y se
-    reemplaza de una vez, así que un hilo de captura que lo lee ve el viejo o el nuevo,
-    nunca la mitad de cada uno, sin lock. Una fuente nueva —un registro que escriba el PLC—
-    es un campo más, y las compuertas que no lo usan no cambian.
-
-        gpio_inputs : canal (desde 1, como en el borne) -> 1, 0 o `READ_ERROR`
+    Sin información (0) deja pasar: hasta que el PLC escribe, el equipo mide como sin
+    compuerta. Es la misma para todas las cámaras porque la plataforma es una sola.
     """
-
-    gpio_inputs: Mapping[int, int] = dataclasses.field(
-        default_factory=lambda: MappingProxyType({}))
-
-
-# `gate(camera_slot, signals) -> bool`: False corta los frames de esa cámara a ese pipeline.
-FrameGate = Callable[[str, FrameSignals], bool]
+    return signals.plc.get(_RAMP_STATE_NAME) != _RAMP_TILTED
 
 
 # ── Log a archivo ────────────────────────────────────────────────────────────────
@@ -540,8 +573,11 @@ class Application(QObject):
         self._rtsp_video = RtspVideoServer(config)
 
         # ── Modbus ───────────────────────────────────────────────────────────
+        # Lo que escribe el PLC entra por evento: el servidor lo encola desde su hilo y
+        # `_on_plc_writes_tick` lo aplica en el de la GUI.
+        self._plc_variables = PlcVariables(SCHEMA)
         # `run()` bloquea hasta que `stop()` lo desarme, así que va en su propio hilo.
-        self._modbus = _build_modbus_server(config)
+        self._modbus = _build_modbus_server(config, on_write=self._plc_variables.on_write)
         self._modbus_thread = threading.Thread(
             target=self._modbus.run, name="modbus", daemon=True
         )
@@ -567,7 +603,8 @@ class Application(QObject):
         # ── Anotado de varios pipelines por cámara ───────────────────────────
         # Una cámara que miran dos pipelines muestra un solo frame con los dos overlays:
         # mostrar cada anotado tal como llega hace parpadear el de cada uno.
-        self._composer = FrameComposer(self._read_composer_intervals())
+        self._composer = FrameComposer(self._read_composer_intervals(),
+                                       self._read_on_request_pipelines())
 
         # ── Compuertas de frames ─────────────────────────────────────────────
         # Una señal de la planta que corta los frames de una cámara a un pipeline mientras
@@ -588,6 +625,10 @@ class Application(QObject):
         # manda al operador a revisar un cable que está bien.
         declared_cameras = tuple(config.get("cameras", {}) or {})
         licensed_cameras = self._license.allowed_camera_slots(declared_cameras)
+        # Las vistas a resolución nativa que corta cada cámara: los ROI de los pipelines que
+        # corren, a la entrada de su modelo. Por eso se arman después de los motores.
+        camera_views = build_camera_views(
+            config, {engine.pipeline_slot: engine.pipeline for engine in self._engines})
         self._capture_threads: dict[str, CaptureThread] = {}
         for camera_slot in declared_cameras:
             if camera_slot not in licensed_cameras:
@@ -599,13 +640,12 @@ class Application(QObject):
                 self._on_camera_status(_UNLICENSED_CAMERA_STATUS, camera_slot)
                 self._push_status_to_content(_UNLICENSED_CAMERA_STATUS, camera_slot)
                 continue
-            thread = CaptureThread(config, camera_slot)
+            thread = CaptureThread(config, camera_slot, views=camera_views.get(camera_slot))
             # Directa a propósito: corre en el hilo de captura. Ver `_on_frame_captured`.
             thread.frame_ready.connect(self._on_frame_captured, Qt.DirectConnection)
             thread.status_updated.connect(self._on_camera_status)
             self._forward_status_to_content(thread)
             self._capture_threads[camera_slot] = thread
-        self._warn_if_crop_hides_overlays(declared_cameras)
 
         # ── Salud de la óptica ───────────────────────────────────────────────
         # Una ventana y una referencia por cámara: el veredicto es un máximo, así que
@@ -624,9 +664,10 @@ class Application(QObject):
         # array, no una copia: medir por frame costaría milisegundos por cámara y la
         # ventana es de horas, así que alcanza con el último que haya cuando toque.
         self._last_raw_frame: dict[str, np.ndarray] = {}
-        # Último frame de cada cámara que la GUI todavía no tomó. Que el slot esté acá es
-        # también la marca de que ya hay un `_frame_for_gui` en vuelo para esa cámara.
-        self._gui_frames: dict[str, np.ndarray] = {}
+        # Último frame de cada cámara que la GUI todavía no tomó, con sus vistas. Que el slot
+        # esté acá es también la marca de que ya hay un `_frame_for_gui` en vuelo para esa
+        # cámara.
+        self._gui_frames: dict[str, tuple[np.ndarray, dict]] = {}
         self._gui_frames_lock = threading.Lock()
         self._frame_for_gui.connect(self._on_frame_for_gui)
         # Cámaras calibrando ahora: slot -> (varianzas, lumas). Vacío casi siempre.
@@ -638,12 +679,10 @@ class Application(QObject):
         self._gpio = GpioController(config)
         self._gpio_thread = GpioPollingThread(self._gpio, config)
         self._gpio_thread.inputs_updated.connect(self._on_gpio_inputs_updated)
-        # Última lectura de las entradas, para el tick de registros. Se toca sólo desde el
-        # hilo de la GUI: el slot llega en cola.
-        self._gpio_inputs: dict[int, int] = {}
-        # Lo mismo para las compuertas, que lo leen en los hilos de captura. Se REEMPLAZA
-        # entero al llegar una lectura y nunca se modifica: es lo que deja leerlo sin lock.
-        self._frame_signals = FrameSignals()
+        # La última lectura de las entradas y las variables del PLC: lo leen las compuertas en
+        # los hilos de captura y el tick de registros. Se REEMPLAZA entero al llegar una
+        # lectura o una escritura y nunca se modifica: es lo que deja leerlo sin lock.
+        self._frame_signals = FrameSignals(plc=self._plc_variables.rest_values())
 
         # ── Hardware y timers ────────────────────────────────────────────────
         self._monitor = SystemMonitor(config)
@@ -658,6 +697,10 @@ class Application(QObject):
             self._start_timer(RECHECK_INTERVAL_MS, self._on_license_tick),
             self._start_timer(self._read_lens_interval_ms(), self._on_lens_tick),
         ]
+        # Sin filas `plc` el servidor no acepta escrituras: no hay nada que drenar.
+        if self._plc_variables.addrs:
+            self._timers.append(
+                self._start_timer(PLC_DRAIN_INTERVAL_MS, self._on_plc_writes_tick))
         self._warn_if_telemetry_margin_is_thin()
 
         self._ui.connect_config_saved(self._on_config_saved)
@@ -769,13 +812,11 @@ class Application(QObject):
         corriendo se ve en vivo, sin overlay. El modelo queda cargado: al abrirse la
         compuerta, el frame siguiente ya se infiere.
 
-        **El template no declara ninguna.** Un fork que la necesita arma acá la suya:
-
-            def _build_frame_gates(self):
-                tilt_input = {"camera_1": 1, "camera_2": 2}   # leído de `process:`
-                def is_tilted(camera_slot, signals):
-                    return signals.gpio_inputs.get(tilt_input.get(camera_slot)) == 1
-                return {"pipeline_1": is_tilted}
+        En esta planta la corta la plataforma: los pipelines de `process.ramp_gate.pipelines`
+        miden con la plataforma horizontal y dejan de medir cuando el PLC avisa que se
+        inclinó, porque pasado ese ángulo el camión sale del ROI y el polvo en el aire hace
+        la inferencia no confiable. Personas no va en la lista: la zona se vigila también
+        durante el volteo. Sin la lista no hay compuertas.
 
         Va acá y no en `hooks.py` porque lee el estado vivo de la planta, que sólo la app
         tiene: la corrida de imágenes sueltas comparte los hooks y no tiene señales.
@@ -785,7 +826,34 @@ class Application(QObject):
         ese hilo. Una que levanta deja pasar el frame y avisa. Es para pipelines de un
         resultado por frame: con ciclo, una cámara cortada traba la ronda.
         """
-        return {}
+        pipeline_slots = self._config.get("process.ramp_gate.pipelines", []) or []
+        return {pipeline_slot: _is_ramp_not_tilted for pipeline_slot in pipeline_slots}
+
+    def _on_signals_changed(self, previous: FrameSignals, current: FrameSignals):
+        """
+        Las señales de la planta cambiaron: una escritura del PLC o una lectura de GPIO.
+
+        Es el lugar para reaccionar a un **evento** —un contador del PLC, un flanco en una
+        entrada—, que una compuerta no lee bien porque mira un nivel frame por frame. **El
+        template no reacciona a nada.** Un fork que mide cuando la planta lo pide, con los
+        flancos de `system/frame_signals.py`, que ya están importados acá:
+
+            def _on_signals_changed(self, previous, current):
+                if (plc_changed(previous, current, "measure_seq")
+                        or gpio_rose(previous, current, channel=1)):
+                    if not self._scheduler.request_round("pipeline_2"):
+                        logger.info("[Fork] Ronda en curso: el disparo se ignora.")
+
+        Corre en el hilo de la GUI, una vez por cambio —reescribir el mismo valor no la
+        llama—, y recibe las dos fotos enteras porque un evento a veces depende de otra señal:
+        disparar sólo si el proceso está OK. Una que levanta se avisa en el log y no frena
+        nada.
+
+        Lo que el PLC escribe dentro de un drenado (100 ms) llega como un solo cambio, con el
+        valor final: por eso un evento es un contador y no un bit. Y cada frame lleva el número
+        del momento en que entró, así que con disparos más seguidos que una ronda, sus frames
+        pueden llevar el del siguiente.
+        """
 
     # ── Ciclo de vida ────────────────────────────────────────────────────────
 
@@ -793,6 +861,9 @@ class Application(QObject):
         """Arranca servidores e hilos y muestra la ventana."""
         self._http_video.start()
         self._rtsp_video.start()
+        # Los umbrales publicados salen del config, y van antes de levantar el servidor: el
+        # PLC nunca lee un 0 que no es el valor. Los demás registros esperan su primer tick.
+        self._modbus.update_block(SCHEMA.mirror_batch(self._config))
         self._modbus_thread.start()
         self._telemetry.start()
         self._collector.start()
@@ -872,11 +943,13 @@ class Application(QObject):
             return frame_bgr
         return self._display_adjust(frame_bgr)
 
-    @Slot(object, str)
-    def _on_frame_captured(self, frame_bgr: np.ndarray | None, camera_slot: str):
+    @Slot(object, str, object)
+    def _on_frame_captured(self, frame_bgr: np.ndarray | None, camera_slot: str,
+                           views: dict | None = None):
         """
         Un frame nuevo, **en el hilo de captura**: a la inferencia, al stream crudo y,
-        como mucho uno en vuelo por cámara, a la GUI.
+        como mucho uno en vuelo por cámara, a la GUI. Las vistas del frame van sólo a la
+        inferencia: lo que se mira y se transmite es el frame.
 
         Corre acá y no en la GUI porque todo lo que hace es thread-safe —`push_frame` del
         motor y `push_raw` de los servidores— y porque pasar cada frame por la cola de la
@@ -908,7 +981,7 @@ class Application(QObject):
             if (not self._scheduler.is_cycled(engine.pipeline_slot)
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)):
-                engine.push_frame(frame_bgr, camera_slot)
+                engine.push_frame(frame_bgr, camera_slot, views, signals=signals.plc)
         # Lo que mira una persona puede llevar gamma y contraste local; lo que se mide,
         # nunca. Sin clientes en el crudo no se ajusta nada: `_for_display` crea un frame.
         if (self._http_video.has_raw_clients(camera_slot)
@@ -916,18 +989,19 @@ class Application(QObject):
             display_bgr = self._for_display(frame_bgr)
             self._http_video.push_raw(camera_slot, display_bgr)
             self._rtsp_video.push_raw(camera_slot, display_bgr)
-        self._hand_to_gui(frame_bgr, camera_slot)
+        self._hand_to_gui(frame_bgr, camera_slot, views or {})
 
-    def _hand_to_gui(self, frame_bgr: np.ndarray, camera_slot: str):
+    def _hand_to_gui(self, frame_bgr: np.ndarray, camera_slot: str, views: dict):
         """
-        Deja el frame para la GUI y la avisa, salvo que ya haya un aviso en vuelo.
+        Deja el frame —con sus vistas, para los pipelines con ciclo— para la GUI y la
+        avisa, salvo que ya haya un aviso en vuelo.
 
         Con el aviso pendiente sólo se reemplaza el frame: la GUI toma el último cuando
         llega a atenderlo, y la cola nunca tiene más de uno por cámara.
         """
         with self._gui_frames_lock:
             is_pending = camera_slot in self._gui_frames
-            self._gui_frames[camera_slot] = frame_bgr
+            self._gui_frames[camera_slot] = (frame_bgr, views)
         if not is_pending:
             self._frame_for_gui.emit(camera_slot)
 
@@ -942,7 +1016,7 @@ class Application(QObject):
         Un pipeline con ciclo consulta su compuerta acá, antes de pedir el permiso.
         """
         with self._gui_frames_lock:
-            frame_bgr = self._gui_frames.pop(camera_slot, None)
+            frame_bgr, views = self._gui_frames.pop(camera_slot, (None, {}))
         if frame_bgr is None:
             return
         content = self._ui.monitor_content
@@ -964,7 +1038,8 @@ class Application(QObject):
                     and engine.has_camera(camera_slot)
                     and self._is_gate_open(engine.pipeline_slot, camera_slot, signals)
                     and self._scheduler.take_frame(camera_slot, engine.pipeline_slot)):
-                engine.push_frame(frame_bgr, camera_slot, ignore_interval=True)
+                engine.push_frame(frame_bgr, camera_slot, views, ignore_interval=True,
+                                  signals=signals.plc)
 
     @Slot(object, str)
     def _on_camera_status(self, status: dict, camera_slot: str):
@@ -1035,13 +1110,15 @@ class Application(QObject):
         # Telemetría: al buzón, no a la cola. Lo publica el tick, agregado, porque una
         # serie por resultado escala con los fps y no agrega información. Los no
         # confiables entran igual: cuántos se cayeron y por qué es justo lo que se quiere
-        # poder preguntar después. Entra sin los frames ni las detecciones, que el tick no
-        # lee: guardado entero, cada resultado retenía dos frames de 9 MB y sus máscaras
-        # hasta el tick siguiente.
+        # poder preguntar después. Entra sin los frames ni las máscaras: guardado entero,
+        # cada resultado retenía dos frames de 9 MB y sus máscaras hasta el tick siguiente.
+        # Las detecciones quedan, sin máscara, porque de ellas sale `detection_count`:
+        # vaciarlas lo publicaba en 0 en todo fork cuyo analyzer no lo repitiera.
         self._pending_results.setdefault(
             (result.camera_slot, result.pipeline_slot), []
-        ).append(dataclasses.replace(result, source_bgr=None, annotated_bgr=None,
-                                     detections=[]))
+        ).append(dataclasses.replace(
+            result, source_bgr=None, annotated_bgr=None,
+            detections=[dataclasses.replace(d, mask=None) for d in result.detections]))
         self._store_metrics(result)
 
     def _show_annotated(self, frame_bgr: np.ndarray, camera_slot: str):
@@ -1102,43 +1179,50 @@ class Application(QObject):
             intervals[engine.pipeline_slot] = interval_s
         return intervals
 
-    def _warn_if_crop_hides_overlays(self, camera_slots: tuple[str, ...]):
+    def _read_on_request_pipelines(self) -> frozenset[str]:
         """
-        Avisa una vez si `crop_to_roi` deja sin combinar el anotado de alguna cámara.
-
-        Con el recorte prendido el lienzo es el recorte del pipeline que pone el frame, y el
-        ROI de los demás no tiene por qué caer adentro: la imagen la sigue poniendo el más
-        nuevo, pero sin los overlays de los otros.
+        Los pipelines que miden a pedido: su última medición sigue vigente su período
+        configurado y no tres veces lo que tardó en llegar el pedido siguiente.
         """
-        if not self._config.get("inference.overlay.crop_to_roi", False):
-            return
-        shared = [camera_slot for camera_slot in camera_slots
-                  if sum(1 for engine in self._engines if engine.has_camera(camera_slot)) > 1]
-        if shared:
-            logger.info(
-                f"[Main] Con inference.overlay.crop_to_roi el anotado de "
-                f"{', '.join(shared)} muestra un pipeline por vez: varios pipelines miran "
-                f"esa cámara y sus ROI no tienen por qué caer en el mismo recorte."
-            )
+        return frozenset(engine.pipeline_slot for engine in self._engines
+                         if self._scheduler.is_on_request(engine.pipeline_slot))
 
     def _send_to_dataset(self, result: InferenceResult):
-        """Le pasa la medición al recolector, por el camino de su modo."""
+        """
+        Le pasa la medición al recolector, por el camino de su modo.
+
+        Un pipeline con ROI propio en esa cámara guarda la región que vio —la vista nativa,
+        si la pidió— en un subset a su nombre: es la imagen con la que se reentrena ese
+        modelo, y el pipeline que mira el frame entero no le pisa el guardado. Un resultado
+        que se quedó sin región —llegó sin su vista— no tiene imagen que guardar.
+        """
+        subset = result.pipeline_slot if self._has_own_roi(result) else ""
+        frame_bgr = result.region_bgr if subset else result.source_bgr
+        if frame_bgr is None:
+            return
         context = self._build_dataset_context(result.camera_slot)
         if self._collector.mode == _COLLECTOR_MODE_INTERVAL:
             self._collector.push_frame(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
         elif self._scheduler.is_cycled(result.pipeline_slot):
             # En on_demand el que pide la captura es el ciclo, y es una por medición.
             # `save_now` escribe en este hilo: por frame sería un guardado sincrónico en
             # el hilo de la GUI, que es justo lo que su contrato desaconseja.
             self._collector.save_now(
-                result.camera_slot, result.source_bgr,
+                result.camera_slot, frame_bgr,
                 annotated_bgr=result.annotated_bgr, inference=result.to_dict(),
-                context=context,
+                context=context, pipeline_slot=result.pipeline_slot, subset=subset,
             )
+
+    def _has_own_roi(self, result: InferenceResult) -> bool:
+        """True si el pipeline del resultado recorta su propio ROI en esa cámara."""
+        roi = select_pipeline_roi(
+            self._config.get(f"inference.pipelines.{result.pipeline_slot}", {}),
+            result.camera_slot)
+        return roi is not None and bool(roi.get("enabled", False))
 
     def _annotate_cycle(self, result: InferenceResult) -> np.ndarray | None:
         """
@@ -1231,7 +1315,8 @@ class Application(QObject):
                 )
             elif self._scheduler.is_cycled(pipeline_slot):
                 logger.warning(
-                    f"[Main] {pipeline_slot} mide de a varios frames y tiene compuerta: con "
+                    f"[Main] {pipeline_slot} tiene ciclo —varios frames o a pedido— y "
+                    f"tiene compuerta: con "
                     f"una cámara cortada, el ciclo espera hasta su timeout por cada ronda."
                 )
 
@@ -1245,9 +1330,42 @@ class Application(QObject):
 
     @Slot(object)
     def _on_gpio_inputs_updated(self, states: dict):
-        """Slot de `GpioPollingThread`: la última lectura de las entradas."""
-        self._gpio_inputs = dict(states)
-        self._frame_signals = FrameSignals(gpio_inputs=MappingProxyType(dict(states)))
+        """
+        Slot de `GpioPollingThread`: la última lectura de las entradas.
+
+        Las señales se reemplazan sólo si la lectura cambió: el polling trae la misma en cada
+        vuelta, y cada reemplazo es un aviso a `_on_signals_changed()`.
+        """
+        if self._frame_signals.gpio_inputs != states:
+            self._set_frame_signals(dataclasses.replace(
+                self._frame_signals, gpio_inputs=MappingProxyType(dict(states))))
+
+    def _set_frame_signals(self, signals: FrameSignals):
+        """
+        Reemplaza las señales enteras y avisa del cambio al fork.
+
+        Primero el reemplazo y después el aviso: lo que el fork pida desde ahí —una ronda— ya
+        se mide con las señales nuevas.
+        """
+        previous = self._frame_signals
+        self._frame_signals = signals
+        try:
+            self._on_signals_changed(previous, signals)
+        except Exception as e:
+            logger.warning(f"[Main] _on_signals_changed falló: {e}. Las señales quedan igual.",
+                           exc_info=True)
+
+    def _on_plc_writes_tick(self):
+        """
+        Aplica lo que escribió el PLC desde el tick anterior: `PlcVariables.drain()`.
+
+        Si alguna variable cambió, las señales se reemplazan enteras una sola vez —los hilos
+        de captura las leen sin lock— con un solo aviso a `_on_signals_changed()`. El valor
+        nuevo lo ven las compuertas y la foto del frame siguiente.
+        """
+        plc = self._plc_variables.drain(self._frame_signals.plc)
+        if plc is not None:
+            self._set_frame_signals(dataclasses.replace(self._frame_signals, plc=plc))
 
     def _on_registers_tick(self):
         """
@@ -1313,10 +1431,19 @@ class Application(QObject):
             values.update(self._build_metric_registers())
 
         # Un solo `encode_batch` para los dos consumidores —el datastore que lee el PLC y
-        # la tabla que mira el operador—: codificar dos veces los deja divergir.
+        # la tabla que mira el operador—: codificar dos veces los deja divergir. Los
+        # umbrales publicados salen del config en cada tick, así que un cambio desde la
+        # interfaz le llega al PLC en el siguiente.
         registers = SCHEMA.encode_batch(self._mapped_only(values))
+        registers.update(SCHEMA.mirror_batch(self._config))
         self._modbus.update_block(registers)
-        self._ui.update_modbus_values(registers)
+        # La tabla muestra también lo que escribió el PLC, leído del datastore: la app no
+        # lo escribe, así que no está en el bloque.
+        self._ui.update_modbus_values({**registers, **self._read_plc_registers()})
+
+    def _read_plc_registers(self) -> dict[int, int]:
+        """{addr: crudo} de las filas `plc`, tal como las dejó el PLC."""
+        return {reg.addr: self._modbus.get_register(reg.addr) for reg in SCHEMA.plc_regs()}
 
     def _on_status_tick(self):
         """
@@ -1373,7 +1500,7 @@ class Application(QObject):
             return
 
         for camera_slot in (self._config.get("cameras", {}) or {}):
-            roi = self._config.get(f"cameras.{camera_slot}.roi", {}) or {}
+            roi = self._read_lens_roi(camera_slot)
             try:
                 # Con la cámara caída el frame es None: el monitor envejece la ventana
                 # igual y esa cámara pasa a «no disponible» sola.
@@ -1386,6 +1513,17 @@ class Application(QObject):
                 continue
             if measurement is not None and camera_slot in self._lens_calibrations:
                 self._collect_lens_calibration(camera_slot, measurement)
+
+    def _read_lens_roi(self, camera_slot: str) -> dict:
+        """
+        La región donde se mide la nitidez de esa cámara: `cameras.<slot>.lens_health.roi`.
+
+        Se lee de la sección de óptica, que siempre está, y no de la clave `roi`: una cámara
+        que nunca tuvo región no es una advertencia de clave ausente.
+        """
+        section = self._config.get(f"cameras.{camera_slot}.lens_health", {}) or {}
+        roi = section.get("roi") if isinstance(section, dict) else None
+        return roi if isinstance(roi, dict) else {}
 
     def _is_lens_dirty(self, camera_slot: str) -> bool:
         """True sólo con el veredicto de alarma: «no disponible» no es un vidrio sucio."""
@@ -1426,7 +1564,7 @@ class Application(QObject):
         reference["conditions"] = lens_health.get_current_conditions(
             self._config.get(f"cameras.{camera_slot}.acquisition", {}) or {},
             self._config.get(f"cameras.{camera_slot}.rotation", None),
-            self._config.get(f"cameras.{camera_slot}.roi", {}) or {},
+            self._read_lens_roi(camera_slot),
         )
         prefix = f"cameras.{camera_slot}.lens_health.reference"
         for key, value in reference.items():
@@ -1455,6 +1593,11 @@ class Application(QObject):
                 _build_system_fields(self._last_metrics),
                 tags=self._telemetry_tags,
             )
+            for interface, fields in _build_network_points(self._last_metrics):
+                self._telemetry.push_data(
+                    _MEASUREMENT_NETWORK, fields,
+                    tags={**self._telemetry_tags, "interface": interface},
+                )
 
         now_s = time.monotonic()
         for camera_slot in (self._config.get("cameras", {}) or {}):
@@ -1492,7 +1635,10 @@ class Application(QObject):
 
     def _publish_inference(self):
         """
-        Un punto por par (cámara, pipeline) con lo que llegó desde la muestra anterior.
+        Los puntos de cada par (cámara, pipeline) con lo que llegó desde la muestra anterior.
+
+        Son `_INFERENCE_POINTS_PER_PAIR` por par, partidos por `kind` y `stat`: cómo, en
+        `_build_inference_points()`.
 
         **Se agrega, no se muestrea.** Con inferencia de 200 ms y una muestra por segundo
         entran cinco resultados: promediarlos usa los cinco y el desvío dice si el proceso
@@ -1511,15 +1657,16 @@ class Application(QObject):
         for (camera_slot, pipeline_slot), results in self._pending_results.items():
             if not results:
                 continue
-            self._telemetry.push_data(
-                _MEASUREMENT_INFERENCE,
-                _build_inference_fields(results),
-                tags={**self._telemetry_tags,
-                      "camera": camera_slot, "pipeline": pipeline_slot},
-                # El instante del último resultado, no el del tick: el punto vale por
-                # cuándo se midió y entre las dos cosas hay hasta una muestra entera.
-                time_s=results[-1].timestamp_s,
-            )
+            pair_tags = {**self._telemetry_tags,
+                         "camera": camera_slot, "pipeline": pipeline_slot}
+            for point_tags, fields in _build_inference_points(results):
+                self._telemetry.push_data(
+                    _MEASUREMENT_INFERENCE, fields,
+                    tags={**pair_tags, **point_tags},
+                    # El instante del último resultado, no el del tick: el punto vale por
+                    # cuándo se midió y entre las dos cosas hay hasta una muestra entera.
+                    time_s=results[-1].timestamp_s,
+                )
         self._pending_results.clear()
 
     def _warn_if_telemetry_margin_is_thin(self):
@@ -1527,24 +1674,27 @@ class Application(QObject):
         Avisa al arrancar si la telemetría queda sin margen ante un InfluxDB trabado.
 
         No es que la cola no dé abasto en régimen: la drena un hilo y aguanta muchísimo
-        más. Lo que se achica al publicar más puntos es el colchón: la cola guarda 100, así
-        que a `N` puntos/s tolera `100/N` segundos de escritura trabada antes de descartar.
+        más. Lo que se achica al publicar más puntos es el colchón: la cola guarda 1000, así
+        que a `N` puntos/s tolera `1000/N` segundos de escritura trabada antes de descartar.
         Por debajo de una ventana de publicación de margen, una sola escritura lenta ya
         pierde datos, y eso conviene saberlo al arrancar y no por un hueco en el dashboard.
 
-        Con el muestreo fijo en un segundo, lo único que mueve la cuenta es cuántas cámaras
-        y cuántos pares (cámara, pipeline) hay, así que el remedio no es un parámetro sino
-        agrandar la cola.
+        Con el muestreo fijo en un segundo, lo único que mueve la cuenta es cuántas
+        interfaces de red, cuántas cámaras y cuántos pares (cámara, pipeline) hay, así que
+        el remedio no es un parámetro sino agrandar la cola.
         """
+        interface_count = len(self._monitor.get_interfaces())
         camera_count = len(self._config.get("cameras", {}) or {})
         pair_count = sum(len(e.camera_slots) or camera_count for e in self._engines)
-        points_per_s = (2 + camera_count + pair_count) / _SAMPLE_INTERVAL_S
+        points_per_s = (2 + interface_count + camera_count
+                        + pair_count * _INFERENCE_POINTS_PER_PAIR) / _SAMPLE_INTERVAL_S
         if points_per_s <= _TELEMETRY_STALL_SAFE_POINTS_PER_S:
             return
         tolerance_s = _TELEMETRY_QUEUE_POINTS / points_per_s
         logger.warning(
             f"[Main] La telemetría publica ~{points_per_s:.1f} puntos/s "
-            f"({camera_count} cámara(s), {pair_count} par(es) cámara-pipeline): con la cola "
+            f"({interface_count} interfaz(ces) de red, {camera_count} cámara(s), "
+            f"{pair_count} par(es) cámara-pipeline): con la cola "
             f"en {_TELEMETRY_QUEUE_POINTS:.0f} puntos tolera {tolerance_s:.1f} s de InfluxDB "
             f"trabado antes de descartar. Agrandar `_QUEUE_MAXSIZE` en persistence.py da más "
             f"margen. Ver docs/influxdb.md."
@@ -1565,7 +1715,8 @@ class Application(QObject):
         # El motor relee `interval_s` en el frame siguiente, así que la vigencia de cada
         # overlay en el anotado combinado tiene que seguirlo: si no, un período alargado
         # haría parpadear ese overlay hasta reiniciar.
-        self._composer.set_intervals(self._read_composer_intervals())
+        self._composer.set_intervals(self._read_composer_intervals(),
+                                     self._read_on_request_pipelines())
         # La referencia de cada óptica también: es el número que la pantalla deja editar a
         # mano para copiar el de un equipo gemelo, y esperar un reinicio para que tome
         # efecto haría parecer que no se guardó. El umbral y la ventana sí esperan, como
@@ -1697,7 +1848,7 @@ class Application(QObject):
         hardware_available = self._gpio.hardware_available
         return {
             "gpio_inputs_bitfield": gpio_status.pack_inputs(
-                self._gpio_inputs, hardware_available=hardware_available),
+                self._frame_signals.gpio_inputs, hardware_available=hardware_available),
             "gpio_outputs_bitfield": gpio_status.pack_outputs(
                 self._gpio.get_all_outputs(), hardware_available=hardware_available),
         }
@@ -1928,10 +2079,16 @@ def _parse_args(argv: list) -> argparse.Namespace:
                         help="ruta del config.yaml; por defecto el de la raíz del repo")
     parser.add_argument("--headless", action="store_true",
                         help="no abrir la ventana; también se puede con ui.enabled: false")
+    # `REMAINDER`: el nombre y todo lo que sigue van al calibrador tal cual. Las opciones
+    # de cada uno son suyas, y repetirlas acá obligaría a editar este archivo por cada una.
+    parser.add_argument("--calibrate", nargs=argparse.REMAINDER, default=None,
+                        metavar="NOMBRE ...",
+                        help="abrir un calibrador en vez de la app; lo que sigue va a él")
     return parser.parse_args(argv)
 
 
-def _build_modbus_server(config: ConfigManager) -> SharedModbusServer:
+def _build_modbus_server(config: ConfigManager, on_write: OnWrite | None = None
+                         ) -> SharedModbusServer:
     """
     El servidor Modbus, con el motivo por el que no debería arrancar si lo hay.
 
@@ -1944,30 +2101,75 @@ def _build_modbus_server(config: ConfigManager) -> SharedModbusServer:
     El resto del equipo sigue andando —mira, mide, guarda el dataset y publica a la
     telemetría—: lo único que se cae es la publicación al PLC, que sin mapa no tendría a
     dónde escribir.
+
+    El datastore llega hasta la última fila del mapa aunque `modbus.register_count` diga
+    menos. El PLC escribe sólo las filas `plc` del mapa, y sólo si hay quien las reciba
+    (`on_write`).
     """
-    return SharedModbusServer(config, blocked_reason=REGISTER_MAP_ERROR)
+    return SharedModbusServer(config, blocked_reason=REGISTER_MAP_ERROR,
+                              max_addr=SCHEMA.max_addr(), write_ranges=SCHEMA.write_ranges(),
+                              on_write=on_write)
+
+
+def _build_inference_points(results: list) -> list[tuple[dict, dict]]:
+    """
+    Los puntos de inferencia de una muestra, como `(tags propios, fields)`.
+
+    Una sola serie, `inference`, partida por dos tags para que un panel elija qué mira
+    filtrando columnas y no leyendo nombres de campo:
+
+      - `kind=count`: cuántos resultados entraron, cuántos se descartaron y por qué. Sin
+        `stat`, porque son conteos de la muestra y no estadísticos.
+      - `kind=time`, `stat=mean|max`: la latencia de la pasada entera (`total_ms`) y la de
+        cada etapa (`<model_slot>_ms`), sobre todos los resultados: un descarte también
+        gastó su pasada.
+      - `kind=result`, `stat=mean|std|min|max`: lo que se midió. El campo lleva el nombre de
+        la métrica sin sufijo —`count_person`—, así que comparar la media con el máximo es
+        agrupar por `stat`.
+
+    **Todos los valores de `time` y `result` son float.** Los puntos de un mismo `kind`
+    comparten nombres de campo, e InfluxDB rechaza el campo que cambia de tipo: un `min`
+    entero al lado de una media decimal haría rechazar la escritura.
+
+    Un par sin resultados confiables no publica `result`: no hay qué resumir, y el
+    `sample_count=0` del conteo ya lo dice.
+    """
+    fields = _build_inference_fields(results)
+    points = [({"kind": _KIND_COUNT},
+               {name: fields.pop(name) for name in _INFERENCE_COUNT_FIELDS})]
+    for stat, stat_fields in _build_inference_times(results).items():
+        points.append(({"kind": _KIND_TIME, "stat": stat}, stat_fields))
+
+    # Lo que queda termina, por construcción, en uno de los sufijos: de ahí sale el `stat`.
+    for suffix in analysis.SUMMARY_SUFFIXES:
+        stat_fields = {name[:-len(suffix)]: float(value)
+                       for name, value in fields.items() if name.endswith(suffix)}
+        if stat_fields:
+            points.append(({"kind": _KIND_RESULT, "stat": suffix[1:]}, stat_fields))
+    return points
 
 
 def _build_inference_fields(results: list) -> dict:
     """
-    Campos de un punto de inferencia a partir de los resultados de una muestra.
+    Los conteos y los estadísticos de lo medido, en un dict plano con sufijos.
 
-    Tres grupos, y cada uno se agrega sobre lo que corresponde:
+    Es el paso intermedio de `_build_inference_points()`, que lo parte por `kind` y `stat`:
+    fuera de `_INFERENCE_COUNT_FIELDS`, cada clave termina en un sufijo de
+    `analysis.SUMMARY_SUFFIXES`, y de ese sufijo sale el `stat`. Dos grupos, y cada uno se
+    agrega sobre lo que corresponde:
 
       - **Cuántos y por qué**: `result_count`, `invalid_count` y el último
         `invalid_reason`. Sin esto no hay forma de preguntar cuántas mediciones se
         cayeron; el motivo es el del último descarte, y `invalid_count` da la magnitud.
-      - **Escalares del resultado**, que no están en `metrics` y se promedian acá. La
-        confianza y el conteo de detecciones sólo sobre los confiables —promediar la
-        confianza de un descarte da un número que no significa nada—; el tiempo y la
-        iluminación sobre todos, porque valen igual y la iluminación baja es justamente
-        uno de los motivos de descarte.
-      - **Las métricas del proyecto**, con media, desvío y rango, vía
-        `analysis.summarize_metrics()`, que ya devuelve el dict plano que los fields
-        necesitan y agrega `sample_count`. Lo que el ciclo YA resumió viaja tal cual: con
-        `frames_per_cycle` en más de uno acá llega un solo ciclo por tick, así que derivar
-        de nuevo daría desvío 0 y rango nulo sobre una sola muestra, y taparía la
-        dispersión de los N frames, que es la que mide algo.
+      - **Lo medido**: la confianza y el conteo de detecciones, que no están en
+        `metrics`, y las métricas del proyecto vía `analysis.summarize_metrics()`, que
+        agrega `sample_count`. Todo sólo sobre los confiables: promediar la confianza de un
+        descarte da un número que no significa nada. Lo que el ciclo YA resumió viaja tal
+        cual: con `frames_per_cycle` en más de uno acá llega un solo ciclo por tick, así
+        que derivar de nuevo daría desvío 0 y rango nulo sobre una sola muestra, y taparía
+        la dispersión de los N frames, que es la que mide algo.
+
+    La iluminación no está: ya sale por cámara en la serie `camera`, y medida una sola vez.
     """
     valid = [r for r in results if r.is_valid]
     last_invalid = next((r for r in reversed(results) if not r.is_valid), None)
@@ -1978,23 +2180,7 @@ def _build_inference_fields(results: list) -> dict:
         "invalid_reason": last_invalid.invalid_reason if last_invalid is not None else "",
     }
     for key in ("confidence_pct", "detection_count"):
-        fields.update(_mean_field(key, [getattr(r, key) for r in valid]))
-    for key in ("inference_time_ms", "illumination_pct"):
-        fields.update(_mean_field(key, [getattr(r, key) for r in results]))
-
-    # Un pico de latencia es lo que se quiere ver, y el promedio lo esconde.
-    times_ms = [r.inference_time_ms for r in results]
-    if times_ms:
-        fields["inference_time_ms_max"] = round(max(times_ms), 2)
-
-    # Tiempo por etapa: la clave es el slot del modelo, así que un pipeline de dos etapas
-    # publica dos campos y se ve cuál se llevó el tiempo.
-    stage_samples: dict[str, list] = {}
-    for result in results:
-        for model_slot, elapsed_ms in (result.stage_times_ms or {}).items():
-            stage_samples.setdefault(str(model_slot), []).append(float(elapsed_ms))
-    for model_slot, samples in stage_samples.items():
-        fields.update(_mean_field(f"stage_{model_slot}_ms", samples))
+        fields.update(_summary_fields(key, [getattr(r, key) for r in valid]))
 
     fields.update(analysis.summarize_metrics(results))
     # Los estadísticos que ya trae el ciclo pisan a los recién derivados: `sample_count`
@@ -2006,39 +2192,79 @@ def _build_inference_fields(results: list) -> dict:
     return fields
 
 
-def _mean_field(name: str, samples: list) -> dict:
-    """`{name}_mean` sobre las muestras, o nada si no hubo ninguna."""
+def _build_inference_times(results: list) -> dict[str, dict]:
+    """
+    La latencia de una muestra por estadístico: `{"mean": {...}, "max": {...}}`.
+
+    Los campos son `total_ms` —la pasada entera— y `<model_slot>_ms` por etapa, así que un
+    pipeline de dos etapas publica tres y se ve cuál se llevó el tiempo. Al lado va
+    `cycle_ms`, el período de la cámara: del arranque de un frame al del siguiente.
+    """
+    samples_ms: dict[str, list] = {
+        "total": [float(r.inference_time_ms) for r in results],
+        # El primer frame de una cámara no tiene anterior: su 0 no es un período.
+        "cycle": [float(r.cycle_time_ms) for r in results if r.cycle_time_ms > 0],
+    }
+    for result in results:
+        for model_slot, elapsed_ms in (result.stage_times_ms or {}).items():
+            samples_ms.setdefault(str(model_slot), []).append(float(elapsed_ms))
+    samples_ms = {name: values for name, values in samples_ms.items() if values}
+    return {
+        _STAT_MEAN: {f"{name}_ms": round(statistics.fmean(values), 2)
+                     for name, values in samples_ms.items()},
+        _STAT_MAX: {f"{name}_ms": round(max(values), 2)
+                    for name, values in samples_ms.items()},
+    }
+
+
+def _summary_fields(name: str, samples: list) -> dict:
+    """Media, desvío y rango con los sufijos de `summarize_metrics`, o nada sin muestras."""
     if not samples:
         return {}
-    return {f"{name}_mean": round(statistics.fmean(float(s) for s in samples), 2)}
+    values = [float(sample) for sample in samples]
+    return {f"{name}_mean": round(statistics.fmean(values), 2),
+            f"{name}_std": round(statistics.pstdev(values), 2),
+            f"{name}_min": round(min(values), 2),
+            f"{name}_max": round(max(values), 2)}
 
 
 def _build_system_fields(metrics: dict) -> dict:
     """
-    Métricas de hardware como fields de Influx: escalares, con la red aplanada.
+    Métricas de hardware como fields de Influx: sólo las escalares.
 
-    `net_mbps` llega como `{interfaz: {rx_mbps, tx_mbps}}` y un field de Influx es
-    escalar, así que cada interfaz se abre en dos campos con su nombre adentro. Filtrar
-    los valores no escalares —que es lo obvio— dejaría el tráfico de red afuera sin que
-    nadie se enterara.
+    La red no va acá: sale en su propia serie, de `_build_network_points()`.
 
-    `engines` llega como `{motor: {is_active, mhz}}` y se abre igual: `engine_vic_active`
-    como 0/1 y no como booleano, porque su media en una ventana es la fracción del tiempo
-    que el motor estuvo en uso, y `engine_vic_mhz`.
+    `engines` llega como `{motor: {is_active, mhz}}` y se abre en campos con el nombre del
+    motor adentro —los motores son los de la Jetson y no cambian entre equipos—:
+    `engine_vic_active` como 0/1 y no como booleano, porque su media en una ventana es la
+    fracción del tiempo que el motor estuvo en uso, y `engine_vic_mhz`.
 
     `temps_c` no se publica: es el detalle por zona térmica que ya resumen `cpu_temp_c` y
     `gpu_temp_c`, y sus nombres cambian entre equipos, así que no sirve para un dashboard
     que tenga que andar en los dos.
     """
     fields = {key: metrics[key] for key in _SYSTEM_METRIC_KEYS if key in metrics}
-    for iface, throughput in (metrics.get("net_mbps") or {}).items():
-        safe_iface = str(iface).replace(" ", "_")
-        fields[f"net_{safe_iface}_rx_mbps"] = float(throughput.get("rx_mbps", 0.0))
-        fields[f"net_{safe_iface}_tx_mbps"] = float(throughput.get("tx_mbps", 0.0))
     for engine, state in (metrics.get("engines") or {}).items():
         fields[f"engine_{engine}_active"] = int(bool(state.get("is_active", False)))
         fields[f"engine_{engine}_mhz"] = int(state.get("mhz", 0))
     return fields
+
+
+def _build_network_points(metrics: dict) -> list[tuple[str, dict]]:
+    """
+    Un punto por interfaz, `(interfaz, fields)`, para la serie `network`.
+
+    **La interfaz va en un tag y no en el nombre del campo**, por la misma razón que la
+    cámara: con `net_eth0_rx_mbps` cada equipo tenía campos distintos —`eth0` en la
+    Jetson, `Ethernet` en Windows— y un panel se filtraba con una regex sobre el nombre.
+    Con el tag, los campos son siempre `rx_mbps` y `tx_mbps`, y el panel agrupa por
+    `interface`.
+    """
+    return [
+        (str(iface), {"rx_mbps": float(throughput.get("rx_mbps", 0.0)),
+                      "tx_mbps": float(throughput.get("tx_mbps", 0.0))})
+        for iface, throughput in (metrics.get("net_mbps") or {}).items()
+    ]
 
 
 def main(argv: list | None = None) -> int:
@@ -2048,6 +2274,17 @@ def main(argv: list | None = None) -> int:
     # Después del log y antes de cualquier subsistema: los que usan un secreto lo leen
     # del entorno cuando arrancan, y de qué se cargó tiene que quedar constancia.
     load_env_file()
+
+    # Antes de cualquier subsistema: ninguno lee ya las claves que migra, y los pipelines
+    # tienen que arrancar con el recorte que antes heredaban de la cámara.
+    migrate_roi_config(config)
+
+    # Un calibrador es otro programa que comparte este ejecutable: arma su propia ventana si
+    # la necesita, así que se despacha antes de que este archivo arme la suya. Y antes de la
+    # licencia, porque la puesta en marcha viene antes que ella —la solicitud se genera en
+    # este mismo equipo— y un calibrador no publica nada que haya que restringir.
+    if args.calibrate is not None:
+        return _exit(run_calibration_tool(config, args.calibrate), config)
 
     # Antes de Qt y de cualquier subsistema, para que el veredicto quede en el log pase lo
     # que pase después. Un equipo sin licencia utilizable YA NO aborta acá: abre igual, en

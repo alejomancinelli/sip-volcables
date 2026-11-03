@@ -140,9 +140,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     # ── Cámaras (configuración) ──────────────────────────────────────────────
     "cam_box_connection":     {"es": "Conexión",       "en": "Connection",    "pt": "Conexão"},
     "cam_box_acquisition":    {"es": "Adquisición",    "en": "Acquisition",   "pt": "Aquisição"},
-    "cam_box_roi":            {"es": "Región de interés (ROI)",
-                               "en": "Region of interest (ROI)",
-                               "pt": "Região de interesse (ROI)"},
     "cam_box_calibration":    {"es": "Calibración de lente",
                                "en": "Lens calibration",
                                "pt": "Calibração da lente"},
@@ -269,6 +266,20 @@ _TEXTS: dict[str, dict[str, str]] = {
     "lens_calibrate":         {"es": "Calibrar con el lente limpio",
                                "en": "Calibrate with a clean lens",
                                "pt": "Calibrar com a lente limpa"},
+    "lens_box_region":        {"es": "Región de medición", "en": "Measurement region",
+                               "pt": "Região de medição"},
+    "lens_roi_title":         {"es": "Región de la óptica", "en": "Lens region",
+                               "pt": "Região da óptica"},
+    "lens_region_note":       {"es": "Dónde se mide la nitidez: elegí una zona con textura "
+                                     "fija y nítida. Sin región se mide el frame entero. No "
+                                     "tiene que ver con lo que mira cada modelo.",
+                               "en": "Where sharpness is measured: pick an area with fixed, "
+                                     "sharp texture. Without a region the whole frame is "
+                                     "measured. It has nothing to do with what each model "
+                                     "looks at.",
+                               "pt": "Onde a nitidez é medida: escolha uma zona com textura "
+                                     "fixa e nítida. Sem região mede-se o frame inteiro. Não "
+                                     "tem relação com o que cada modelo olha."},
     "lens_calibrate_note":    {"es": "Limpiar el vidrio antes de calibrar: lo que se guarda "
                                      "es el techo de nitidez de ese montaje. La referencia "
                                      "se puede editar a mano para copiar la de un equipo "
@@ -377,16 +388,147 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Stop capture between measurements",
                                "pt": "Desligar a captura entre medições"},
     "inf_cycle_note":         {"es": "Con 1 imagen por medición las otras tres no hacen "
-                                     "nada. Apagar la captura libera la red, pero deja el "
-                                     "video en vivo sin imagen hasta la medición siguiente.",
+                                     "nada, salvo en un pipeline que mide a pedido. Apagar "
+                                     "la captura libera la red, pero deja el video en vivo "
+                                     "sin imagen hasta la medición siguiente.",
                                "en": "With 1 frame per measurement the other three do "
-                                     "nothing. Stopping capture frees the network but "
+                                     "nothing, except on a pipeline that measures on "
+                                     "request. Stopping capture frees the network but "
                                      "leaves the live view blank until the next measurement.",
                                "pt": "Com 1 imagem por medição as outras três não fazem "
-                                     "nada. Desligar a captura libera a rede, mas deixa o "
+                                     "nada, exceto num pipeline que mede sob demanda. "
+                                     "Desligar a captura libera a rede, mas deixa o "
                                      "vídeo ao vivo sem imagem até a medição seguinte."},
+    "inf_roi_box":            {"es": "ROI en",         "en": "ROI on",        "pt": "ROI em"},
+    "inf_roi_mode":           {"es": "Región:",        "en": "Region:",       "pt": "Região:"},
+    "inf_roi_mode_own":       {"es": "Propia de este pipeline",
+                               "en": "This pipeline's own",
+                               "pt": "Própria deste pipeline"},
+    "inf_roi_mode_full":      {"es": "Frame completo", "en": "Whole frame",   "pt": "Frame completo"},
+    "inf_box_regions":        {"es": "Regiones (ROI)", "en": "Regions (ROI)",
+                               "pt": "Regiões (ROI)"},
+    "inf_pipeline_name":      {"es": "Nombre:",        "en": "Name:",         "pt": "Nome:"},
+    "inf_roi_note":           {"es": "En una cámara que decodifica video la región se corta del "
+                                     "video nativo, no del frame reducido, y el VIC la entrega "
+                                     "a la entrada del modelo. Se aplica al reiniciar.",
+                               "en": "On a camera that decodes video the region is cut from the "
+                                     "native video, not the reduced frame, and the VIC hands it "
+                                     "over at the model's input size. It applies on restart.",
+                               "pt": "Em uma câmera que decodifica vídeo a região é cortada do "
+                                     "vídeo nativo, não do frame reduzido, e o VIC a entrega no "
+                                     "tamanho de entrada do modelo. Vale ao reiniciar."},
+    "inf_region_view_auto":   {"es": "salida según el modelo", "en": "output per the model",
+                               "pt": "saída conforme o modelo"},
+    "regions_problem_native_preprocessed": {
+        "es": "Esta cámara tiene corrección de lente o ajuste de imagen: la región se corta del "
+              "frame de referencia y no del video nativo.",
+        "en": "This camera has lens correction or image adjustment: the region is cut from the "
+              "reference frame, not from the native video.",
+        "pt": "Esta câmera tem correção de lente ou ajuste de imagem: a região é cortada do "
+              "frame de referência e não do vídeo nativo."},
+    "regions_problem_too_small": {
+        "es": "La región mide menos de 16 px por lado: el decodificador no puede cortarla del "
+              "video nativo y el pipeline no infiere.",
+        "en": "The region is under 16 px per side: the decoder cannot cut it from the native "
+              "video and the pipeline does not infer.",
+        "pt": "A região mede menos de 16 px por lado: o decodificador não pode cortá-la do "
+              "vídeo nativo e o pipeline não infere."},
+    "inf_regions_edit":       {"es": "Editar regiones…", "en": "Edit regions…",
+                               "pt": "Editar regiões…"},
+    "inf_region_native":      {"es": "nativo",         "en": "native",        "pt": "nativo"},
+    "regions_title":          {"es": "Regiones de los pipelines",
+                               "en": "Pipeline regions",
+                               "pt": "Regiões dos pipelines"},
+    "regions_hint":           {"es": "Elegí un pipeline y arrastrá sobre la imagen: dentro del "
+                                     "recuadro lo mueve, en el borde lo estira, afuera dibuja "
+                                     "uno nuevo. Los demás se ven finos, para comparar.",
+                               "en": "Pick a pipeline and drag on the image: inside the box "
+                                     "moves it, on the edge resizes it, outside draws a new "
+                                     "one. The others show thin, for reference.",
+                               "pt": "Escolha um pipeline e arraste sobre a imagem: dentro da "
+                                     "caixa move, na borda estica, fora desenha uma nova. As "
+                                     "outras aparecem finas, para comparar."},
+    "regions_no_pipelines":   {"es": "Ningún pipeline mira esta cámara.",
+                               "en": "No pipeline looks at this camera.",
+                               "pt": "Nenhum pipeline olha esta câmera."},
+    "regions_waiting_frame":  {"es": "Esperando un frame de la cámara…",
+                               "en": "Waiting for a camera frame…",
+                               "pt": "Aguardando um frame da câmera…"},
+    "regions_save":           {"es": "Guardar regiones", "en": "Save regions",
+                               "pt": "Salvar regiões"},
+    "regions_preview_box":    {"es": "Lo que recibe el modelo", "en": "What the model gets",
+                               "pt": "O que o modelo recebe"},
+    "regions_preview_whole":  {"es": "Frame completo.", "en": "Whole frame.",
+                               "pt": "Frame completo."},
+    "regions_preview_approx": {"es": "Aproximada: sale del frame reducido; con la vista nativa "
+                                     "el modelo tiene más detalle.",
+                               "en": "Approximate: taken from the reduced frame; with the "
+                                     "native view the model gets more detail.",
+                               "pt": "Aproximada: sai do frame reduzido; com a vista nativa o "
+                                     "modelo tem mais detalhe."},
+    "regions_overlap":        {"es": "Se pisa con {pipeline}: {pct} %",
+                               "en": "Overlaps {pipeline}: {pct} %",
+                               "pt": "Sobrepõe {pipeline}: {pct} %"},
+    "regions_problem_outside_frame": {
+        "es": "El recuadro se sale del frame.",
+        "en": "The box goes outside the frame.",
+        "pt": "A caixa sai do frame."},
+    "regions_problem_frame_size_changed": {
+        "es": "Se dibujó sobre un frame de {drawn} y ahora llega uno de {now}: el recuadro "
+              "puede estar corrido.",
+        "en": "It was drawn on a {drawn} frame and now a {now} one arrives: the box may be "
+              "shifted.",
+        "pt": "Foi desenhada sobre um frame de {drawn} e agora chega um de {now}: a caixa "
+              "pode estar deslocada."},
 
     # ── Proceso (configuración) ──────────────────────────────────────────────
+    "process_stopper_box":    {"es": "Calza",          "en": "Stopper",       "pt": "Calço"},
+    "process_stopper_level":  {"es": "Altura de calza levantada (Y px)",
+                               "en": "Raised stopper height (Y px)",
+                               "pt": "Altura de calço levantado (Y px)"},
+    "process_draw_level":     {"es": "Marcar sobre la imagen",
+                               "en": "Mark on the image",
+                               "pt": "Marcar sobre a imagem"},
+    "process_stopper_min_raised": {"es": "Píxeles mínimos sobre la línea",
+                               "en": "Minimum pixels above the line",
+                               "pt": "Pixels mínimos acima da linha"},
+    "process_stopper_max_gap": {"es": "Distancia máx. rueda-calza (px)",
+                               "en": "Max wheel-stopper distance (px)",
+                               "pt": "Distância máx. roda-calço (px)"},
+    "process_uncalibrated":   {"es": "Sin calibrar",   "en": "Not calibrated", "pt": "Não calibrado"},
+    "process_wheel_side":     {"es": "Lado de la rueda respecto de la calza",
+                               "en": "Wheel side relative to the stopper",
+                               "pt": "Lado da roda em relação ao calço"},
+    "wheel_side_any":         {"es": "Cualquiera",     "en": "Either",        "pt": "Qualquer"},
+    "wheel_side_left":        {"es": "Izquierda",      "en": "Left",          "pt": "Esquerda"},
+    "wheel_side_right":       {"es": "Derecha",        "en": "Right",         "pt": "Direita"},
+    "process_stopper_hint":   {"es": "La calza está levantada si al menos esa cantidad de "
+                                     "píxeles de su máscara queda por encima de esa altura, "
+                                     "una línea horizontal de borde a borde. Recién con la calza levantada, "
+                                     "la rueda la toca si la distancia más corta entre las dos "
+                                     "máscaras no pasa del máximo; con un lado elegido, sólo "
+                                     "cuenta la rueda de ese lado de la calza en la imagen. "
+                                     "Todo en píxeles del frame de la cámara. Se guarda con "
+                                     "Guardar —la altura marcada sobre la imagen, también al "
+                                     "cerrar su ventana— y se aplica al reiniciar.",
+                               "en": "The stopper is raised if at least that many pixels of "
+                                     "its mask are above that height, a horizontal line across "
+                                     "the whole width. Only once the stopper is raised, the wheel "
+                                     "touches it if the shortest distance between the two "
+                                     "masks is within the maximum; with a side chosen, only "
+                                     "the wheel on that side of the stopper in the image "
+                                     "counts. All in pixels of the camera frame. Saved with Save "
+                                     "—the height marked on the image also when its window "
+                                     "closes— and applied after a restart.",
+                               "pt": "O calço está levantado se pelo menos essa quantidade de "
+                                     "pixels da sua máscara fica acima dessa altura, uma linha "
+                                     "horizontal de borda a borda. Só com o calço levantado, a roda o toca "
+                                     "se a menor distância entre as duas máscaras não passa do "
+                                     "máximo; com um lado escolhido, só conta a roda desse "
+                                     "lado do calço na imagem. Tudo em pixels do frame da "
+                                     "câmera. Salva-se com Salvar "
+                                     "—a altura marcada sobre a imagem, também ao fechar sua "
+                                     "janela— e aplica-se ao reiniciar."},
     "process_empty_note":     {"es": "Esta instalación todavía no declaró parámetros de "
                                      "proceso editables desde la pantalla.\n\n"
                                      "Los parámetros de lo que se mide —escalas de píxel, "
@@ -515,15 +657,6 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "({plc_addr} for the PLC).",
                                "pt": "O mapa carregado usa até o registrador {max_addr} "
                                      "({plc_addr} para o CLP)."},
-    "mb_map_overflow":        {"es": "El mapa llega al registro {max_addr} ({plc_addr} para "
-                                     "el PLC), más allá de los {count} expuestos: esos "
-                                     "registros no se publican.",
-                               "en": "The map reaches register {max_addr} ({plc_addr} for the "
-                                     "PLC), past the {count} exposed: those registers are "
-                                     "not published.",
-                               "pt": "O mapa chega ao registrador {max_addr} ({plc_addr} para "
-                                     "o CLP), além dos {count} expostos: esses registradores "
-                                     "não são publicados."},
     "mb_serial_port":         {"es": "Puerto serie:",  "en": "Serial port:",  "pt": "Porta serial:"},
     "mb_baudrate":            {"es": "Baudrate:",      "en": "Baud rate:",    "pt": "Baud rate:"},
     "mb_parity":              {"es": "Paridad:",       "en": "Parity:",       "pt": "Paridade:"},
@@ -740,7 +873,21 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "Arraste com o mouse sobre a imagem para desenhar o ROI."},
     "roi_reset":              {"es": "Restablecer",    "en": "Reset",         "pt": "Restabelecer"},
     "roi_save":               {"es": "Guardar ROI",    "en": "Save ROI",      "pt": "Salvar ROI"},
+    "level_title":            {"es": "Marcar altura",  "en": "Mark height",   "pt": "Marcar altura"},
+    "level_box_coords":       {"es": "Altura (píxeles)",
+                               "en": "Height (pixels)",
+                               "pt": "Altura (pixels)"},
+    "level_y":                {"es": "Y (0 = arriba)", "en": "Y (0 = top)",   "pt": "Y (0 = topo)"},
+    "level_hint":             {"es": "Hacé click o arrastrá sobre la imagen para ubicar la "
+                                     "línea; es horizontal y cubre todo el ancho.",
+                               "en": "Click or drag on the image to place the line; it is "
+                                     "horizontal and spans the whole width.",
+                               "pt": "Clique ou arraste sobre a imagem para posicionar a "
+                                     "linha; é horizontal e cobre toda a largura."},
+    "level_save":             {"es": "Guardar altura", "en": "Save height",   "pt": "Salvar altura"},
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
+    "dialog_pause":           {"es": "Pausar video",   "en": "Pause video",   "pt": "Pausar vídeo"},
+    "dialog_resume":          {"es": "Reanudar video", "en": "Resume video",  "pt": "Retomar vídeo"},
     "dialog_close":           {"es": "Cerrar",         "en": "Close",         "pt": "Fechar"},
     "gpio_title":             {"es": "Entradas y salidas digitales",
                                "en": "Digital inputs and outputs",

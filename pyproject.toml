@@ -5,6 +5,9 @@
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+# Los de pytest por defecto, menos `build`: con él la suite saltea `test/build/`, que espeja
+# la carpeta `build/`, y sus tests sólo corrían nombrándolos. Una falla ahí no la veía nadie.
+norecursedirs = [".*", "*.egg", "_darcs", "CVS", "dist", "node_modules", "venv", "{arch}"]
 # -ra resume al final lo saltado y lo fallido; --strict-markers convierte un marker mal
 # escrito en un error en vez de un test que nunca se filtra.
 addopts = "-ra --strict-markers"

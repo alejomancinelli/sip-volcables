@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**74 archivos, 414 grupos, 2022 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**90 archivos, 539 grupos, 2778 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,27 +14,29 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 6 | 303 |
-| [test/build/](#testbuild) | 2 | 43 |
-| [test/camera/](#testcamera) | 3 | 151 |
+| [test/](#test) | 7 | 373 |
+| [test/build/](#testbuild) | 2 | 55 |
+| [test/calibration/](#testcalibration) | 1 | 16 |
+| [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
-| [test/image_collector/](#testimage_collector) | 2 | 80 |
-| [test/inference/](#testinference) | 12 | 311 |
-| [test/inference/models/](#testinferencemodels) | 6 | 137 |
+| [test/image_collector/](#testimage_collector) | 2 | 91 |
+| [test/inference/](#testinference) | 15 | 606 |
+| [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
-| [test/modbus/](#testmodbus) | 3 | 138 |
+| [test/modbus/](#testmodbus) | 5 | 206 |
+| [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 6 | 147 |
+| [test/tools/camera/](#testtoolscamera) | 6 | 217 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 7 | 49 |
-| [test/video/](#testvideo) | 3 | 192 |
+| [test/ui/](#testui) | 15 | 203 |
+| [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
 
-### [test_config_manager.py](../test/test_config_manager.py) — 47 tests
+### [test_config_manager.py](../test/test_config_manager.py) — 54 tests
 
 Tests del ConfigManager: singleton, carga y fallback, rutas punteadas, aislamiento de los valores que entrega, guardado atómico y acceso concurrente.
 
@@ -49,6 +51,7 @@ Tests del ConfigManager: singleton, carga y fallback, rutas punteadas, aislamien
 | `TestSave` |  | 9 |
 | `TestThreadSafety` |  | 2 |
 | `TestBackup` | El `.bak` que queda antes de pisar el archivo. | 3 |
+| `TestDelete` |  | 7 |
 
 <details><summary>Tests</summary>
 
@@ -108,6 +111,14 @@ Tests del ConfigManager: singleton, carga y fallback, rutas punteadas, aislamien
   - `test_it_keeps_the_previous_version`
   - `test_it_holds_one_version_and_not_a_history`
   - `test_the_first_save_without_a_file_leaves_no_backup`
+- `TestDelete`
+  - `test_it_removes_a_key_and_says_so`
+  - `test_the_siblings_stay`
+  - `test_it_removes_a_whole_section`
+  - `test_a_key_that_is_null_in_the_file_is_still_a_key`
+  - `test_a_path_that_does_not_exist_does_nothing`
+  - `test_it_bumps_the_revision_so_cached_readers_notice`
+  - `test_it_does_not_touch_the_disk_until_save`
 
 </details>
 
@@ -141,6 +152,34 @@ Tests del cargador del `.env`.
   - `test_a_directory_in_place_of_the_file_is_not_an_error`
 - `TestSecrecy`
   - `test_the_values_never_reach_the_log`
+
+</details>
+
+### [test_frame_signals.py](../test/test_frame_signals.py) — 12 tests
+
+Tests de las funciones de flanco que usa un fork en `_on_signals_changed()`.
+
+| Grupo | Tests |
+|---|---:|
+| `TestFrameSignals` | 2 |
+| `TestEdges` | 10 |
+
+<details><summary>Tests</summary>
+
+- `TestFrameSignals`
+  - `test_it_starts_empty`
+  - `test_it_cannot_be_modified`
+- `TestEdges`
+  - `test_gpio_rises_from_zero_to_one`
+  - `test_gpio_falls_from_one_to_zero`
+  - `test_no_gpio_rise_without_the_change`
+  - `test_the_first_gpio_reading_is_not_an_edge`
+  - `test_a_read_error_in_between_is_not_an_edge`
+  - `test_another_channel_is_not_an_edge`
+  - `test_a_plc_variable_rises_and_falls`
+  - `test_a_number_rises_from_zero`
+  - `test_a_counter_change_is_read_with_plc_changed`
+  - `test_a_counter_that_wraps_around_still_changed`
 
 </details>
 
@@ -189,31 +228,41 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 95 tests
+### [test_main.py](../test/test_main.py) — 144 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestExit` |  | 3 |
+| `TestCalibrate` | `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del calibrador, y este archivo no lo interpreta. | 4 |
 | `TestUnlicensedCamera` | El status que el cableado publica por una cámara que la licencia deja afuera. | 3 |
 | `TestUnlicensedCameraOnScreen` | Que la cámara fuera de cupo llegue al widget del monitor. | 3 |
 | `TestInterruptSignals` |  | 3 |
 | `TestModbusServerWiring` | Que el motivo por el que el mapa no cargó llegue al servidor. | 3 |
+| `TestHardwarePoints` | La red sale en su propia serie, con la interfaz en un tag y no en el campo. | 3 |
 | `TestSystemFields` |  | 5 |
 | `TestInferenceFields` | Los fields de un punto de telemetría de inferencia. | 4 |
-| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 8 |
+| `TestInferencePoints` | La serie `inference` partida por `kind` y `stat`. | 8 |
+| `TestCycleTimeFields` | El período de la cámara se agrega sin contar el 0 del primer frame. | 2 |
+| `TestFrameViews` | Las vistas viajan con su frame hasta el motor, por los dos caminos. | 2 |
+| `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
-| `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
+| `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 11 |
+| `TestRampGate` | La plataforma inclinada corta los pipelines de `process.ramp_gate`, y sólo a ésos. | 7 |
 | `TestGatedOverlay` | El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo. | 5 |
-| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 3 |
+| `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 4 |
+| `TestDatasetSubset` | Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara. | 4 |
 | `TestLensInterval` |  | 4 |
 | `TestLensDirtyBit` | Qué llega al bit de lente sucio de la palabra de estado de la cámara. | 3 |
 | `TestLensCalibration` |  | 7 |
 | `TestGpioRegisters` |  | 5 |
+| `TestPlcVariables` | El cableado del drenado: lo que escribe el PLC llega a las señales de los frames. | 5 |
+| `TestPlcServerWiring` |  | 4 |
+| `TestSignalsChanged` | El aviso al fork: una vez por cambio, con la foto de antes y la de ahora. | 8 |
 | `TestGpioShutdown` |  | 1 |
 | `TestHeadlessUi` |  | 1 |
 
@@ -223,6 +272,11 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_by_default_it_returns_instead_of_killing_the_process`
   - `test_hard_exit_terminates_without_unwinding`
   - `test_the_log_is_flushed_either_way`
+- `TestCalibrate`
+  - `test_the_name_and_the_rest_of_the_line_go_through_untouched`
+  - `test_the_config_path_still_comes_first`
+  - `test_without_it_the_app_opens`
+  - `test_it_runs_before_the_license_and_qt`
 - `TestUnlicensedCamera`
   - `test_it_uses_the_stable_keys_of_a_driver`
   - `test_it_reads_as_a_camera_that_cannot_operate`
@@ -239,6 +293,10 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_without_a_map_the_server_refuses_to_serve`
   - `test_with_the_map_loaded_nothing_blocks_it`
   - `test_it_passes_the_error_that_registers_reports`
+- `TestHardwarePoints`
+  - `test_the_system_point_carries_only_scalars`
+  - `test_every_interface_has_the_same_two_fields`
+  - `test_without_network_there_are_no_points`
 - `TestSystemFields`
   - `test_each_engine_opens_into_two_scalar_fields`
   - `test_active_is_an_integer_so_its_mean_is_a_fraction_of_time`
@@ -250,8 +308,25 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_gets_a_second_round_of_suffixes`
   - `test_the_sample_count_is_the_frames_of_the_cycle`
   - `test_without_a_cycle_the_stats_are_derived`
+- `TestInferencePoints`
+  - `test_the_kinds_and_stats_are_the_ones_of_the_contract`
+  - `test_the_count_point_says_how_many_and_why`
+  - `test_the_latency_covers_every_result_and_every_stage`
+  - `test_the_measured_fields_carry_the_clean_name`
+  - `test_every_measured_value_is_a_float`
+  - `test_the_illumination_is_left_to_the_camera_series`
+  - `test_without_a_valid_result_there_is_nothing_measured`
+  - `test_a_cycle_keeps_its_dispersion_under_the_clean_name`
+- `TestCycleTimeFields`
+  - `test_the_first_frame_without_a_previous_one_is_left_out`
+  - `test_without_any_period_there_is_no_field`
+- `TestFrameViews`
+  - `test_an_uncycled_engine_gets_the_views_in_the_capture_thread`
+  - `test_a_cycled_engine_gets_the_views_of_the_frame_it_takes`
 - `TestFramePath`
   - `test_an_uncycled_engine_gets_the_frame_in_the_capture_thread`
+  - `test_the_frame_takes_the_plc_variables_with_it`
+  - `test_a_cycled_engine_also_gets_the_plc_variables`
   - `test_an_engine_only_gets_its_own_cameras`
   - `test_a_cycled_engine_waits_for_the_gui`
   - `test_the_raw_stream_gets_the_frame_only_with_clients`
@@ -286,7 +361,6 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_an_older_result_is_not_shown`
   - `test_the_dataset_gets_each_pipeline_own_annotated_frame`
 - `TestFrameGates`
-  - `test_the_template_declares_no_gates`
   - `test_a_closed_gate_stops_that_camera_for_that_pipeline_only`
   - `test_the_gate_receives_the_camera_and_the_current_inputs`
   - `test_new_inputs_replace_the_snapshot_instead_of_changing_it`
@@ -298,6 +372,14 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_a_reopened_gate_clears_the_bit`
   - `test_a_gate_on_a_cycled_pipeline_is_warned_at_startup`
   - `test_a_gate_for_a_pipeline_without_thread_is_warned_at_startup`
+- `TestRampGate`
+  - `test_only_the_listed_pipelines_get_the_gate`
+  - `test_without_the_list_there_are_no_gates`
+  - `test_a_tilted_ramp_closes_the_gate`
+  - `test_a_level_ramp_keeps_it_open`
+  - `test_without_information_it_stays_open`
+  - `test_a_tilted_ramp_stops_the_grain_but_not_the_persons`
+  - `test_the_register_map_declares_the_variable_the_gate_reads`
 - `TestGatedOverlay`
   - `test_closing_the_gate_drops_the_overlay_on_the_next_frame`
   - `test_a_camera_with_nothing_fresh_shows_the_live_frame`
@@ -308,6 +390,12 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_nothing_is_built_with_the_collector_off`
   - `test_the_result_goes_to_the_dataset_with_the_collector_on`
   - `test_the_telemetry_keeps_the_numbers_without_the_frames`
+  - `test_the_detection_count_reaches_the_telemetry`
+- `TestDatasetSubset`
+  - `test_an_own_roi_saves_the_region_in_its_subset`
+  - `test_the_camera_roi_saves_the_frame_without_a_subset`
+  - `test_a_result_without_its_region_is_not_saved`
+  - `test_the_pipeline_travels_for_the_filter`
 - `TestLensInterval`
   - `test_it_takes_the_interval_from_the_config`
   - `test_without_the_key_it_falls_back_to_the_default`
@@ -331,6 +419,26 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_the_outputs_word_echoes_what_was_commanded`
   - `test_both_words_have_a_row_in_the_map`
   - `test_an_analyzer_metric_cannot_overwrite_them`
+- `TestPlcVariables`
+  - `test_a_write_reaches_the_frame_signals`
+  - `test_rewriting_the_same_value_keeps_the_same_signals`
+  - `test_the_signals_are_replaced_and_never_modified`
+  - `test_a_plc_write_keeps_the_gpio_inputs`
+  - `test_a_gpio_reading_keeps_the_plc_variables`
+- `TestPlcServerWiring`
+  - `test_the_plc_writes_only_its_rows`
+  - `test_without_anyone_to_receive_them_nothing_is_writable`
+  - `test_the_datastore_reaches_the_last_row_of_the_map`
+  - `test_a_metric_cannot_take_a_plc_or_published_row`
+- `TestSignalsChanged`
+  - `test_a_plc_write_calls_it_with_both_snapshots`
+  - `test_several_writes_in_one_tick_are_one_call`
+  - `test_rewriting_the_same_value_does_not_call_it`
+  - `test_a_new_gpio_reading_calls_it`
+  - `test_the_same_gpio_reading_does_not_call_it`
+  - `test_the_new_signals_are_in_place_before_the_call`
+  - `test_a_failing_hook_warns_and_keeps_the_new_signals`
+  - `test_the_template_hook_takes_the_change_without_failing`
 - `TestGpioShutdown`
   - `test_the_polling_stops_before_the_lines_are_released`
 - `TestHeadlessUi`
@@ -370,7 +478,7 @@ Tests de las dos raíces.
 
 </details>
 
-### [test_system_monitor.py](../test/test_system_monitor.py) — 111 tests
+### [test_system_monitor.py](../test/test_system_monitor.py) — 113 tests
 
 Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows, cálculo del throughput de red y estabilidad del contrato de `get_metrics`.
 
@@ -389,8 +497,8 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 | `TestParseWmiZones` |  | 5 |
 | `TestWmiZones` | La temperatura de Windows sale de las zonas ACPI del firmware. | 6 |
 | `TestDisk` |  | 5 |
-| `TestNetThroughput` |  | 11 |
-| `TestGetMetrics` |  | 13 |
+| `TestNetThroughput` |  | 12 |
+| `TestGetMetrics` |  | 14 |
 | `TestJetsonEngines` |  | 5 |
 
 <details><summary>Tests</summary>
@@ -501,12 +609,14 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
   - `test_an_interface_of_another_machine_is_skipped`
   - `test_an_interface_that_appears_starts_from_zero`
   - `test_an_interface_that_disappears_stops_being_reported`
+  - `test_the_interfaces_are_known_before_the_first_reading`
   - `test_the_baseline_advances_on_every_call`
 - `TestGetMetrics`
   - `test_the_real_machine_answers_every_key`
   - `test_the_keys_are_there_even_without_any_source`
   - `test_the_jetson_sources_feed_the_metrics`
   - `test_windows_falls_back_to_nvidia_smi_for_the_gpu`
+  - `test_the_power_is_a_float_whatever_the_source`
   - `test_a_firmware_without_zones_reports_no_temperature`
   - `test_the_windows_acpi_zone_feeds_the_cpu_temperature`
   - `test_windows_without_an_nvidia_gpu_reports_zeros`
@@ -527,7 +637,7 @@ Tests del monitor de sistema: fuentes de sysfs de la Jetson, fuentes de Windows,
 
 ## test/build/
 
-### [test_build.py](../test/build/test_build.py) — 21 tests
+### [test_build.py](../test/build/test_build.py) — 24 tests
 
 Tests de las opciones con las que se llama a Nuitka.
 
@@ -535,6 +645,7 @@ Tests de las opciones con las que se llama a Nuitka.
 |---|---|---:|
 | `TestExtraFlags` | Las opciones que suma cada fork. | 5 |
 | `TestOptionalPackages` | Lo que la maquinaria necesita que Nuitka incluya a mano, y sólo donde está instalado. Va fuera de `_EXTRA_FLAGS`: el GPIO es del template, no de un fork. | 4 |
+| `TestCalibrators` | `calibration/` entra al binario aunque `main.py` no lo importe de forma estática: el registro importa cada calibrador por nombre, y Nuitka no sigue un import armado con un string. Sin esto el build sale bien y el lanzador falla recién en la planta. | 3 |
 | `TestExclusions` |  | 2 |
 | `TestPlatform` | Las propiedades y el icono del `.exe` son recursos de un binario PE. En la Jetson no hay dónde guardarlos, y el comando no los lleva. | 3 |
 | `TestAcceleratedBuild` | La forma de Linux: se compila lo nuestro y lo de terceros viaja suelto. | 4 |
@@ -553,6 +664,10 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_a_missing_one_is_left_out`
   - `test_the_fork_block_stays_empty_either_way`
   - `test_the_accelerated_build_leaves_it_loose`
+- `TestCalibrators`
+  - `test_the_standalone_build_includes_them`
+  - `test_the_accelerated_build_compiles_them`
+  - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
   - `test_excluding_nothing_is_the_default`
@@ -572,13 +687,14 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 22 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
 | `TestDesktopEntryId` |  | 2 |
@@ -591,6 +707,16 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_a_fork_without_a_model_yet_is_not_a_failure`
   - `test_a_directory_that_is_not_there_says_so`
   - `test_the_models_directory_is_the_one_the_repo_ships`
+- `TestCalibrationTools`
+  - `test_the_template_ships_only_the_app_launchers`
+  - `test_each_tool_gets_a_launcher_that_waits`
+  - `test_the_windows_launcher_keeps_the_console_open`
+  - `test_the_linux_launcher_calls_the_same_binary`
+  - `test_its_folders_are_created_empty_with_a_note`
+  - `test_its_guide_travels_with_it`
+  - `test_without_tools_there_is_no_calibration_folder`
+  - `test_a_broken_table_stops_the_release`
+  - `test_the_shipped_table_can_be_packaged`
 - `TestLinuxRelease`
   - `test_the_launchers_exec_the_nuitka_binary`
   - `test_the_data_dir_lives_in_one_file`
@@ -616,16 +742,53 @@ Tests del armado del entregable: qué se copia y qué no.
 
 </details>
 
+## test/calibration/
+
+### [test_registry.py](../test/calibration/test_registry.py) — 16 tests
+
+Tests de la tabla de calibradores: qué se puede registrar y cómo se lanza uno.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestShippedTable` | La tabla que se entrega. En el template está vacía; en un fork, estos tests son los que frenan una fila mal escrita antes de que `make_release.py` la empaquete. | 2 |
+| `TestCheckTools` |  | 8 |
+| `TestRunTool` |  | 6 |
+
+<details><summary>Tests</summary>
+
+- `TestShippedTable`
+  - `test_it_has_no_problems`
+  - `test_each_module_is_where_it_says`
+- `TestCheckTools`
+  - `test_a_well_formed_tool_passes`
+  - `test_the_name_has_to_work_as_a_word_and_a_package`
+  - `test_two_tools_cannot_share_a_name`
+  - `test_two_tools_cannot_share_a_launcher`
+  - `test_the_module_lives_in_its_own_folder`
+  - `test_the_launcher_has_to_be_a_file_name`
+  - `test_a_folder_cannot_leave_the_tool_directory`
+  - `test_each_problem_is_reported_once`
+- `TestRunTool`
+  - `test_the_tool_gets_the_config_and_the_rest_of_the_line`
+  - `test_its_exit_code_comes_back`
+  - `test_an_unknown_name_lists_what_there_is`
+  - `test_a_missing_name_says_so`
+  - `test_without_tools_it_says_there_are_none`
+  - `test_listing_the_tools_does_not_import_them`
+
+</details>
+
 ## test/camera/
 
-### [test_capture_scheduler.py](../test/camera/test_capture_scheduler.py) — 46 tests
+### [test_capture_scheduler.py](../test/camera/test_capture_scheduler.py) — 63 tests
 
 Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregación de los N resultados, ciclo vacío, vencimiento y apagado de captura entre ciclos.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestTakeFrame` |  | 5 |
-| `TestHasMeasurementCycle` | La regla que comparten el scheduler y la pestaña de dataset. | 5 |
+| `TestHasMeasurementCycle` | La regla que comparten el scheduler y la pestaña de dataset. | 6 |
+| `TestCycleSettingsCache` | La forma del ciclo se consulta en cada frame: se relee sólo cuando cambia el config. | 2 |
 | `TestPassThrough` |  | 4 |
 | `TestAggregation` |  | 7 |
 | `TestEmptyCycle` |  | 3 |
@@ -633,6 +796,7 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
 | `TestCycleInterval` |  | 2 |
 | `TestTimeout` |  | 5 |
 | `TestIdleCameras` |  | 6 |
+| `TestRequestedRound` | Una ronda que abre quien la pide: un contador del PLC, un flanco de GPIO. | 14 |
 | `TestLifecycle` |  | 4 |
 
 <details><summary>Tests</summary>
@@ -649,6 +813,10 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
   - `test_a_disabled_pipeline_with_cycle_does_not_count`
   - `test_a_missing_value_is_one_frame`
   - `test_without_pipelines`
+  - `test_measuring_on_request_is_a_cycle`
+- `TestCycleSettingsCache`
+  - `test_a_change_in_the_config_is_seen`
+  - `test_without_a_change_the_config_is_not_read_again`
 - `TestPassThrough`
   - `test_one_frame_per_cycle_is_not_cycled`
   - `test_it_always_lets_the_frame_through`
@@ -688,6 +856,21 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
   - `test_nobody_captures_while_the_interval_runs`
   - `test_stopping_gives_the_cameras_back`
   - `test_it_only_asks_when_something_changed`
+- `TestRequestedRound`
+  - `test_it_says_which_pipelines_measure_on_request`
+  - `test_on_request_it_starts_without_a_round`
+  - `test_a_request_opens_the_round`
+  - `test_after_the_round_it_waits_for_the_next_request`
+  - `test_a_request_during_a_round_changes_nothing`
+  - `test_a_request_while_waiting_for_a_frame_changes_nothing`
+  - `test_one_frame_on_request_is_a_cycle`
+  - `test_on_interval_a_request_skips_the_wait`
+  - `test_on_interval_a_round_already_open_is_the_one_requested`
+  - `test_without_a_cycle_there_is_nothing_to_request`
+  - `test_a_pipeline_it_does_not_run_is_refused`
+  - `test_a_stopped_scheduler_refuses`
+  - `test_a_request_turns_an_idle_camera_on`
+  - `test_an_unknown_trigger_measures_on_the_clock_and_warns`
 - `TestLifecycle`
   - `test_start_is_idempotent`
   - `test_stop_is_idempotent`
@@ -696,7 +879,7 @@ Tests del ciclo de medición: permiso por frame, ronda entre cámaras, agregaci�
 
 </details>
 
-### [test_capture_thread.py](../test/camera/test_capture_thread.py) — 33 tests
+### [test_capture_thread.py](../test/camera/test_capture_thread.py) — 38 tests
 
 Tests del hilo de captura: lectura de su propia config, conexión y reconexión, entrega de frames, telemetría sin retoques y parada limpia.
 
@@ -709,6 +892,7 @@ Tests del hilo de captura: lectura de su propia config, conexión y reconexión,
 | `TestFrames` |  | 5 |
 | `TestDriverFailures` |  | 4 |
 | `TestTelemetry` |  | 5 |
+| `TestViews` |  | 5 |
 
 <details><summary>Tests</summary>
 
@@ -752,6 +936,12 @@ Tests del hilo de captura: lectura de su propia config, conexión y reconexión,
   - `test_status_has_the_stable_keys_while_disconnected`
   - `test_the_last_status_is_the_one_that_was_emitted`
   - `test_telemetry_is_periodic`
+- `TestViews`
+  - `test_they_reach_the_driver_in_its_decode_section`
+  - `test_they_keep_the_rest_of_the_decode_section`
+  - `test_the_config_is_not_modified`
+  - `test_each_frame_travels_with_its_views`
+  - `test_a_driver_without_views_sends_none`
 
 </details>
 
@@ -1111,7 +1301,7 @@ Tests de la palabra de estado del sistema: con cualquier bit en 1 las mediciones
 
 ## test/image_collector/
 
-### [test_collector.py](../test/image_collector/test_collector.py) — 65 tests
+### [test_collector.py](../test/image_collector/test_collector.py) — 76 tests
 
 Tests del recolector de dataset: los dos modos de operación, los filtros, el buffer circular y la guardia de disco.
 
@@ -1122,6 +1312,8 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
 | `TestFreeSpace` |  | 1 |
 | `TestOnDemandMode` |  | 12 |
 | `TestCameraFilter` | `image_collector.cameras` elige qué cámaras se guardan; vacía = todas. | 8 |
+| `TestPipelineFilter` | `image_collector.pipelines` elige de qué pipelines se guardan resultados; vacía = todos. | 4 |
+| `TestSubsets` | Un subset es un dataset aparte dentro de la cámara: no se pisa con el de ella. | 7 |
 | `TestSaveConditions` |  | 4 |
 | `TestDedup` |  | 5 |
 | `TestCircularBuffer` |  | 4 |
@@ -1167,6 +1359,19 @@ Tests del recolector de dataset: los dos modos de operación, los filtros, el bu
   - `test_a_disabled_collector_skips_every_camera`
   - `test_a_value_that_is_not_a_list_saves_every_camera`
   - `test_the_stats_report_the_list`
+- `TestPipelineFilter`
+  - `test_a_pipeline_off_the_list_is_skipped`
+  - `test_without_a_pipeline_the_list_does_not_apply`
+  - `test_an_empty_list_saves_every_pipeline`
+  - `test_push_frame_skips_a_pipeline_off_the_list`
+- `TestSubsets`
+  - `test_it_has_its_own_folder`
+  - `test_without_a_subset_the_layout_is_the_camera`
+  - `test_it_has_its_own_cap`
+  - `test_in_interval_mode_it_does_not_replace_the_camera_frame`
+  - `test_its_duplicates_are_its_own`
+  - `test_the_json_keeps_the_camera_slot`
+  - `test_a_restart_indexes_it_apart`
 - `TestSaveConditions`
   - `test_condition_not_met_skips_the_frame`
   - `test_every_condition_has_to_pass`
@@ -1325,7 +1530,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 15 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 62 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1333,6 +1538,10 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 |---|---:|
 | `TestMaxLoadLine` | 9 |
 | `TestChain` | 6 |
+| `TestLabelsPanel` | 2 |
+| `TestUnloadStatus` | 20 |
+| `TestTimestamp` | 4 |
+| `TestStopperStatus` | 21 |
 
 <details><summary>Tests</summary>
 
@@ -1353,19 +1562,70 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_an_empty_chain_draws_nothing`
   - `test_none_entries_are_skipped`
   - `test_it_names_the_annotators_it_carries`
+- `TestLabelsPanel`
+  - `test_a_result_with_labels_gets_a_panel`
+  - `test_a_result_without_labels_draws_nothing`
+- `TestUnloadStatus`
+  - `test_grain_and_no_person_is_green`
+  - `test_no_grain_is_red`
+  - `test_a_person_in_the_frame_is_red_even_with_grain`
+  - `test_a_person_and_no_grain_is_red`
+  - `test_the_verdict_is_the_same_whichever_result_draws`
+  - `test_only_the_feet_inside_the_zone_count`
+  - `test_the_zone_is_drawn`
+  - `test_a_malformed_zone_stops_the_build`
+  - `test_without_a_person_verdict_it_is_red`
+  - `test_a_stale_person_verdict_does_not_count`
+  - `test_a_camera_without_person_detection_follows_the_grain`
+  - `test_without_a_grain_verdict_there_is_no_border`
+  - `test_an_invalid_result_updates_nothing`
+  - `test_the_border_goes_around_the_whole_frame`
+  - `test_the_panel_is_drawn_on_top_of_the_border`
+  - `test_the_panel_adds_the_person_line_where_persons_are_detected`
+  - `test_an_unknown_person_verdict_is_gray_in_the_panel`
+  - `test_the_text_grows_with_the_frame`
+  - `test_an_empty_frame_is_ignored`
+  - `test_it_names_itself_with_its_settings`
+- `TestTimestamp`
+  - `test_it_draws_in_the_bottom_right_corner`
+  - `test_it_grows_with_the_frame`
+  - `test_it_is_taller_than_the_status_border`
+  - `test_an_empty_frame_is_ignored`
+- `TestStopperStatus`
+  - `test_a_raised_stopper_against_the_wheel_is_green`
+  - `test_a_stopper_below_the_line_is_red`
+  - `test_too_few_pixels_above_the_line_is_red`
+  - `test_a_wheel_farther_than_the_maximum_is_red`
+  - `test_without_a_stopper_it_is_red`
+  - `test_without_a_wheel_it_is_red`
+  - `test_an_uncalibrated_camera_is_red`
+  - `test_an_uncalibrated_verdict_is_gray_in_the_panel`
+  - `test_the_gap_is_drawn_between_the_two_masks`
+  - `test_before_the_stopper_is_raised_the_wheel_changes_nothing`
+  - `test_before_the_stopper_is_raised_the_contact_is_gray`
+  - `test_without_a_calibrated_height_the_contact_is_not_judged`
+  - `test_the_height_is_drawn_across_the_whole_width`
+  - `test_another_pipeline_draws_nothing`
+  - `test_an_invalid_result_draws_nothing`
+  - `test_a_height_that_is_not_a_row_stops_the_build`
+  - `test_a_wheel_on_the_configured_side_counts`
+  - `test_a_wheel_only_on_the_other_side_is_red`
+  - `test_the_side_picks_the_wheel_among_two`
+  - `test_an_unknown_side_stops_the_build`
+  - `test_the_labels_follow_the_language`
 
 </details>
 
-### [test_composer.py](../test/inference/test_composer.py) — 24 tests
+### [test_composer.py](../test/inference/test_composer.py) — 30 tests
 
 Tests del composer: qué resultado pone el frame de una cámara y qué overlays van encima.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestDriving` |  | 5 |
-| `TestOthers` |  | 7 |
+| `TestOthers` |  | 9 |
 | `TestCompose` |  | 5 |
-| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 7 |
+| `TestFreshness` | Qué sigue vigente en una cámara, y qué se olvida en el acto. | 11 |
 
 <details><summary>Tests</summary>
 
@@ -1382,6 +1642,8 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
   - `test_a_stale_result_is_dropped`
   - `test_a_short_interval_has_a_floor`
   - `test_new_intervals_keep_what_was_stored`
+  - `test_the_stored_result_keeps_the_roi_state`
+  - `test_a_state_goes_away_with_its_result_when_it_expires`
   - `test_the_stored_result_has_no_frames`
 - `TestCompose`
   - `test_with_one_pipeline_the_engine_frame_goes_out_unchanged`
@@ -1396,29 +1658,42 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
   - `test_a_forgotten_pair_stops_being_drawn_at_once`
   - `test_forgetting_keeps_the_other_pipelines`
   - `test_a_slow_pipeline_stays_fresh_between_its_results`
+  - `test_a_late_result_does_not_send_the_camera_live`
+  - `test_an_on_request_pipeline_ignores_the_time_between_requests`
+  - `test_without_being_on_request_the_same_gap_keeps_it_fresh`
+  - `test_set_intervals_also_replaces_the_on_request_pipelines`
   - `test_a_pause_after_forgetting_is_not_taken_as_the_period`
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 94 tests
+### [test_engine.py](../test/inference/test_engine.py) — 148 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestConstruction` |  | 7 |
-| `TestQueue` |  | 10 |
+| `TestQueue` |  | 12 |
 | `TestConfigCache` | El config se lee una vez, no por frame: cada `get` es un lock global y una copia. | 2 |
 | `TestRoiAndIllumination` |  | 7 |
+| `TestPipelineRoi` | El ROI de un pipeline es sólo de ese pipeline y de esa cámara. | 5 |
+| `TestViews` | En una cámara que decodifica video, la región es la vista que el decodificador cortó del nativo. | 12 |
 | `TestPreprocessor` | El frame de referencia es lo que devuelve el preprocessor: el modelo y el overlay miden y dibujan sobre la misma imagen, así que no pueden divergir. | 8 |
 | `TestClassifier` |  | 9 |
 | `TestValidity` |  | 9 |
 | `TestLabels` |  | 4 |
 | `TestAnalyzer` |  | 5 |
+| `TestSignals` | Las variables de la planta viajan con el frame, del push al resultado. | 6 |
 | `TestAnnotation` |  | 13 |
-| `TestDrawOnto` | El overlay de un pipeline encima del anotado de otro: lo que arma el combinado. | 9 |
+| `TestDrawOnto` | El overlay de un pipeline encima del anotado de otro: lo que arma el combinado. | 8 |
 | `TestLifecycle` |  | 5 |
+| `TestCycleTime` | `cycle_time_ms`: del arranque de un frame al arranque del siguiente de la misma cámara. | 3 |
 | `TestSynchronousProcess` | `process()` corre el ciclo del hilo sobre un frame suelto, sin arrancarlo. | 6 |
+| `TestMissingKeys` |  | 1 |
+| `TestRegionDrawing` | Cada pipeline dibuja su ROI con su color y su nombre, y avisa del frame que cambió. | 8 |
+| `TestRoiState` |  | 6 |
+| `TestNoCameraRoi` | `cameras.<slot>.roi` ya no lo lee nadie: sin región propia el pipeline ve todo el frame. | 5 |
+| `TestWhereTheRegionIsNative` | La región se corta del nativo sólo donde hay un decodificador que lo haga, y se decide por config. | 7 |
 
 <details><summary>Tests</summary>
 
@@ -1440,6 +1715,8 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_the_frame_is_kept_without_a_copy`
   - `test_the_turn_rotates_between_cameras`
   - `test_the_interval_drops_frames_that_arrive_early`
+  - `test_a_frame_waiting_its_turn_is_refreshed_within_the_interval`
+  - `test_a_consumed_frame_is_not_replaced_within_the_interval`
   - `test_ignore_interval_forces_the_frame`
 - `TestConfigCache`
   - `test_frames_after_the_first_do_not_read_the_config`
@@ -1452,6 +1729,25 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_a_roi_outside_the_frame_falls_back_to_the_whole_frame`
   - `test_illumination_is_measured_on_the_analyzed_region`
   - `test_a_dark_frame_never_reaches_the_model`
+- `TestPipelineRoi`
+  - `test_the_pipeline_crops_to_it`
+  - `test_disabled_it_gives_the_whole_frame`
+  - `test_another_camera_keeps_its_own_roi`
+  - `test_illumination_is_measured_on_its_region`
+  - `test_the_result_carries_the_region_it_ran_on`
+- `TestViews`
+  - `test_the_pipeline_receives_the_view`
+  - `test_the_roi_is_the_rectangle_the_view_covers`
+  - `test_detections_come_back_scaled_to_the_reference_frame`
+  - `test_illumination_is_measured_on_the_view`
+  - `test_the_result_carries_the_view_as_its_region`
+  - `test_the_source_frame_is_still_the_reference_frame`
+  - `test_without_its_view_the_frame_is_not_inferred`
+  - `test_without_its_view_the_roi_is_still_drawn`
+  - `test_the_view_of_another_pipeline_is_ignored`
+  - `test_a_camera_that_does_not_cut_views_ignores_one_that_arrives`
+  - `test_a_view_of_another_rectangle_is_measured_and_warned`
+  - `test_process_takes_the_views_too`
 - `TestPreprocessor`
   - `test_it_receives_the_frame_and_the_camera_slot`
   - `test_the_model_sees_what_it_returned`
@@ -1492,6 +1788,13 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_an_invalid_result_is_not_analyzed`
   - `test_a_failing_analyzer_does_not_break_the_result`
   - `test_the_analyzer_sees_the_inference_time`
+- `TestSignals`
+  - `test_the_signals_pushed_with_the_frame_reach_the_result`
+  - `test_without_signals_the_result_has_none`
+  - `test_the_analyzer_reads_them_from_the_result`
+  - `test_a_replaced_frame_takes_its_signals_with_it`
+  - `test_each_camera_keeps_its_own_signals`
+  - `test_the_result_keeps_its_own_copy`
 - `TestAnnotation`
   - `test_the_result_carries_an_annotated_frame`
   - `test_the_camera_frame_is_never_touched`
@@ -1512,7 +1815,6 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_runs_the_annotator`
   - `test_it_draws_no_timestamp`
   - `test_it_does_not_adjust_the_canvas`
-  - `test_with_crop_to_roi_it_draws_nothing`
   - `test_with_the_overlay_off_it_draws_nothing`
   - `test_the_timestamp_is_drawn_on_request`
   - `test_the_timestamp_obeys_the_config`
@@ -1522,6 +1824,10 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_serves_every_camera_of_the_pipeline`
   - `test_the_result_names_its_pipeline_and_camera`
   - `test_the_inference_time_is_measured`
+- `TestCycleTime`
+  - `test_the_first_frame_of_a_camera_has_no_cycle_time`
+  - `test_the_cycle_counts_what_the_inference_time_leaves_out`
+  - `test_each_camera_has_its_own_cycle`
 - `TestSynchronousProcess`
   - `test_it_returns_the_result_without_starting_the_thread`
   - `test_it_runs_the_same_cycle_as_the_thread`
@@ -1529,16 +1835,79 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_it_does_not_add_to_the_counters_of_the_thread`
   - `test_it_does_not_load_the_pipeline`
   - `test_it_refuses_to_run_while_the_thread_is_running`
+- `TestMissingKeys`
+  - `test_a_pipeline_without_its_own_roi_never_asks_for_it`
+- `TestRegionDrawing`
+  - `test_the_annotated_frame_has_the_roi_in_the_pipeline_color`
+  - `test_the_color_comes_from_the_place_in_the_config_even_if_another_is_off`
+  - `test_the_roi_carries_the_name_the_operator_gave_the_pipeline`
+  - `test_without_a_name_the_roi_carries_the_slot`
+  - `test_draw_onto_uses_the_same_style`
+  - `test_a_frame_of_another_size_than_the_drawn_one_is_warned`
+  - `test_the_same_size_does_not_warn`
+  - `test_a_region_without_a_drawn_size_does_not_warn`
+- `TestRoiState`
+  - `test_the_result_carries_what_the_pipeline_declared`
+  - `test_the_annotated_frame_paints_the_border_with_it`
+  - `test_a_pipeline_that_says_nothing_leaves_the_result_without_state`
+  - `test_an_invalid_result_is_grey_whatever_the_pipeline_said`
+  - `test_draw_onto_paints_the_same`
+  - `test_the_state_goes_to_the_dataset_json`
+- `TestNoCameraRoi`
+  - `test_a_leftover_camera_roi_does_not_crop`
+  - `test_the_own_roi_still_crops`
+  - `test_the_overlay_has_no_crop_option_anymore`
+  - `test_a_leftover_crop_to_roi_does_not_crop_the_annotated_frame`
+  - `test_draw_onto_draws_with_a_leftover_crop_to_roi`
+- `TestWhereTheRegionIsNative`
+  - `test_a_gige_camera_crops_the_frame_it_already_has`
+  - `test_a_camera_without_a_driver_crops_the_frame`
+  - `test_a_video_camera_without_its_view_is_not_inferred`
+  - `test_a_video_file_camera_expects_the_view_too`
+  - `test_a_video_camera_with_an_image_adjustment_crops_the_frame`
+  - `test_a_whole_frame_pipeline_expects_no_view`
+  - `test_the_decision_does_not_depend_on_a_full_resolution_key`
 
 </details>
 
-### [test_hooks.py](../test/inference/test_hooks.py) — 6 tests
+### [test_geometry.py](../test/inference/test_geometry.py) — 11 tests
+
+Tests de la geometría sobre detecciones: una máscara contra una línea y la distancia más corta entre dos máscaras.
+
+| Grupo | Tests |
+|---|---:|
+| `TestMaskPoints` | 2 |
+| `TestAboveY` | 4 |
+| `TestClosestPoints` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestMaskPoints`
+  - `test_the_points_are_placed_in_the_full_frame`
+  - `test_a_detection_without_mask_counts_its_whole_bbox`
+- `TestAboveY`
+  - `test_it_counts_the_pixels_with_a_smaller_y`
+  - `test_a_shape_below_the_height_has_none_above`
+  - `test_a_shape_above_the_height_counts_whole`
+  - `test_only_the_mask_counts_not_its_bbox`
+- `TestClosestPoints`
+  - `test_two_separate_shapes_give_their_gap`
+  - `test_a_diagonal_gap_is_euclidean`
+  - `test_touching_shapes_give_zero_and_a_shared_point`
+  - `test_an_empty_mask_gives_none`
+  - `test_long_contours_are_still_exact`
+
+</details>
+
+### [test_hooks.py](../test/inference/test_hooks.py) — 17 tests
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
 | Grupo | Tests |
 |---|---:|
-| `TestTemplateHooks` | 6 |
+| `TestTemplateHooks` | 9 |
+| `TestStopperHooks` | 5 |
+| `TestReadPipelines` | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1548,11 +1917,24 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_the_analyzer_is_the_generic_count`
   - `test_without_a_load_limit_there_is_no_annotator`
   - `test_a_declared_load_limit_is_drawn_on_its_camera`
+  - `test_a_declared_grain_flow_draws_the_verdict_panel`
+  - `test_without_the_engine_timestamp_the_project_draws_it`
+  - `test_with_the_engine_timestamp_the_project_does_not_draw_it`
   - `test_the_load_limit_is_not_drawn_on_other_cameras`
+- `TestStopperHooks`
+  - `test_a_stopper_pipeline_draws_the_stopper_status`
+  - `test_without_a_stopper_pipeline_there_is_no_annotator`
+  - `test_the_process_values_are_the_ones_measured`
+  - `test_the_wheel_side_is_read`
+  - `test_a_null_distance_is_uncalibrated`
+- `TestReadPipelines`
+  - `test_it_keeps_the_enabled_pipelines_of_that_type`
+  - `test_the_cameras_come_in_the_config_order`
+  - `test_no_cameras_means_all_of_them`
 
 </details>
 
-### [test_offline.py](../test/inference/test_offline.py) — 16 tests
+### [test_offline.py](../test/inference/test_offline.py) — 22 tests
 
 Tests del runner offline: los pipelines del config corridos sobre una imagen suelta.
 
@@ -1563,6 +1945,8 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 | `TestLoading` |  | 3 |
 | `TestPreprocessor` |  | 2 |
 | `TestHooks` | El runner usa los hooks de `build_hooks()`, los mismos que la app. | 2 |
+| `TestViews` | Una cámara con vistas recibe la imagen nativa y la ve como en vivo. | 4 |
+| `TestViewsDependOnTheCamera` |  | 2 |
 
 <details><summary>Tests</summary>
 
@@ -1587,10 +1971,18 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 - `TestHooks`
   - `test_the_project_analyzer_computes_the_metrics`
   - `test_the_project_annotator_draws_on_the_annotated_frame`
+- `TestViews`
+  - `test_the_image_is_reduced_like_the_camera_does`
+  - `test_the_pipeline_sees_the_view_cut_from_the_native_image`
+  - `test_the_frame_is_rotated_like_the_camera_does`
+  - `test_a_camera_without_views_gets_the_image_as_it_is`
+- `TestViewsDependOnTheCamera`
+  - `test_a_gige_camera_gets_the_image_as_it_is_and_its_crop_is_native`
+  - `test_a_video_camera_gets_the_view`
 
 </details>
 
-### [test_overlay.py](../test/inference/test_overlay.py) — 45 tests
+### [test_overlay.py](../test/inference/test_overlay.py) — 69 tests
 
 Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de cámara nunca se toque.
 
@@ -1599,13 +1991,15 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 | `TestClassColors` |  | 3 |
 | `TestAnnotate` |  | 12 |
 | `TestDrawLine` |  | 3 |
-| `TestCropToRoi` | `crop_to_roi`: lo que se muestra es lo que se analizó, y nada se mapea de vuelta. | 4 |
 | `TestMaskStyle` | Contorno y relleno son dueños de píxeles distintos. | 5 |
 | `TestFontScale` | `font_scale: 0` calcula el tamaño del texto a partir del ancho del frame. | 4 |
 | `TestTextPanelColours` | Un panel puede pintar cada línea de su color, y es lo que deja que el resumen de clases coincida con el color de las máscaras. Lo que no se declara cae en el del panel. | 4 |
 | `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 2 |
 | `TestTextThickness` | El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve pálido y roto, que es lo que pasaba después de escalarlo con el ancho del frame. | 3 |
 | `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 5 |
+| `TestPipelineStyle` |  | 6 |
+| `TestDrawRoi` |  | 9 |
+| `TestRoiState` | El borde del ROI se pinta por el veredicto, y un resultado inválido nunca de estado. | 13 |
 
 <details><summary>Tests</summary>
 
@@ -1630,11 +2024,6 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_it_draws_across_the_frame`
   - `test_the_label_adds_pixels`
   - `test_an_empty_frame_is_ignored`
-- `TestCropToRoi`
-  - `test_it_returns_only_the_roi`
-  - `test_without_a_roi_it_returns_the_whole_frame`
-  - `test_it_does_not_frame_its_own_border`
-  - `test_the_detections_move_with_the_crop`
 - `TestMaskStyle`
   - `test_the_outline_leaves_the_inside_untouched`
   - `test_the_fill_tints_the_inside_without_hiding_it`
@@ -1664,17 +2053,52 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_the_tint_still_reaches_the_frame`
   - `test_two_classes_side_by_side_keep_their_own_colour`
   - `test_an_outline_is_still_drawn_per_instance`
+- `TestPipelineStyle`
+  - `test_no_color_is_green_red_or_yellow`
+  - `test_the_colors_are_different`
+  - `test_the_first_lap_is_solid`
+  - `test_the_second_lap_repeats_the_colors_dashed`
+  - `test_two_pipelines_never_look_the_same`
+  - `test_a_negative_index_is_the_first`
+- `TestDrawRoi`
+  - `test_it_draws_the_border_in_the_pipeline_color`
+  - `test_it_leaves_the_inside_alone`
+  - `test_a_label_names_the_pipeline_on_the_corner`
+  - `test_an_accented_name_is_drawn_without_its_accents`
+  - `test_without_options_it_is_the_old_grey_box_without_a_name`
+  - `test_a_dashed_border_leaves_gaps_a_solid_one_does_not`
+  - `test_an_empty_frame_is_ignored`
+  - `test_annotate_draws_it_with_the_options_of_its_pipeline`
+  - `test_annotate_draws_nothing_without_a_roi`
+- `TestRoiState`
+  - `test_the_state_colors_are_green_red_and_yellow_and_none_of_a_pipeline`
+  - `test_the_state_colors_are_in_the_ranges_the_pipelines_avoid`
+  - `test_without_a_state_the_border_is_the_pipeline_color`
+  - `test_each_state_paints_its_color_and_not_the_pipeline_one`
+  - `test_the_label_keeps_the_pipeline_color_and_says_the_verdict`
+  - `test_nok_is_thicker_than_ok`
+  - `test_an_invalid_result_is_never_painted_with_a_state`
+  - `test_an_invalid_result_has_a_dashed_grey_border_and_its_reason`
+  - `test_an_invalid_result_without_a_reason_still_says_it_is_invalid`
+  - `test_without_a_roi_there_is_nothing_to_paint`
+  - `test_with_draw_roi_off_the_state_is_not_drawn_either`
+  - `test_the_options_of_a_result_without_state_paint_as_before`
+  - `test_a_state_outside_the_vocabulary_is_drawn_as_none`
 
 </details>
 
-### [test_pipeline.py](../test/inference/test_pipeline.py) — 17 tests
+### [test_pipeline.py](../test/inference/test_pipeline.py) — 39 tests
 
 Tests de la maquinaria del pipeline: carga de las etapas por slot, tiempos por etapa, encadenado en cascada y el pipeline de una etapa del template.
 
-| Grupo | Tests |
-|---|---:|
-| `TestLoading` | 5 |
-| `TestRunning` | 12 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestLoading` |  | 5 |
+| `TestRunning` |  | 12 |
+| `TestProjectPipelines` | Los pipelines de esta instalación: grano, personas y calzas. | 8 |
+| `TestRoiState` |  | 5 |
+| `TestTemplateDemo` | El pipeline del template pinta el recuadro por el veredicto sólo con un modelo sintético. | 3 |
+| `TestViewInput` | El primer modelo del pipeline dice de qué tamaño quiere la región, sin cargarse. | 6 |
 
 <details><summary>Tests</summary>
 
@@ -1697,6 +2121,32 @@ Tests de la maquinaria del pipeline: carga de las etapas por slot, tiempos por e
   - `test_a_verdict_does_not_survive_the_next_frame`
   - `test_the_labels_are_a_copy`
   - `test_a_synthetic_stage_marks_the_pipeline`
+- `TestProjectPipelines`
+  - `test_grain_flow_is_a_label_with_the_most_confident_class`
+  - `test_grain_flow_without_detections_says_none`
+  - `test_grain_flow_paints_the_roi_ok_when_grain_flows`
+  - `test_grain_flow_paints_the_roi_nok_when_it_does_not`
+  - `test_grain_flow_without_a_verdict_leaves_the_roi_alone`
+  - `test_grain_flow_with_an_unknown_class_leaves_the_roi_alone`
+  - `test_a_one_stage_pipeline_returns_what_its_model_found`
+  - `test_the_person_pipeline_keeps_only_persons`
+- `TestRoiState`
+  - `test_a_pipeline_that_says_nothing_leaves_the_roi_without_a_state`
+  - `test_the_pipeline_declares_it_next_to_its_labels`
+  - `test_a_state_does_not_survive_the_next_frame`
+  - `test_a_value_outside_the_vocabulary_is_ignored`
+  - `test_unloading_clears_it`
+- `TestTemplateDemo`
+  - `test_a_synthetic_model_with_detections_is_ok`
+  - `test_a_synthetic_model_without_detections_is_nok`
+  - `test_a_real_model_never_sets_a_state`
+- `TestViewInput`
+  - `test_it_is_the_input_of_the_first_stage`
+  - `test_a_pipeline_can_name_another_stage`
+  - `test_a_model_that_does_not_say_gives_none`
+  - `test_it_does_not_load_any_stage`
+  - `test_a_pipeline_without_stages_has_none`
+  - `test_a_model_that_knows_nothing_says_none_by_default`
 
 </details>
 
@@ -1728,14 +2178,17 @@ Tests de la fábrica de pipelines y del NullPipeline.
 
 </details>
 
-### [test_preprocessing.py](../test/inference/test_preprocessing.py) — 7 tests
+### [test_preprocessing.py](../test/inference/test_preprocessing.py) — 27 tests
 
 Tests del preprocessor del motor: la cadena que arma el frame de referencia.
 
-| Grupo | Tests |
-|---|---:|
-| `TestChain` | 5 |
-| `TestConfig` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestChain` |  | 5 |
+| `TestConfig` |  | 2 |
+| `TestCameraViews` | Qué vistas corta cada cámara: el ROI de cada pipeline que corre, donde hay decodificador. | 10 |
+| `TestViewSize` | A qué tamaño sale la vista: el que el modelo que la lee usaría, salvo que el ROI diga otro. | 7 |
+| `TestNativeDecisions` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1748,10 +2201,101 @@ Tests del preprocessor del motor: la cadena que arma el frame de referencia.
 - `TestConfig`
   - `test_the_adjustment_is_read_from_each_camera`
   - `test_without_cameras_there_is_no_preprocessor`
+- `TestCameraViews`
+  - `test_a_roi_on_a_video_camera_is_a_view_named_after_its_pipeline`
+  - `test_no_key_has_to_ask_for_it`
+  - `test_a_disabled_roi_has_no_view`
+  - `test_a_pipeline_that_does_not_run_cuts_nothing`
+  - `test_a_camera_outside_the_pipeline_cuts_nothing`
+  - `test_two_pipelines_on_a_camera_are_two_views`
+  - `test_a_camera_that_does_not_decode_video_cuts_no_view`
+  - `test_a_video_file_camera_cuts_views_too`
+  - `test_a_camera_with_an_image_adjustment_cuts_nothing_and_says_why`
+  - `test_a_gige_camera_with_an_adjustment_does_not_warn`
+- `TestViewSize`
+  - `test_the_size_is_the_input_of_the_model`
+  - `test_a_detector_fits_and_a_classifier_covers`
+  - `test_a_rectangular_input_is_width_by_height`
+  - `test_a_short_side_in_the_roi_does_not_override_the_model`
+  - `test_a_model_that_does_not_say_leaves_the_native_size`
+  - `test_the_model_is_asked_once_per_pipeline`
+  - `test_a_pipeline_without_views_is_not_asked`
+- `TestNativeDecisions`
+  - `test_can_cut_native_needs_a_video_driver_and_no_preprocessor`
+  - `test_loses_native_cut_is_a_video_camera_with_a_preprocessor`
+  - `test_the_cameras_of_a_pipeline_are_the_same_the_engine_expects`
 
 </details>
 
-### [test_result.py](../test/inference/test_result.py) — 17 tests
+### [test_regions.py](../test/inference/test_regions.py) — 42 tests
+
+Tests de las regiones: qué rectángulo rige para un pipeline, cómo se acota y qué se le avisa.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestResolve` |  | 2 |
+| `TestPipelineIndex` |  | 2 |
+| `TestClip` |  | 4 |
+| `TestProblems` |  | 14 |
+| `TestOverlap` |  | 5 |
+| `TestWithoutCameraRoi` | La cámara no tiene ROI: un pipeline sin región propia ve el frame completo. | 9 |
+| `TestRegionName` |  | 6 |
+
+<details><summary>Tests</summary>
+
+- `TestResolve`
+  - `test_a_null_own_roi_is_not_an_override`
+  - `test_a_malformed_section_has_no_own_roi`
+- `TestPipelineIndex`
+  - `test_it_is_the_position_in_the_config`
+  - `test_an_unknown_pipeline_is_the_first`
+- `TestClip`
+  - `test_a_disabled_roi_gives_nothing`
+  - `test_a_zero_size_reaches_the_border`
+  - `test_it_is_cut_at_the_frame`
+  - `test_an_origin_outside_the_frame_is_pulled_to_the_last_pixel`
+- `TestProblems`
+  - `test_a_good_region_has_none`
+  - `test_a_disabled_one_is_never_judged`
+  - `test_going_past_the_right_edge`
+  - `test_going_past_the_bottom_edge`
+  - `test_starting_outside_the_frame`
+  - `test_a_zero_size_that_reaches_the_border_is_inside`
+  - `test_a_video_camera_with_a_preprocessor_cannot_cut_from_the_native`
+  - `test_a_native_cut_needs_at_least_16_px_per_side`
+  - `test_a_small_region_is_fine_where_nothing_is_cut_from_the_native`
+  - `test_a_zero_side_is_not_a_small_one`
+  - `test_without_the_frame_only_what_does_not_depend_on_it_is_judged`
+  - `test_a_frame_of_another_size_than_the_drawn_one`
+  - `test_the_same_size_as_the_drawn_one_is_fine`
+  - `test_a_region_without_a_drawn_size_is_not_judged_for_it`
+- `TestOverlap`
+  - `test_no_contact`
+  - `test_touching_edges_do_not_overlap`
+  - `test_it_is_the_share_of_the_first_one`
+  - `test_it_is_not_symmetric`
+  - `test_an_empty_rectangle_overlaps_nothing`
+- `TestWithoutCameraRoi`
+  - `test_a_pipeline_without_a_section_sees_the_whole_frame`
+  - `test_the_own_roi_is_the_one_that_rules`
+  - `test_a_null_or_malformed_one_is_the_whole_frame`
+  - `test_the_list_has_the_enabled_pipelines_that_look_at_the_camera`
+  - `test_disabled_ones_can_be_included`
+  - `test_a_pipeline_without_cameras_looks_at_all_of_them`
+  - `test_the_index_is_the_position_in_the_config`
+  - `test_a_region_carries_its_own_roi_or_an_empty_one`
+  - `test_it_survives_a_missing_section`
+- `TestRegionName`
+  - `test_it_is_the_name_the_operator_gave_the_pipeline`
+  - `test_without_one_it_is_the_slot`
+  - `test_an_empty_name_is_the_slot`
+  - `test_the_name_is_read_from_the_pipeline_section`
+  - `test_a_section_without_a_name_gives_the_slot`
+  - `test_the_slot_stays_as_the_identity`
+
+</details>
+
+### [test_result.py](../test/inference/test_result.py) — 31 tests
 
 Tests de la forma del resultado: completado del área y el centroide, traslado al espacio del frame de cámara y serialización.
 
@@ -1759,7 +2303,9 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
 |---|---:|
 | `TestDetection` | 7 |
 | `TestOffsetDetections` | 3 |
-| `TestInferenceResult` | 7 |
+| `TestScaleDetections` | 6 |
+| `TestInferenceResult` | 12 |
+| `TestRoiState` | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1775,14 +2321,92 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
   - `test_it_moves_the_bbox_and_the_centroid`
   - `test_the_area_does_not_change`
   - `test_a_zero_offset_changes_nothing`
+- `TestScaleDetections`
+  - `test_it_scales_the_bbox_and_the_centroid`
+  - `test_the_area_of_a_bbox_follows_the_new_size`
+  - `test_the_mask_is_resized_to_the_new_bbox`
+  - `test_the_area_of_a_mask_is_counted_again`
+  - `test_the_mask_stays_binary`
+  - `test_a_unit_scale_changes_nothing`
 - `TestInferenceResult`
   - `test_the_count_follows_the_detections`
   - `test_a_fresh_result_is_valid`
   - `test_the_dict_is_serializable_without_frames`
+  - `test_the_region_does_not_go_to_the_dict`
   - `test_a_fresh_result_has_no_labels`
   - `test_the_labels_travel_in_the_dict`
   - `test_the_labels_of_the_dict_are_a_copy`
+  - `test_a_fresh_result_has_no_signals`
+  - `test_the_signals_travel_in_the_dict`
+  - `test_the_signals_of_the_dict_are_a_copy`
+  - `test_the_cycle_time_travels_in_the_dict`
   - `test_the_confidence_key_is_the_one_the_save_conditions_read`
+- `TestRoiState`
+  - `test_a_fresh_result_says_nothing_about_its_roi`
+  - `test_the_state_travels_in_the_dict`
+  - `test_the_vocabulary_has_no_repeats_and_none_is_empty`
+
+</details>
+
+### [test_roi_migration.py](../test/inference/test_roi_migration.py) — 38 tests
+
+Tests de la migración del config: el ROI de cámara pasa a los pipelines y a la óptica, y `crop_to_roi` se va. Lo que se prueba es que un equipo con el config viejo mida lo mismo que medía, y que no se reescriba el archivo si no había nada que migrar.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestPipelines` |  | 9 |
+| `TestLensHealth` |  | 5 |
+| `TestOldKeys` |  | 5 |
+| `TestWhenItRuns` |  | 7 |
+| `TestFullResolution` | El corte del video nativo ya no se elige: la clave se borra del ROI de cada pipeline. | 8 |
+| `TestOutputShortSide` | La vista sale siempre a la entrada del modelo: el lado corto se borra del ROI. | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestPipelines`
+  - `test_the_camera_roi_becomes_the_roi_of_the_pipeline_that_looks_at_it`
+  - `test_a_pipeline_of_another_camera_is_left_alone`
+  - `test_a_pipeline_without_a_camera_list_looks_at_all_of_them`
+  - `test_a_disabled_pipeline_gets_it_too`
+  - `test_a_pipeline_with_its_own_roi_keeps_it`
+  - `test_a_pipeline_that_chose_the_whole_frame_keeps_choosing_it`
+  - `test_a_null_own_roi_is_not_a_decision_and_gets_the_camera_one`
+  - `test_a_disabled_camera_roi_copies_nothing`
+  - `test_the_copy_has_only_the_geometry_and_enabled`
+- `TestLensHealth`
+  - `test_the_camera_roi_becomes_the_measurement_region_of_the_optics`
+  - `test_a_region_already_set_is_kept`
+  - `test_a_disabled_region_does_not_stop_the_copy`
+  - `test_the_reference_is_untouched`
+  - `test_a_camera_without_a_lens_section_gets_one`
+- `TestOldKeys`
+  - `test_the_camera_roi_is_deleted_whatever_it_was`
+  - `test_crop_to_roi_is_deleted`
+  - `test_crop_to_roi_turned_on_is_warned`
+  - `test_crop_to_roi_turned_off_does_not_warn`
+  - `test_each_copy_is_in_the_log`
+- `TestWhenItRuns`
+  - `test_it_returns_how_many_keys_it_touched`
+  - `test_it_is_idempotent`
+  - `test_it_saves_once_when_something_changed`
+  - `test_it_does_not_rewrite_the_file_when_there_is_nothing_to_migrate`
+  - `test_without_save_it_changes_memory_only`
+  - `test_a_config_without_cameras_or_pipelines_is_fine`
+  - `test_a_malformed_camera_entry_is_skipped`
+- `TestFullResolution`
+  - `test_the_key_is_deleted_when_it_was_on`
+  - `test_the_key_is_deleted_when_it_was_off_and_the_log_says_it_no_longer_counts`
+  - `test_a_key_that_was_on_does_not_warn`
+  - `test_the_rest_of_the_roi_stays`
+  - `test_it_counts_as_a_change_and_saves`
+  - `test_a_roi_without_the_key_is_left_alone`
+  - `test_a_null_or_odd_roi_is_skipped`
+  - `test_it_is_idempotent`
+- `TestOutputShortSide`
+  - `test_the_key_is_deleted`
+  - `test_a_side_that_was_set_warns_it_no_longer_counts`
+  - `test_a_zero_side_does_not_warn`
+  - `test_it_counts_as_a_change_and_saves`
 
 </details>
 
@@ -2032,22 +2656,23 @@ Tests del runtime de TensorRT: el formato del `.engine` de ultralytics, qué eng
 
 </details>
 
-### [test_yolo_model.py](../test/inference/models/test_yolo_model.py) — 35 tests
+### [test_yolo_model.py](../test/inference/models/test_yolo_model.py) — 43 tests
 
 Tests de los modelos YOLO sobre TensorRT: el letterbox y el recorte del clasificador, la decodificación de las dos formas de salida, las máscaras, y el ciclo de vida de los tres modelos.
 
-| Grupo | Tests |
-|---|---:|
-| `TestLetterbox` | 4 |
-| `TestCenterCrop` | 2 |
-| `TestDecodeCandidates` | 7 |
-| `TestFrameBox` | 2 |
-| `TestBuildMask` | 2 |
-| `TestProbabilities` | 2 |
-| `TestLoad` | 8 |
-| `TestDetectionModel` | 3 |
-| `TestSegmentationModel` | 2 |
-| `TestClassificationModel` | 3 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestLetterbox` |  | 4 |
+| `TestCenterCrop` |  | 2 |
+| `TestDecodeCandidates` |  | 7 |
+| `TestFrameBox` |  | 2 |
+| `TestBuildMask` |  | 2 |
+| `TestProbabilities` |  | 2 |
+| `TestLoad` |  | 8 |
+| `TestDetectionModel` |  | 3 |
+| `TestSegmentationModel` |  | 2 |
+| `TestClassificationModel` |  | 3 |
+| `TestPeekInput` | El tamaño de entrada se lee de la metadata del engine, antes de cargarlo. | 8 |
 
 <details><summary>Tests</summary>
 
@@ -2096,6 +2721,15 @@ Tests de los modelos YOLO sobre TensorRT: el letterbox y el recorte del clasific
   - `test_the_verdict_is_one_detection_over_the_whole_frame`
   - `test_below_the_threshold_there_is_no_verdict`
   - `test_the_classifier_gets_the_engine_input_size`
+- `TestPeekInput`
+  - `test_a_square_size_is_read_as_height_and_width`
+  - `test_a_rectangular_size_is_height_then_width`
+  - `test_only_a_classifier_crops_the_center`
+  - `test_it_does_not_load_the_model`
+  - `test_an_engine_without_that_metadata_does_not_say`
+  - `test_a_size_that_makes_no_sense_is_none`
+  - `test_a_missing_file_is_none_and_does_not_raise`
+  - `test_a_section_without_a_path_is_none`
 
 </details>
 
@@ -2399,7 +3033,68 @@ Tests del autocontrol del verificador: una librería editada no puede aceptar li
 
 ## test/modbus/
 
-### [test_registers.py](../test/modbus/test_registers.py) — 23 tests
+### [test_export_map.py](../test/modbus/test_export_map.py) — 10 tests
+
+Tests de la tabla que lee el integrador: qué filas escribe el PLC y con qué rango.
+
+| Grupo | Tests |
+|---|---:|
+| `TestAccess` | 3 |
+| `TestRange` | 5 |
+| `TestMarkdown` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestAccess`
+  - `test_a_plc_row_is_written_by_the_plc`
+  - `test_a_published_threshold_is_only_read`
+  - `test_a_health_row_is_only_read`
+- `TestRange`
+  - `test_a_row_the_plc_does_not_write_has_no_range`
+  - `test_a_boolean_takes_zero_and_one`
+  - `test_the_declared_range_is_in_the_physical_unit`
+  - `test_without_a_range_it_is_the_whole_register`
+  - `test_without_a_range_a_scaled_row_divides_the_register`
+- `TestMarkdown`
+  - `test_it_no_longer_says_the_map_is_read_only`
+  - `test_every_row_has_one_cell_per_column`
+
+</details>
+
+### [test_plc_variables.py](../test/modbus/test_plc_variables.py) — 15 tests
+
+Tests de las variables que escribe el PLC: la cola, el drenado y el log de los cambios.
+
+| Grupo | Tests |
+|---|---:|
+| `TestRows` | 3 |
+| `TestDrain` | 8 |
+| `TestLog` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestRows`
+  - `test_every_plc_row_is_a_variable`
+  - `test_every_variable_starts_at_rest`
+  - `test_a_map_without_plc_rows_has_nothing_to_drain`
+- `TestDrain`
+  - `test_nothing_written_is_no_change`
+  - `test_a_write_comes_out_decoded`
+  - `test_writes_are_applied_in_the_order_they_arrived`
+  - `test_rewriting_the_same_value_is_no_change`
+  - `test_the_current_values_are_not_modified`
+  - `test_the_result_cannot_be_modified`
+  - `test_an_address_that_is_not_a_plc_row_is_ignored`
+  - `test_the_queue_is_empty_after_a_drain`
+- `TestLog`
+  - `test_a_change_is_logged_with_the_old_and_new_value`
+  - `test_a_variable_that_changes_often_logs_once_per_period`
+  - `test_the_next_line_counts_the_unlogged_changes`
+  - `test_the_log_period_is_per_variable`
+
+</details>
+
+### [test_registers.py](../test/modbus/test_registers.py) — 22 tests
 
 Tests del mapa de registros que se despacha con el repo.
 
@@ -2409,7 +3104,7 @@ Tests del mapa de registros que se despacha con el repo.
 | `TestAddressSpace` |  | 4 |
 | `TestConventions` |  | 7 |
 | `TestScaledRangesAreUsable` |  | 1 |
-| `TestLookupsUsedByTheApp` |  | 5 |
+| `TestLookupsUsedByTheApp` |  | 4 |
 | `TestAMissingMapDoesNotKillTheImport` | Un mapa que falta deja el motivo y un mapa vacío, y no levanta. | 3 |
 
 <details><summary>Tests</summary>
@@ -2419,7 +3114,7 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_the_map_is_not_empty`
   - `test_schema_and_registers_agree`
 - `TestAddressSpace`
-  - `test_every_address_fits_in_the_default_datastore`
+  - `test_the_datastore_reaches_every_address_of_the_map`
   - `test_addresses_are_base_1`
   - `test_addresses_are_unique`
   - `test_names_are_unique`
@@ -2430,7 +3125,7 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_scales_are_positive_integers`
   - `test_scaled_rows_declare_their_unit`
   - `test_booleans_are_not_scaled`
-  - `test_the_map_declares_no_config_block`
+  - `test_the_ramp_state_accepts_only_its_three_values`
 - `TestScaledRangesAreUsable`
   - `test_every_scaled_row_can_carry_a_plausible_value`
 - `TestLookupsUsedByTheApp`
@@ -2438,7 +3133,6 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_per_camera_block_keeps_a_fixed_stride`
   - `test_the_license_closes_the_exposed_block`
   - `test_the_clock_words_are_consecutive_with_the_high_one_first`
-  - `test_readback_addrs_are_a_subset_of_the_map`
 - `TestAMissingMapDoesNotKillTheImport`
   - `test_a_map_that_is_not_there_leaves_the_reason`
   - `test_a_broken_map_leaves_the_reason`
@@ -2446,21 +3140,23 @@ Tests del mapa de registros que se despacha con el repo.
 
 </details>
 
-### [test_schema.py](../test/modbus/test_schema.py) — 58 tests
+### [test_schema.py](../test/modbus/test_schema.py) — 77 tests
 
-Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, espejo de configuración y detección de escrituras del PLC.
+Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, la copia del config que se publica al PLC, y qué filas puede escribir el PLC y con qué rango.
 
-| Grupo | Tests |
-|---|---:|
-| `TestToUint16` | 7 |
-| `TestRegDefaults` | 3 |
-| `TestLoadRegisters` | 12 |
-| `TestRegisterSchemaValidation` | 3 |
-| `TestIndexes` | 6 |
-| `TestEncode` | 9 |
-| `TestMirrorBatch` | 6 |
-| `TestDetectPlcWrites` | 5 |
-| `TestApplyPlcWrites` | 7 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestToUint16` |  | 7 |
+| `TestRegDefaults` |  | 3 |
+| `TestLoadRegisters` |  | 12 |
+| `TestLoadPlcRows` | Lo que el mapa deja escribir al PLC, y lo que hace que no cargue. | 12 |
+| `TestWritable` |  | 12 |
+| `TestDecode` |  | 6 |
+| `TestEncodeRefusesPlcRows` | Una fila `plc` tiene un solo dueño: si la app la escribiera, pisaría al PLC. | 4 |
+| `TestRegisterSchemaValidation` |  | 3 |
+| `TestIndexes` |  | 5 |
+| `TestEncode` |  | 9 |
+| `TestMirrorBatch` |  | 4 |
 
 <details><summary>Tests</summary>
 
@@ -2489,6 +3185,44 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_address_zero_is_rejected`
   - `test_error_message_names_the_file_and_the_row`
   - `test_default_map_path_points_into_the_package`
+- `TestLoadPlcRows`
+  - `test_a_plc_row_with_a_range_loads`
+  - `test_a_plc_row_without_a_range_loads`
+  - `test_a_config_row_publishes_any_key`
+  - `test_a_config_row_without_a_config_key_is_rejected`
+  - `test_apply_is_no_longer_a_field`
+  - `test_a_plc_row_cannot_point_at_the_config`
+  - `test_a_range_on_a_row_the_plc_does_not_write_is_rejected`
+  - `test_a_range_on_a_boolean_row_is_rejected`
+  - `test_min_above_max_is_rejected`
+  - `test_a_range_that_does_not_fit_the_register_is_rejected`
+  - `test_a_non_numeric_bound_is_rejected`
+  - `test_the_error_names_the_file_the_entry_and_the_row`
+- `TestWritable`
+  - `test_only_the_plc_rows_are_writable`
+  - `test_a_config_row_is_read_only`
+  - `test_a_row_the_app_writes_is_not_writable`
+  - `test_an_undeclared_address_is_not_writable`
+  - `test_without_a_range_the_whole_register_is_valid`
+  - `test_a_boolean_row_accepts_only_zero_and_one`
+  - `test_both_bounds_are_the_declared_ones`
+  - `test_the_raw_range_is_scaled`
+  - `test_the_physical_range_stays_in_the_unit`
+  - `test_without_a_max_the_physical_range_is_the_whole_register_unscaled`
+  - `test_the_caller_cannot_change_the_ranges`
+  - `test_an_empty_map_has_nothing_writable`
+- `TestDecode`
+  - `test_unscaled_value`
+  - `test_scaled_value`
+  - `test_boolean`
+  - `test_a_plc_row_decodes`
+  - `test_is_the_inverse_of_encode`
+  - `test_unknown_name_raises`
+- `TestEncodeRefusesPlcRows`
+  - `test_encode_raises`
+  - `test_encode_batch_raises_even_with_other_rows`
+  - `test_config_rows_still_encode`
+  - `test_the_mirror_never_includes_a_plc_row`
 - `TestRegisterSchemaValidation`
   - `test_duplicate_address_is_rejected`
   - `test_duplicate_name_is_rejected`
@@ -2498,7 +3232,6 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_unknown_name_raises`
   - `test_max_addr`
   - `test_descriptions`
-  - `test_readback_addrs_are_only_the_inference_rows`
   - `test_config_regs_are_only_the_config_rows`
 - `TestEncode`
   - `test_unscaled_value`
@@ -2515,35 +3248,22 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_uses_the_default_when_the_key_is_missing`
   - `test_applies_the_scale`
   - `test_encodes_booleans`
-  - `test_skips_externally_sourced_rows`
-  - `test_skips_rows_without_a_config_key`
-- `TestDetectPlcWrites`
-  - `test_first_cycle_detects_nothing`
-  - `test_a_plc_write_is_detected`
-  - `test_an_untouched_register_is_not_a_write`
-  - `test_a_local_config_change_is_not_a_plc_write`
-  - `test_health_rows_are_never_checked`
-- `TestApplyPlcWrites`
-  - `test_writes_land_in_config`
-  - `test_decodes_the_scale`
-  - `test_decodes_booleans`
-  - `test_the_raw_value_is_echoed_into_the_batch`
-  - `test_a_row_with_a_hook_calls_it_with_the_decoded_value`
-  - `test_a_missing_hook_is_not_a_crash`
-  - `test_nothing_to_apply_needs_no_save`
 
 </details>
 
-### [test_server.py](../test/modbus/test_server.py) — 57 tests
+### [test_server.py](../test/modbus/test_server.py) — 82 tests
 
-Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto de sólo lectura y el ciclo de vida de los dos transportes.
+Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto —de sólo lectura salvo en las filas que escribe el PLC— y el ciclo de vida de los dos transportes.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestSlaveId` |  | 7 |
 | `TestRegisterCount` |  | 4 |
+| `TestRegisterCountFromTheMap` |  | 3 |
 | `TestRegisterAccess` |  | 10 |
 | `TestReadOnlyContext` |  | 8 |
+| `TestPlcWrites` | FC06 y FC16 sobre las filas que escribe el PLC, por el mismo camino que una petición real: el `datastore_update()` de los pedidos de pymodbus contra el contexto del servidor. | 14 |
+| `TestRejectedWriteWarning` | El PLC se entera de un rechazo por la excepción; el equipo, por este warning. Sin él no queda rastro de que un programa manda valores que no corresponden. | 8 |
 | `TestAtomicBlock` | Un `update_block()` se lee entero de antes o entero de después. | 4 |
 | `TestDisabledTransports` |  | 5 |
 | `TestStartupFailures` |  | 4 |
@@ -2567,6 +3287,10 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
   - `test_reads_a_valid_count`
   - `test_invalid_count_falls_back`
   - `test_the_datastore_matches_the_count`
+- `TestRegisterCountFromTheMap`
+  - `test_the_datastore_grows_to_the_last_row_of_the_map`
+  - `test_a_larger_config_count_wins`
+  - `test_an_empty_map_keeps_the_config_count`
 - `TestRegisterAccess`
   - `test_registers_start_at_zero`
   - `test_addressing_is_base_1`
@@ -2587,6 +3311,30 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
   - `test_a_zero_count_is_rejected`
   - `test_other_read_functions_are_rejected`
   - `test_writes_are_rejected`
+- `TestPlcWrites`
+  - `test_fc06_on_a_writable_row_lands_in_the_register`
+  - `test_fc06_answers_with_the_echo_and_not_an_exception`
+  - `test_fc16_writes_every_register`
+  - `test_fc16_into_a_row_the_plc_does_not_write_writes_nothing`
+  - `test_a_value_out_of_range_is_illegal_value_and_writes_nothing`
+  - `test_a_boolean_row_takes_only_zero_and_one`
+  - `test_an_address_the_plc_does_not_write_is_illegal_address`
+  - `test_a_writable_address_past_the_datastore_is_rejected`
+  - `test_on_write_gets_base_1_addresses_and_raw_values`
+  - `test_on_write_runs_with_the_lock_taken`
+  - `test_an_app_write_is_never_reported_as_a_plc_write`
+  - `test_a_plc_read_sees_what_the_plc_wrote`
+  - `test_other_write_functions_stay_rejected`
+  - `test_without_on_write_nothing_is_writable`
+- `TestRejectedWriteWarning`
+  - `test_an_out_of_range_value_names_the_register_and_the_value`
+  - `test_a_register_the_plc_does_not_write_is_reported`
+  - `test_an_fc16_names_the_whole_request_and_the_register_that_failed`
+  - `test_a_function_that_is_not_served_is_reported`
+  - `test_an_accepted_write_logs_nothing`
+  - `test_the_same_rejection_is_logged_once_per_interval`
+  - `test_the_next_warning_counts_the_silenced_ones`
+  - `test_another_register_or_reason_is_reported_on_its_own`
 - `TestAtomicBlock`
   - `test_a_plc_read_never_sees_half_a_block`
   - `test_a_plc_read_waits_for_the_write_lock`
@@ -2622,6 +3370,61 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
 - `TestSharedDatastore`
   - `test_the_context_serves_the_registered_device`
   - `test_a_query_to_another_unit_id_finds_nothing`
+
+</details>
+
+## test/setup/
+
+### [test_device_config.py](../test/setup/test_device_config.py) — 29 tests
+
+Tests del armado del config de un equipo: qué se saca, qué cámaras ve cada pipeline, qué se avisa y qué se rechaza.
+
+| Grupo | Tests |
+|---|---:|
+| `TestCameras` | 4 |
+| `TestPipelines` | 9 |
+| `TestKept` | 3 |
+| `TestOverrides` | 3 |
+| `TestWizard` | 6 |
+| `TestMain` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestCameras`
+  - `test_cameras_left_out_disappear_from_every_place_that_names_them`
+  - `test_a_camera_no_pipeline_sees_is_reported`
+  - `test_an_unknown_camera_is_rejected`
+  - `test_an_empty_camera_selection_is_rejected`
+- `TestPipelines`
+  - `test_without_a_map_each_pipeline_keeps_its_declared_cameras`
+  - `test_a_pipeline_can_skip_one_of_its_cameras`
+  - `test_a_pipeline_can_run_on_a_camera_it_does_not_declare`
+  - `test_a_pipeline_left_out_is_removed_from_every_list_that_names_it`
+  - `test_a_pipeline_given_no_cameras_is_removed`
+  - `test_a_pipeline_without_declared_cameras_keeps_seeing_them_all`
+  - `test_a_camera_the_device_does_not_have_is_rejected`
+  - `test_a_selected_pipeline_without_its_cameras_is_rejected`
+  - `test_an_unknown_pipeline_is_rejected`
+- `TestKept`
+  - `test_models_are_kept`
+  - `test_a_list_that_was_already_empty_is_not_reported`
+  - `test_the_base_is_not_modified`
+- `TestOverrides`
+  - `test_an_existing_value_is_replaced_and_parsed_as_yaml`
+  - `test_a_key_that_does_not_exist_is_rejected`
+  - `test_an_assignment_without_equals_is_rejected`
+- `TestWizard`
+  - `test_each_pipeline_is_asked_over_the_cameras_of_the_device`
+  - `test_enter_takes_the_declared_cameras_of_each_pipeline`
+  - `test_the_default_output_is_named_after_the_device`
+  - `test_an_invalid_answer_is_asked_again`
+  - `test_declining_returns_nothing`
+  - `test_an_existing_file_is_kept_unless_confirmed`
+- `TestMain`
+  - `test_without_arguments_it_guides_and_writes`
+  - `test_a_cancel_writes_nothing`
+  - `test_the_arguments_choose_the_cameras_of_each_pipeline`
+  - `test_an_existing_output_is_not_overwritten_without_force`
 
 </details>
 
@@ -2837,7 +3640,7 @@ Tests del backend MQTT: armado del cliente para las dos APIs de paho, puerto y c
 
 ## test/tools/camera/
 
-### [test_camera_factory.py](../test/tools/camera/test_camera_factory.py) — 9 tests
+### [test_camera_factory.py](../test/tools/camera/test_camera_factory.py) — 14 tests
 
 Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 
@@ -2846,6 +3649,7 @@ Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 | `TestCameraFactory` |  | 4 |
 | `TestCameraFactoryConfigErrors` | Un driver inválido NO debe caer a mock: frames sintéticos con estado 'conectada' ocultarían el error de configuración a la UI y al PLC. | 3 |
 | `TestStatusContract` | Todos los drivers tienen que devolver las mismas claves: el consumidor no sabe qué driver le tocó. | 2 |
+| `TestCanCutViews` | Qué driver decodifica video y puede cortar vistas: se contesta desde el config, sin abrir nada. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -2861,21 +3665,37 @@ Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
 - `TestStatusContract`
   - `test_status_has_the_stable_keys`
   - `test_markers_are_declared_on_the_abstraction`
+- `TestCanCutViews`
+  - `test_the_video_drivers_cut_views`
+  - `test_the_gige_and_mock_drivers_do_not`
+  - `test_a_missing_or_unknown_driver_does_not`
+  - `test_it_agrees_with_the_flag_of_every_registered_driver`
+  - `test_the_abstraction_declares_the_marker_off_by_default`
 
 </details>
 
-### [test_decoder.py](../test/tools/camera/test_decoder.py) — 28 tests
+### [test_decoder.py](../test/tools/camera/test_decoder.py) — 86 tests
 
 Tests del decodificador de los drivers de video: qué backend se elige con qué config, que los dos entreguen el mismo tamaño, cómo se arman los pipelines de la Jetson y qué pasa sin GStreamer.
 
-| Grupo | Tests |
-|---|---:|
-| `TestReadDecodeSettings` | 8 |
-| `TestCpuPath` | 5 |
-| `TestNvdecPipelines` | 7 |
-| `TestRepeatParameterSets` | 2 |
-| `TestBgrxToBgr` | 3 |
-| `TestNvdecWithoutGstreamer` | 3 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestReadDecodeSettings` |  | 8 |
+| `TestCpuPath` |  | 5 |
+| `TestNvdecPipelines` |  | 7 |
+| `TestRepeatParameterSets` |  | 2 |
+| `TestBgrxToBgr` |  | 3 |
+| `TestNvdecWithoutGstreamer` |  | 3 |
+| `TestPlanView` | Dónde se corta una vista. Los números son los que se verificaron contra el VIC en la Jetson (`decoder-views-jetson-findings.md`, preguntas 2, 9 y 10). | 14 |
+| `TestComputeViewSize` |  | 2 |
+| `TestViewSizeFromABox` | Sin un lado corto, la vista sale a lo que el modelo que la lee haría igual con ella. | 11 |
+| `TestPlanViews` |  | 2 |
+| `TestReadViews` |  | 4 |
+| `TestPairByPts` | Frame y vistas salen de ramas distintas: se aparean por PTS, del lado que va atrás. | 6 |
+| `TestViewPipelines` |  | 6 |
+| `TestCpuViews` |  | 7 |
+| `TestRender` |  | 2 |
+| `TestGstCaptureViews` | La parte del camino de la Jetson que no necesita GStreamer: qué se pide y cuándo. | 4 |
 
 <details><summary>Tests</summary>
 
@@ -2913,6 +3733,74 @@ Tests del decodificador de los drivers de video: qué backend se elige con qué 
   - `test_a_stream_does_not_open`
   - `test_a_file_does_not_open`
   - `test_the_reason_names_what_is_missing`
+- `TestPlanView`
+  - `test_the_roi_is_scaled_to_the_native_video`
+  - `test_each_camera_has_its_own_scale`
+  - `test_the_corners_are_widened_to_even_coordinates`
+  - `test_the_covered_rectangle_is_in_the_reference_frame`
+  - `test_a_quarter_turn_is_undone_before_cutting`
+  - `test_a_half_turn_is_undone_before_cutting`
+  - `test_the_covered_rectangle_comes_back_rotated`
+  - `test_a_crop_under_sixteen_pixels_is_rejected`
+  - `test_sixteen_pixels_are_enough`
+  - `test_a_zero_side_reaches_the_border`
+  - `test_a_roi_past_the_border_is_clamped`
+  - `test_at_native_size_the_crop_is_the_roi`
+  - `test_the_output_keeps_the_crop_by_default`
+  - `test_the_output_short_side_keeps_the_shape`
+- `TestComputeViewSize`
+  - `test_zero_keeps_the_native_crop`
+  - `test_the_short_side_can_be_the_height`
+- `TestViewSizeFromABox`
+  - `test_a_classifier_covers_its_input_and_the_center_crop_is_all_it_does_after`
+  - `test_a_square_crop_covers_a_square_input_exactly`
+  - `test_a_detector_fits_inside_its_input_keeping_the_shape`
+  - `test_a_wide_crop_is_limited_by_the_width_of_the_input`
+  - `test_it_never_enlarges_a_crop_that_is_smaller_than_the_input`
+  - `test_an_explicit_short_side_wins_over_the_box`
+  - `test_without_a_box_or_a_short_side_it_is_the_native_crop`
+  - `test_a_box_with_a_zero_side_is_no_box`
+  - `test_the_view_is_planned_with_the_box`
+  - `test_the_box_is_read_from_the_decode_section`
+  - `test_a_malformed_box_is_ignored`
+- `TestPlanViews`
+  - `test_rejected_views_are_named`
+  - `test_without_a_size_the_video_is_the_reference`
+- `TestReadViews`
+  - `test_the_views_are_read_from_the_decode_section`
+  - `test_the_rotation_comes_from_the_camera`
+  - `test_views_that_are_not_a_map_are_dropped_with_a_warning`
+  - `test_without_views_the_settings_are_the_same_as_before`
+- `TestPairByPts`
+  - `test_a_view_with_the_same_pts_is_paired`
+  - `test_a_view_behind_is_pulled_again`
+  - `test_a_view_ahead_moves_the_frame_forward`
+  - `test_a_view_that_never_arrives_is_missing_not_old`
+  - `test_a_view_that_always_lags_gives_up`
+  - `test_two_views_are_paired_to_the_same_frame`
+- `TestViewPipelines`
+  - `test_the_decoder_feeds_a_tee`
+  - `test_the_frame_branch_is_the_same_as_without_views`
+  - `test_a_view_is_reduced_with_five_taps`
+  - `test_a_live_view_keeps_only_its_newest_frame`
+  - `test_a_file_view_drops_nothing`
+  - `test_the_crop_is_not_in_the_launch`
+- `TestCpuViews`
+  - `test_the_view_is_cut_from_the_native_frame`
+  - `test_the_frame_is_still_reduced`
+  - `test_the_view_comes_out_at_its_short_side`
+  - `test_the_view_owns_its_array`
+  - `test_the_names_are_those_being_cut`
+  - `test_a_rejected_view_is_logged_once`
+  - `test_without_views_there_are_none`
+- `TestRender`
+  - `test_it_is_the_cpu_path_in_one_call`
+  - `test_without_a_size_the_frame_is_the_same_array`
+- `TestGstCaptureViews`
+  - `test_a_live_view_is_paired_by_pts`
+  - `test_a_file_takes_one_sample_from_every_branch`
+  - `test_the_names_leave_out_the_rejected_views`
+  - `test_a_video_that_changed_size_is_reopened`
 
 </details>
 
@@ -2951,7 +3839,7 @@ Tests del MockDriver: es el único driver que corre sin hardware, así que es do
 
 </details>
 
-### [test_rtsp_driver.py](../test/tools/camera/test_rtsp_driver.py) — 41 tests
+### [test_rtsp_driver.py](../test/tools/camera/test_rtsp_driver.py) — 46 tests
 
 Tests del driver RTSP: la URL que se arma y el loop de captura.
 
@@ -2966,6 +3854,7 @@ Tests del driver RTSP: la URL que se arma y el loop de captura.
 | `TestFpsLimit` |  | 3 |
 | `TestFrameCredit` | El tope de entrega es un token bucket, y el reloj entra por parámetro: la secuencia se afirma sin esperar de verdad. | 6 |
 | `TestCaptureEnabled` |  | 4 |
+| `TestViews` | Las vistas viajan en la cola con su frame y salen rotadas como él. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -3019,6 +3908,12 @@ Tests del driver RTSP: la URL que se arma y el loop de captura.
   - `test_a_disabled_camera_does_not_even_open_the_stream`
   - `test_disabling_it_closes_the_session_without_reporting_a_drop`
   - `test_re_enabling_does_not_deliver_a_stale_frame`
+- `TestViews`
+  - `test_a_frame_comes_out_with_its_views`
+  - `test_the_views_are_rotated_with_the_frame`
+  - `test_a_frame_without_views_leaves_none_behind`
+  - `test_the_status_counts_misses_when_there_are_views`
+  - `test_without_views_the_status_keys_are_the_same`
 
 </details>
 
@@ -3078,19 +3973,20 @@ Tests del driver Sentech: la reconexión del thread de captura.
 
 </details>
 
-### [test_video_file_driver.py](../test/tools/camera/test_video_file_driver.py) — 26 tests
+### [test_video_file_driver.py](../test/tools/camera/test_video_file_driver.py) — 28 tests
 
 Tests del driver de video grabado: la playlist, el loop y el ritmo por reloj.
 
-| Grupo | Tests |
-|---|---:|
-| `TestPlaylist` | 5 |
-| `TestUnplayableAddress` | 5 |
-| `TestLoop` | 2 |
-| `TestPacing` | 7 |
-| `TestCaptureEnabled` | 3 |
-| `TestStatus` | 3 |
-| `TestRotation` | 1 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestPlaylist` |  | 5 |
+| `TestUnplayableAddress` |  | 5 |
+| `TestLoop` |  | 2 |
+| `TestPacing` |  | 7 |
+| `TestCaptureEnabled` |  | 3 |
+| `TestStatus` |  | 3 |
+| `TestRotation` |  | 1 |
+| `TestViews` | Un video grabado entrega las vistas como una cámara RTSP: cortadas del nativo. | 2 |
 
 <details><summary>Tests</summary>
 
@@ -3127,6 +4023,9 @@ Tests del driver de video grabado: la playlist, el loop y el ritmo por reloj.
   - `test_the_driver_builds_without_an_address`
 - `TestRotation`
   - `test_rotation_comes_from_the_base_class`
+- `TestViews`
+  - `test_the_view_is_cut_from_the_native_video`
+  - `test_without_views_there_are_none`
 
 </details>
 
@@ -3341,13 +4240,32 @@ Tests de la lectura de `tegrastats`: cómo se traduce cada forma de valor, qué 
 
 ## test/ui/
 
-### [test_camera_panel.py](../test/ui/test_camera_panel.py) — 4 tests
+### [test_camera_grid.py](../test/ui/test_camera_grid.py) — 3 tests
 
-Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
+Tests de la grilla de cámaras: lo que reparte a sus paneles al cambiar el modo.
 
 | Grupo | Tests |
 |---|---:|
-| `TestPainting` | 4 |
+| `TestMode` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestMode`
+  - `test_the_panels_start_in_raw`
+  - `test_changing_the_mode_tells_every_panel`
+  - `test_the_signal_still_goes_out`
+
+</details>
+
+### [test_camera_panel.py](../test/ui/test_camera_panel.py) — 14 tests
+
+Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestPainting` |  | 4 |
+| `TestRegions` | El panel dibuja las regiones de los pipelines sólo en crudo: en anotado las dibuja el overlay. | 9 |
+| `TestNoCameraRoi` |  | 1 |
 
 <details><summary>Tests</summary>
 
@@ -3356,6 +4274,18 @@ Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
   - `test_it_paints_the_kept_frame_when_shown`
   - `test_the_pixmap_fits_the_label_and_keeps_the_aspect`
   - `test_the_frame_is_shrunk_before_it_reaches_qt`
+- `TestRegions`
+  - `test_in_raw_mode_it_draws_the_region_in_the_pipeline_color`
+  - `test_in_annotated_mode_it_draws_nothing`
+  - `test_going_back_to_raw_draws_them_again`
+  - `test_a_pipeline_that_sees_the_whole_frame_draws_nothing`
+  - `test_a_pipeline_that_is_off_draws_nothing`
+  - `test_a_pipeline_of_another_camera_draws_nothing`
+  - `test_each_pipeline_has_its_own_color`
+  - `test_a_change_in_the_config_is_picked_up`
+  - `test_without_a_revision_the_config_is_read_once`
+- `TestNoCameraRoi`
+  - `test_a_leftover_camera_roi_is_not_drawn`
 
 </details>
 
@@ -3410,18 +4340,21 @@ Tests de los constructores del formulario: la tarjeta de una pestaña no depende
 
 </details>
 
-### [test_inference_tab.py](../test/ui/test_inference_tab.py) — 13 tests
+### [test_inference_tab.py](../test/ui/test_inference_tab.py) — 42 tests
 
 Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()` no deformen lo que hay en el config.
 
-| Grupo | Tests |
-|---|---:|
-| `TestOverlay` | 1 |
-| `TestClassNames` | 2 |
-| `TestRoundTrip` | 1 |
-| `TestPipelineType` | 4 |
-| `TestSections` | 3 |
-| `TestSlotTabs` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestOverlay` |  | 1 |
+| `TestClassNames` |  | 2 |
+| `TestRoundTrip` |  | 1 |
+| `TestPipelineType` |  | 4 |
+| `TestSections` |  | 3 |
+| `TestSlotTabs` |  | 2 |
+| `TestRegionRows` | Una fila por (pipeline, cámara): dice qué región usa y abre el diálogo que la edita. | 15 |
+| `TestWithoutCameraRoi` |  | 1 |
+| `TestRegionsSection` | Las regiones tienen su propia sección, con una sub-pestaña por cámara y los nombres del operador. | 13 |
 
 <details><summary>Tests</summary>
 
@@ -3438,12 +4371,90 @@ Tests de la pestaña de inferencia: qué secciones edita y que `load()`/`save()`
   - `test_an_unregistered_type_is_not_lost_on_save`
   - `test_the_combo_offers_the_registered_types`
 - `TestSections`
-  - `test_models_and_pipelines_have_a_bar_each_models_first`
+  - `test_models_pipelines_and_regions_have_a_bar_each_in_that_order`
   - `test_one_sub_tab_per_slot`
   - `test_every_slot_round_trips_through_its_sub_tab`
 - `TestSlotTabs`
   - `test_a_long_bar_scrolls_instead_of_eliding`
   - `test_ten_pipelines_keep_their_full_labels`
+- `TestRegionRows`
+  - `test_there_is_a_row_per_camera_of_the_pipeline`
+  - `test_without_a_list_every_declared_camera_has_a_row`
+  - `test_an_own_region_is_one_line`
+  - `test_on_a_video_camera_the_line_says_the_cut_is_native_and_the_size_comes_from_the_model`
+  - `test_on_a_gige_camera_the_line_does_not_talk_about_a_native_cut`
+  - `test_a_disabled_one_is_the_whole_frame`
+  - `test_without_one_and_without_a_camera_roi_it_is_the_whole_frame`
+  - `test_a_video_camera_with_an_adjustment_says_the_region_is_not_native`
+  - `test_a_gige_camera_with_an_adjustment_has_nothing_to_flag`
+  - `test_a_region_too_small_to_cut_from_the_native_is_flagged`
+  - `test_a_good_region_has_no_flag`
+  - `test_the_button_asks_for_the_dialog_of_that_camera_with_that_pipeline`
+  - `test_reloading_brings_what_the_dialog_wrote`
+  - `test_a_config_without_one_saves_nothing_about_it`
+  - `test_save_never_writes_a_region`
+- `TestWithoutCameraRoi`
+  - `test_a_leftover_camera_roi_is_not_the_pipeline_region`
+- `TestRegionsSection`
+  - `test_the_section_has_one_sub_tab_per_camera`
+  - `test_the_sub_tab_is_labelled_with_the_camera_name`
+  - `test_a_camera_without_a_name_shows_its_slot`
+  - `test_a_declared_camera_no_pipeline_names_is_listed_too`
+  - `test_a_camera_nobody_looks_at_says_so`
+  - `test_the_rows_are_not_inside_the_pipeline_pages`
+  - `test_a_row_is_titled_with_the_pipeline_name`
+  - `test_a_pipeline_without_a_name_shows_its_slot`
+  - `test_typing_a_name_renames_the_rows_at_once`
+  - `test_the_name_is_loaded_into_the_pipeline_page`
+  - `test_save_writes_the_name`
+  - `test_save_does_not_add_an_empty_name_key`
+  - `test_a_name_that_was_cleared_is_cleared_in_the_file`
+
+</details>
+
+### [test_lens_health_tab.py](../test/ui/test_lens_health_tab.py) — 11 tests
+
+Tests de la pestaña de óptica: la región donde se mide la nitidez de cada cámara.
+
+| Grupo | Tests |
+|---|---:|
+| `TestRegion` | 11 |
+
+<details><summary>Tests</summary>
+
+- `TestRegion`
+  - `test_it_loads_from_the_lens_section_of_the_camera`
+  - `test_a_camera_without_a_region_starts_off_and_empty`
+  - `test_each_camera_has_its_own`
+  - `test_save_writes_enabled_and_the_geometry_under_the_lens_section`
+  - `test_save_writes_no_key_under_the_camera_roi_anymore`
+  - `test_the_fields_depend_on_the_checkbox`
+  - `test_the_button_asks_for_the_dialog_with_the_lens_key`
+  - `test_reload_brings_the_geometry_the_dialog_wrote`
+  - `test_reload_does_not_touch_the_checkbox`
+  - `test_reload_of_an_unknown_camera_does_nothing`
+  - `test_the_reference_is_still_the_only_thing_save_writes_about_it`
+
+</details>
+
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 5 tests
+
+Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestLevelDialog` | 4 |
+| `TestPause` | 1 |
+
+<details><summary>Tests</summary>
+
+- `TestLevelDialog`
+  - `test_it_starts_at_the_configured_height`
+  - `test_without_a_height_it_starts_at_the_top`
+  - `test_a_marked_height_reaches_the_field`
+  - `test_it_saves_one_row_under_its_key_and_persists`
+- `TestPause`
+  - `test_a_paused_dialog_keeps_the_frame_it_had`
 
 </details>
 
@@ -3466,6 +4477,198 @@ Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una lín
   - `test_a_filtered_out_line_is_kept_but_not_shown`
   - `test_dropping_a_hidden_line_does_not_remove_a_shown_one`
   - `test_dropping_a_shown_line_removes_it`
+
+</details>
+
+### [test_pause_button.py](../test/ui/test_pause_button.py) — 3 tests
+
+Tests del botón de pausa de los diálogos de dibujo: su estado y el texto que lo dice.
+
+| Grupo | Tests |
+|---|---:|
+| `TestPauseButton` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestPauseButton`
+  - `test_it_starts_playing_and_offers_to_pause`
+  - `test_a_click_pauses_and_offers_to_resume`
+  - `test_a_second_click_resumes`
+
+</details>
+
+### [test_pipeline_regions_dialog.py](../test/ui/test_pipeline_regions_dialog.py) — 56 tests
+
+Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y qué avisa.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestTabs` |  | 10 |
+| `TestCanvasRegions` |  | 5 |
+| `TestSave` |  | 9 |
+| `TestProblems` |  | 10 |
+| `TestPreviewAndOverlap` |  | 7 |
+| `TestWithoutCameraRoi` | La cámara no tiene región: un pipeline sin sección empieza viendo el frame completo. | 5 |
+| `TestNames` | El diálogo muestra los nombres del operador; el slot sigue siendo la identidad. | 7 |
+| `TestPause` | Con el video en pausa se dibuja sobre el frame quieto: los que llegan se descartan. | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestTabs`
+  - `test_one_tab_per_pipeline_that_looks_at_the_camera_and_disabled_ones_too`
+  - `test_it_opens_on_the_requested_pipeline`
+  - `test_the_window_names_the_camera`
+  - `test_a_camera_nobody_looks_at_has_nothing_to_save`
+  - `test_each_tab_starts_in_the_mode_the_config_says`
+  - `test_a_disabled_own_roi_starts_as_the_whole_frame`
+  - `test_only_an_own_region_has_editable_fields`
+  - `test_there_is_no_checkbox_for_the_native_cut`
+  - `test_there_is_no_field_for_the_view_size`
+  - `test_the_geometry_loads_from_the_config`
+- `TestCanvasRegions`
+  - `test_every_pipeline_is_drawn_and_only_the_current_one_is_active`
+  - `test_the_color_is_the_one_the_overlay_gives_that_pipeline`
+  - `test_changing_the_tab_changes_which_one_is_editable`
+  - `test_a_pipeline_that_sees_the_whole_frame_has_no_rectangle`
+  - `test_a_zero_size_own_region_is_drawn_up_to_the_border`
+- `TestSave`
+  - `test_an_untouched_dialog_writes_no_region`
+  - `test_a_typed_value_is_written_with_the_frame_it_was_drawn_on`
+  - `test_the_drawn_size_is_the_live_frame_not_the_stored_one`
+  - `test_an_edit_made_with_the_mouse_counts_as_a_touch`
+  - `test_the_other_tabs_are_left_alone`
+  - `test_the_whole_frame_is_written_as_disabled`
+  - `test_a_new_own_region_creates_its_section`
+  - `test_cancel_writes_nothing`
+  - `test_reset_zeroes_the_current_region`
+- `TestProblems`
+  - `test_a_good_region_has_no_banner`
+  - `test_a_region_past_the_frame_is_flagged_on_its_tab_and_in_the_banner`
+  - `test_the_banner_is_of_the_current_tab_and_the_others_get_a_mark`
+  - `test_native_video_on_a_preprocessed_camera_is_flagged`
+  - `test_the_same_camera_that_is_gige_has_nothing_to_flag`
+  - `test_a_region_too_small_for_the_decoder_is_flagged_on_a_video_camera`
+  - `test_the_same_small_region_is_fine_on_a_gige_camera`
+  - `test_a_frame_of_another_size_than_the_drawn_one_is_flagged`
+  - `test_redrawing_the_region_on_the_new_frame_clears_the_flag`
+  - `test_without_a_frame_only_what_does_not_need_it_is_judged`
+- `TestPreviewAndOverlap`
+  - `test_the_preview_is_the_crop_the_model_gets`
+  - `test_without_a_region_it_is_the_whole_frame`
+  - `test_the_native_cut_is_flagged_as_approximate`
+  - `test_without_a_frame_it_waits`
+  - `test_a_new_frame_refreshes_the_preview_without_redrawing_everything`
+  - `test_the_overlap_names_the_other_pipeline_and_the_share`
+  - `test_no_overlap_says_nothing`
+- `TestWithoutCameraRoi`
+  - `test_only_the_two_modes_are_offered`
+  - `test_a_pipeline_without_a_section_starts_as_the_whole_frame`
+  - `test_a_leftover_camera_roi_is_not_drawn`
+  - `test_a_pipeline_without_a_section_writes_nothing_if_untouched`
+  - `test_choosing_a_region_for_it_creates_its_section`
+- `TestNames`
+  - `test_the_tabs_carry_the_pipeline_names`
+  - `test_a_pipeline_without_a_name_shows_its_slot`
+  - `test_the_rectangles_carry_the_pipeline_names`
+  - `test_the_window_carries_the_camera_name`
+  - `test_the_overlap_names_the_other_pipeline_by_its_name`
+  - `test_the_tab_for_a_pipeline_is_still_chosen_by_its_slot`
+  - `test_saving_still_writes_under_the_slot`
+- `TestPause`
+  - `test_a_paused_dialog_keeps_the_frame_it_had`
+  - `test_resuming_takes_the_next_frame`
+  - `test_the_region_is_still_editable_while_paused`
+
+</details>
+
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 11 tests
+
+Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestGroups` | 2 |
+| `TestRoundTrip` | 7 |
+| `TestLevel` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestGroups`
+  - `test_one_group_per_stopper_camera`
+  - `test_without_stopper_pipelines_there_are_no_groups`
+- `TestRoundTrip`
+  - `test_the_values_go_back_as_they_were`
+  - `test_a_missing_minimum_shows_the_default`
+  - `test_an_uncalibrated_distance_is_saved_as_null`
+  - `test_the_wheel_side_goes_back_as_it_was`
+  - `test_a_missing_wheel_side_is_any`
+  - `test_the_height_goes_back_as_it_was`
+  - `test_an_uncalibrated_height_is_saved_as_null`
+- `TestLevel`
+  - `test_reload_level_shows_what_the_dialog_wrote`
+  - `test_the_mark_button_asks_for_its_camera_key`
+
+</details>
+
+### [test_region_canvas.py](../test/ui/test_region_canvas.py) — 24 tests
+
+Tests del lienzo de regiones: la geometría del arrastre, que son funciones puras, y la conversión entre la pantalla y el frame.
+
+| Grupo | Tests |
+|---|---:|
+| `(sin clase)` | 1 |
+| `TestGetHandleAt` | 3 |
+| `TestDragRect` | 7 |
+| `TestBuildRectFromPoints` | 3 |
+| `TestCanvas` | 10 |
+
+<details><summary>Tests</summary>
+
+- `(sin clase)`
+  - `test_the_painter_helper_is_shared_with_the_camera_panel`
+- `TestGetHandleAt`
+  - `test_which_part_is_under_the_mouse`
+  - `test_the_margin_is_measured_on_screen`
+  - `test_just_outside_the_margin_is_outside`
+- `TestDragRect`
+  - `test_moving_keeps_the_size`
+  - `test_moving_stops_at_the_frame`
+  - `test_the_right_edge_grows_the_width`
+  - `test_the_left_edge_moves_the_origin_and_keeps_the_right_side`
+  - `test_a_corner_moves_two_edges`
+  - `test_an_edge_cannot_cross_the_opposite_one`
+  - `test_resizing_stops_at_the_frame`
+- `TestBuildRectFromPoints`
+  - `test_any_diagonal_gives_the_same_rectangle`
+  - `test_it_is_cut_at_the_frame`
+  - `test_a_click_is_not_a_region`
+- `TestCanvas`
+  - `test_it_knows_the_frame_size_once_it_has_one`
+  - `test_it_paints_a_pixmap_the_size_of_the_widget`
+  - `test_a_grey_frame_is_accepted`
+  - `test_dragging_inside_moves_the_active_region`
+  - `test_dragging_an_edge_resizes_it`
+  - `test_dragging_outside_draws_a_new_one`
+  - `test_a_region_that_is_not_editable_ignores_the_mouse`
+  - `test_a_reference_region_never_moves`
+  - `test_without_a_frame_the_mouse_does_nothing`
+  - `test_a_drag_that_ends_leaves_the_next_move_alone`
+
+</details>
+
+### [test_roi_dialog.py](../test/ui/test_roi_dialog.py) — 2 tests
+
+Tests del diálogo de ROI: que la pausa congele el frame sobre el que se dibuja.
+
+| Grupo | Tests |
+|---|---:|
+| `TestPause` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestPause`
+  - `test_a_paused_dialog_keeps_the_frame_it_had`
+  - `test_resuming_takes_the_next_frame`
 
 </details>
 
@@ -3675,7 +4878,7 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 
 </details>
 
-### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 89 tests
+### [test_rtsp_server.py](../test/video/test_rtsp_server.py) — 90 tests
 
 Tests del servidor RTSP: armado del pipeline, escalado, resolución de interfaces, almacén de frames, ritmo del stream y ciclo de vida.
 
@@ -3689,7 +4892,7 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
 | `TestResolveAddresses` |  | 7 |
 | `TestStreamUrls` |  | 4 |
 | `TestFrameStore` |  | 13 |
-| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 10 |
+| `TestFramePacer` | El ritmo del stream: qué frame sale, cuándo, y con qué marca de tiempo. | 11 |
 | `TestCreateServer` |  | 1 |
 | `TestLifecycle` | Sin GStreamer el módulo no levanta nada y expone la misma API. | 8 |
 | `TestWatchers` | Las altas y bajas de media son lo único que dice quién está mirando qué. | 6 |
@@ -3764,10 +4967,11 @@ Tests del servidor RTSP: armado del pipeline, escalado, resolución de interface
   - `test_closing_the_store_ends_the_wait`
   - `test_a_closed_store_returns_none_at_once`
   - `test_the_duration_matches_the_declared_fps`
-  - `test_the_pts_advances_one_duration_per_frame`
+  - `test_the_pts_starts_at_zero_and_never_goes_back`
+  - `test_the_pts_follows_the_clock_when_a_frame_arrives_late`
   - `test_only_the_newest_frame_is_sent`
-  - `test_the_same_frame_is_not_sent_twice`
-  - `test_the_last_frame_is_resent_after_the_keepalive`
+  - `test_the_same_frame_is_not_sent_before_its_period_is_due`
+  - `test_the_last_frame_is_repeated_every_period_without_new_ones`
   - `test_a_faster_camera_does_not_speed_up_the_stream`
   - `test_each_stream_has_its_own_pacer`
 - `TestCreateServer`

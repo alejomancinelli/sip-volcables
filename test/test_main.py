@@ -7,6 +7,7 @@ import asyncio
 import signal
 import threading
 import time
+from types import MappingProxyType
 
 import numpy as np
 import pytest
@@ -20,11 +21,16 @@ from system.formats import gpio_status, pipeline_status
 from system.inference import pipeline_factory
 from system.inference.abstract_pipeline import AbstractPipeline
 from system.inference.hooks import EngineHooks
-from system.inference.result import InferenceResult
+from system.inference.result import REASON_DARK_FRAME, Detection, InferenceResult
 from system.modbus import registers
+from system.modbus.plc_variables import PlcVariables
+from system.modbus.schema import (
+    PRODUCER_CONFIG, PRODUCER_HEALTH, PRODUCER_PLC, Reg, RegisterSchema,
+)
 from system.modbus.server import STATUS_DISABLED, STATUS_ERROR
 
 _EXIT_CODE = 3
+_FC_WRITE_SINGLE = 6
 
 
 class _MockConfig:
@@ -55,6 +61,46 @@ class TestExit:
         monkeypatch.setattr(main.os, "_exit", lambda code: calls.append("exit"))
         main._exit(_EXIT_CODE, _MockConfig(**{"system.hard_exit": True}))
         assert calls == ["shutdown", "exit"]
+
+
+class TestCalibrate:
+    """
+    `--calibrate` abre un calibrador en vez de la app. Lo que sigue al nombre es del
+    calibrador, y este archivo no lo interpreta.
+    """
+
+    def test_the_name_and_the_rest_of_the_line_go_through_untouched(self):
+        args = main._parse_args(["--calibrate", "mesh", "--samples", "a.csv", "--headless"])
+        assert args.calibrate == ["mesh", "--samples", "a.csv", "--headless"]
+        assert not args.headless
+
+    def test_the_config_path_still_comes_first(self):
+        args = main._parse_args(["otro.yaml", "--calibrate", "mesh"])
+        assert args.config == "otro.yaml"
+        assert args.calibrate == ["mesh"]
+
+    def test_without_it_the_app_opens(self):
+        assert main._parse_args([]).calibrate is None
+
+    def test_it_runs_before_the_license_and_qt(self, monkeypatch):
+        """
+        La puesta en marcha viene antes que la licencia, y el calibrador arma su propia
+        ventana: ni una cosa ni la otra tienen que existir cuando corre.
+        """
+        config = _MockConfig()
+        calls = []
+        monkeypatch.setattr(main, "ConfigManager", lambda path: config)
+        monkeypatch.setattr(main, "_setup_logging", lambda cfg: None)
+        monkeypatch.setattr(main, "load_env_file", lambda: None)
+        monkeypatch.setattr(main, "_exit", lambda code, cfg: code)
+        monkeypatch.setattr(main, "LicenseManager", lambda cfg: pytest.fail("licencia"))
+        monkeypatch.setattr(main, "QApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "QCoreApplication", lambda argv: pytest.fail("Qt"))
+        monkeypatch.setattr(main, "run_calibration_tool",
+                            lambda cfg, argv: calls.append((cfg, argv)) or _EXIT_CODE)
+
+        assert main.main(["--calibrate", "mesh", "--x", "1"]) == _EXIT_CODE
+        assert calls == [(config, ["mesh", "--x", "1"])]
 
 
 class TestUnlicensedCamera:
@@ -213,6 +259,27 @@ class TestModbusServerWiring:
         assert main.REGISTER_MAP_ERROR is registers.LOAD_ERROR
 
 
+class TestHardwarePoints:
+    """La red sale en su propia serie, con la interfaz en un tag y no en el campo."""
+
+    _METRICS = {"cpu_usage_pct": 34, "power_w": 14.6, "temps_c": {"cpu-thermal": 52.0},
+                "net_mbps": {"eth0": {"rx_mbps": 38.2, "tx_mbps": 4.1},
+                             "Ethernet 2": {"rx_mbps": 0.0, "tx_mbps": 0.0}}}
+
+    def test_the_system_point_carries_only_scalars(self):
+        assert main._build_system_fields(self._METRICS) == {"cpu_usage_pct": 34,
+                                                            "power_w": 14.6}
+
+    def test_every_interface_has_the_same_two_fields(self):
+        assert main._build_network_points(self._METRICS) == [
+            ("eth0", {"rx_mbps": 38.2, "tx_mbps": 4.1}),
+            ("Ethernet 2", {"rx_mbps": 0.0, "tx_mbps": 0.0}),
+        ]
+
+    def test_without_network_there_are_no_points(self):
+        assert main._build_network_points({"cpu_usage_pct": 34}) == []
+
+
 class TestSystemFields:
     def _metrics(self, **overrides) -> dict:
         metrics = {
@@ -296,6 +363,110 @@ class TestInferenceFields:
                 fields["sample_count"]) == (50.0, 10.0, 2)
 
 
+class TestInferencePoints:
+    """
+    La serie `inference` partida por `kind` y `stat`.
+
+    Lo que se cuida es que un panel elija qué mira filtrando tags: los campos llevan el
+    nombre limpio, y el estadístico va en `stat`.
+    """
+
+    @staticmethod
+    def _people(count: int) -> list:
+        return [Detection(0, "person", 85.0, (0, 0, 10, 10)) for _ in range(count)]
+
+    def _results(self) -> list:
+        return [
+            InferenceResult(camera_slot="camera_1", confidence_pct=80.0,
+                            detections=self._people(3), inference_time_ms=40.0,
+                            stage_times_ms={"model_1": 38.0}, illumination_pct=50,
+                            metrics={"count_person": 3}),
+            InferenceResult(camera_slot="camera_1", confidence_pct=90.0,
+                            detections=self._people(5), inference_time_ms=60.0,
+                            stage_times_ms={"model_1": 55.0}, illumination_pct=70,
+                            metrics={"count_person": 5}),
+            InferenceResult(camera_slot="camera_1", inference_time_ms=20.0,
+                            is_valid=False, invalid_reason=REASON_DARK_FRAME),
+        ]
+
+    def _by_tags(self, results: list) -> dict:
+        return {tuple(sorted(tags.items())): fields
+                for tags, fields in main._build_inference_points(results)}
+
+    def test_the_kinds_and_stats_are_the_ones_of_the_contract(self):
+        assert set(self._by_tags(self._results())) == {
+            (("kind", "count"),),
+            (("kind", "time"), ("stat", "mean")), (("kind", "time"), ("stat", "max")),
+            (("kind", "result"), ("stat", "mean")), (("kind", "result"), ("stat", "std")),
+            (("kind", "result"), ("stat", "min")), (("kind", "result"), ("stat", "max")),
+        }
+        assert len(main._build_inference_points(self._results())) \
+            == main._INFERENCE_POINTS_PER_PAIR
+
+    def test_the_count_point_says_how_many_and_why(self):
+        count = self._by_tags(self._results())[(("kind", "count"),)]
+        assert count == {"result_count": 3, "invalid_count": 1,
+                         "invalid_reason": REASON_DARK_FRAME, "sample_count": 2}
+
+    def test_the_latency_covers_every_result_and_every_stage(self):
+        """El descarte también gastó su pasada: entra al tiempo, no a lo medido."""
+        points = self._by_tags(self._results())
+        assert points[(("kind", "time"), ("stat", "mean"))] == {"total_ms": 40.0,
+                                                               "model_1_ms": 46.5}
+        assert points[(("kind", "time"), ("stat", "max"))] == {"total_ms": 60.0,
+                                                              "model_1_ms": 55.0}
+
+    def test_the_measured_fields_carry_the_clean_name(self):
+        points = self._by_tags(self._results())
+        assert points[(("kind", "result"), ("stat", "mean"))] == {
+            "confidence_pct": 85.0, "detection_count": 4.0, "count_person": 4.0}
+        assert points[(("kind", "result"), ("stat", "min"))]["count_person"] == 3.0
+
+    def test_every_measured_value_is_a_float(self):
+        """Un `min` entero al lado de una media decimal: InfluxDB rechaza la escritura."""
+        for tags, fields in main._build_inference_points(self._results()):
+            if tags["kind"] != "count":
+                assert all(isinstance(value, float) for value in fields.values()), tags
+
+    def test_the_illumination_is_left_to_the_camera_series(self):
+        for _, fields in main._build_inference_points(self._results()):
+            assert not [name for name in fields if name.startswith("illumination")]
+
+    def test_without_a_valid_result_there_is_nothing_measured(self):
+        """El `sample_count=0` del conteo ya lo dice; un punto vacío no agrega nada."""
+        dark = [InferenceResult(camera_slot="camera_1", is_valid=False,
+                                invalid_reason=REASON_DARK_FRAME)]
+        kinds = [tags["kind"] for tags, _ in main._build_inference_points(dark)]
+        assert kinds == ["count", "time", "time"]
+
+    def test_a_cycle_keeps_its_dispersion_under_the_clean_name(self):
+        cycle = InferenceResult(
+            camera_slot="camera_1",
+            metrics={"load_pct": 50.0, "load_pct_std": 10.0, "load_pct_min": 40.0,
+                     "load_pct_max": 60.0, "sample_count": 5},
+        )
+        points = self._by_tags([cycle])
+        assert [points[(("kind", "result"), ("stat", stat))]["load_pct"]
+                for stat in ("mean", "std", "min", "max")] == [50.0, 10.0, 40.0, 60.0]
+
+
+class TestCycleTimeFields:
+    """El período de la cámara se agrega sin contar el 0 del primer frame."""
+
+    def _results(self, cycle_times_ms: tuple) -> list:
+        return [InferenceResult(camera_slot="camera_1", cycle_time_ms=value)
+                for value in cycle_times_ms]
+
+    def test_the_first_frame_without_a_previous_one_is_left_out(self):
+        times = main._build_inference_times(self._results((0.0, 100.0, 300.0)))
+        assert (times["mean"]["cycle_ms"], times["max"]["cycle_ms"]) == (200.0, 300.0)
+
+    def test_without_any_period_there_is_no_field(self):
+        times = main._build_inference_times(self._results((0.0,)))
+        assert not [name for stat in times.values() for name in stat
+                    if name.startswith("cycle")]
+
+
 class _FrameSink:
     """Motor o servidor de video: registra lo que le empujan."""
 
@@ -306,6 +477,7 @@ class _FrameSink:
         self.annotated_clients = annotated_clients
         self._cameras = cameras
         self.pushed: list = []
+        self.signals: list = []           # la foto de las variables de cada push al motor
         self.annotated: list = []
 
     def has_annotated_clients(self, camera_slot: str) -> bool:
@@ -317,8 +489,11 @@ class _FrameSink:
     def has_camera(self, camera_slot: str) -> bool:
         return not self._cameras or camera_slot in self._cameras
 
-    def push_frame(self, frame_bgr, camera_slot, ignore_interval=False):
+    def push_frame(self, frame_bgr, camera_slot, views=None, *, ignore_interval=False,
+                   signals=None):
         self.pushed.append((frame_bgr, camera_slot, ignore_interval))
+        self.views = views
+        self.signals.append(signals)
 
     def has_raw_clients(self, camera_slot: str) -> bool:
         return self.raw_clients
@@ -378,6 +553,25 @@ def _build_frame_application(*, engines=(), cycled=(), raw_clients=False, conten
     return app
 
 
+class TestFrameViews:
+    """Las vistas viajan con su frame hasta el motor, por los dos caminos."""
+
+    def test_an_uncycled_engine_gets_the_views_in_the_capture_thread(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        assert engine.views is views
+
+    def test_a_cycled_engine_gets_the_views_of_the_frame_it_takes(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=["pipeline_1"])
+        views = {"pipeline_1": object()}
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1", views)
+        app._on_frame_for_gui("camera_1")
+        assert engine.views is views
+
+
 class TestFramePath:
     """
     El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman
@@ -390,6 +584,22 @@ class TestFramePath:
         frame = np.zeros((4, 4, 3), np.uint8)
         app._on_frame_captured(frame, "camera_1")
         assert engine.pushed == [(frame, "camera_1", False)]
+
+    def test_the_frame_takes_the_plc_variables_with_it(self):
+        """La foto de las variables viaja al motor y de ahí a `InferenceResult.signals`."""
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine])
+        app._frame_signals = main.FrameSignals(plc=MappingProxyType({"belt_speed_mps": 1.5}))
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        assert engine.signals == [{"belt_speed_mps": 1.5}]
+
+    def test_a_cycled_engine_also_gets_the_plc_variables(self):
+        engine = _FrameSink("pipeline_1")
+        app = _build_frame_application(engines=[engine], cycled=("pipeline_1",))
+        app._frame_signals = main.FrameSignals(plc=MappingProxyType({"product_code": 7}))
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_1")
+        app._on_frame_for_gui("camera_1")
+        assert engine.signals == [{"product_code": 7}]
 
     def test_an_engine_only_gets_its_own_cameras(self):
         """Dos pipelines repartiéndose cámaras: un frame ajeno ni se le ofrece."""
@@ -700,7 +910,8 @@ class TestPipelineWords:
         app._build_gpio_registers = lambda: {}
         published: dict = {}
         app._mapped_only = lambda values: published.update(values) or {}
-        app._modbus = types.SimpleNamespace(update_block=lambda registers: None)
+        app._modbus = types.SimpleNamespace(update_block=lambda registers: None,
+                                            get_register=lambda addr: 0)
         app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
         app._on_registers_tick()
         assert published["pipeline_1_state_bitfield"] == 0
@@ -825,10 +1036,6 @@ def _closed_on(*camera_slots: str):
 class TestFrameGates:
     """Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése."""
 
-    def test_the_template_declares_no_gates(self):
-        app = main.Application.__new__(main.Application)
-        assert app._build_frame_gates() == {}
-
     def test_a_closed_gate_stops_that_camera_for_that_pipeline_only(self):
         grain = _FrameSink("pipeline_1")
         person = _FrameSink("pipeline_2")
@@ -852,7 +1059,6 @@ class TestFrameGates:
     def test_new_inputs_replace_the_snapshot_instead_of_changing_it(self):
         """Lo leen los hilos de captura sin lock: modificarlo en el lugar los dejaría a medias."""
         app = _build_frame_application()
-        app._gpio_inputs = {}
         app._on_gpio_inputs_updated({1: 1})
         before = app._frame_signals
         app._on_gpio_inputs_updated({1: 0})
@@ -931,6 +1137,53 @@ class TestFrameGates:
         with caplog.at_level("WARNING"):
             app._check_frame_gates()
         assert "pipeline_7" in caplog.text
+
+
+def _ramp_signals(ramp_state: int) -> main.FrameSignals:
+    return main.FrameSignals(plc=MappingProxyType({"ramp_state": ramp_state}))
+
+
+class TestRampGate:
+    """La plataforma inclinada corta los pipelines de `process.ramp_gate`, y sólo a ésos."""
+
+    def _app_with_ramp_gate(self, pipeline_slots, engines=()):
+        app = _build_frame_application(engines=engines)
+        app._config = _MockConfig(**{"process.ramp_gate.pipelines": pipeline_slots})
+        app._frame_gates = app._build_frame_gates()
+        return app
+
+    def test_only_the_listed_pipelines_get_the_gate(self):
+        app = self._app_with_ramp_gate(["pipeline_1", "pipeline_3"])
+        assert set(app._frame_gates) == {"pipeline_1", "pipeline_3"}
+
+    def test_without_the_list_there_are_no_gates(self):
+        app = main.Application.__new__(main.Application)
+        app._config = _MockConfig()
+        assert app._build_frame_gates() == {}
+
+    def test_a_tilted_ramp_closes_the_gate(self):
+        assert not main._is_ramp_not_tilted("camera_1", _ramp_signals(2))
+
+    def test_a_level_ramp_keeps_it_open(self):
+        assert main._is_ramp_not_tilted("camera_1", _ramp_signals(1))
+
+    def test_without_information_it_stays_open(self):
+        """El 0 es lo que hay hasta que el PLC escribe: sin integrar, el equipo mide igual."""
+        assert main._is_ramp_not_tilted("camera_1", _ramp_signals(0))
+        assert main._is_ramp_not_tilted("camera_1", main.FrameSignals())
+
+    def test_a_tilted_ramp_stops_the_grain_but_not_the_persons(self):
+        grain = _FrameSink("pipeline_1")
+        person = _FrameSink("pipeline_2")
+        app = self._app_with_ramp_gate(["pipeline_1"], engines=[grain, person])
+        app._frame_signals = _ramp_signals(2)
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_3")
+        assert grain.pushed == []
+        assert [camera_slot for _, camera_slot, _ in person.pushed] == ["camera_3"]
+
+    def test_the_register_map_declares_the_variable_the_gate_reads(self):
+        """Renombrarla en el mapa dejaría la compuerta abierta para siempre, sin ningún error."""
+        assert main._RAMP_STATE_NAME in {reg.name for reg in registers.SCHEMA.plc_regs()}
 
 
 class TestGatedOverlay:
@@ -1016,19 +1269,90 @@ class TestDatasetGating:
 
     def test_the_telemetry_keeps_the_numbers_without_the_frames(self):
         """Guardado entero, cada resultado retenía dos frames de 9 MB hasta el tick."""
-        from system.inference.result import Detection
         app = self._application(collector_active=False)
         result = InferenceResult(camera_slot="camera_1", metrics={"load_pct": 60.0})
         result.source_bgr = np.zeros((8, 8, 3), np.uint8)
         result.annotated_bgr = np.zeros((8, 8, 3), np.uint8)
         result.detections = [Detection(class_index=0, class_name="ok",
-                                       confidence_pct=90.0, bbox_px=(0, 0, 4, 4))]
+                                       confidence_pct=90.0, bbox_px=(0, 0, 4, 4),
+                                       mask=np.ones((4, 4), np.uint8))]
         app._on_cycle_complete(result)
 
         (kept,) = app._pending_results[("camera_1", "")]
-        assert (kept.source_bgr, kept.annotated_bgr, kept.detections) == (None, None, [])
+        assert (kept.source_bgr, kept.annotated_bgr) == (None, None)
+        assert [d.mask for d in kept.detections] == [None]
         assert kept.metrics == result.metrics and kept.timestamp_s == result.timestamp_s
         assert result.source_bgr is not None, "el resultado original no se toca"
+        assert result.detections[0].mask is not None, "ni sus detecciones"
+
+    def test_the_detection_count_reaches_the_telemetry(self):
+        """Sin un analyzer que lo repita en `metrics`, sale del resultado guardado."""
+        app = self._application(collector_active=False)
+        result = InferenceResult(camera_slot="camera_1", detections=[
+            Detection(class_index=0, class_name="ok", confidence_pct=90.0,
+                      bbox_px=(0, 0, 4, 4)) for _ in range(3)])
+        app._on_cycle_complete(result)
+
+        fields = main._build_inference_fields(app._pending_results[("camera_1", "")])
+        assert fields["detection_count_mean"] == 3.0
+
+
+class _SpyCollector:
+    """El recolector en modo interval: anota cada `push_frame` con lo que recibió."""
+
+    mode = main._COLLECTOR_MODE_INTERVAL
+
+    def __init__(self):
+        self.pushed: list = []
+
+    def push_frame(self, camera_slot, frame_bgr, **kwargs):
+        self.pushed.append((camera_slot, frame_bgr, kwargs))
+
+
+class TestDatasetSubset:
+    """Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara."""
+
+    def _application(self, **config):
+        app = main.Application.__new__(main.Application)
+        app._config = _MockConfig(**config)
+        app._collector = _SpyCollector()
+        app._build_dataset_context = lambda camera_slot: {}
+        return app
+
+    def _result(self, region: bool = True) -> InferenceResult:
+        source_bgr = np.zeros((8, 8, 3), np.uint8)
+        return InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_1",
+                               source_bgr=source_bgr,
+                               region_bgr=source_bgr[:4, :4] if region else None)
+
+    def test_an_own_roi_saves_the_region_in_its_subset(self):
+        app = self._application(**{"inference.pipelines.pipeline_1": {
+            "roi": {"camera_3": {"enabled": True}}}})
+        result = self._result()
+        app._send_to_dataset(result)
+        ((camera_slot, frame_bgr, kwargs),) = app._collector.pushed
+        assert (camera_slot, kwargs["subset"]) == ("camera_3", "pipeline_1")
+        assert frame_bgr is result.region_bgr
+
+    def test_the_camera_roi_saves_the_frame_without_a_subset(self):
+        app = self._application()
+        result = self._result()
+        app._send_to_dataset(result)
+        ((_, frame_bgr, kwargs),) = app._collector.pushed
+        assert kwargs["subset"] == "" and frame_bgr is result.source_bgr
+
+    def test_a_result_without_its_region_is_not_saved(self):
+        """Llegó sin su vista: no hay imagen de lo que el modelo tendría que haber visto."""
+        app = self._application(**{"inference.pipelines.pipeline_1": {
+            "roi": {"camera_3": {"enabled": True}}}})
+        app._send_to_dataset(self._result(region=False))
+        assert app._collector.pushed == []
+
+    def test_the_pipeline_travels_for_the_filter(self):
+        app = self._application()
+        app._send_to_dataset(self._result())
+        ((_, _, kwargs),) = app._collector.pushed
+        assert kwargs["pipeline_slot"] == "pipeline_1"
 
 
 class _WritableMockConfig(_MockConfig):
@@ -1199,7 +1523,7 @@ def _build_gpio_application(monkeypatch, **overrides):
     })
     app = main.Application.__new__(main.Application)
     app._gpio = gpio_control.GpioController(config)
-    app._gpio_inputs = {}
+    app._frame_signals = main.FrameSignals()
     return app
 
 
@@ -1231,6 +1555,179 @@ class TestGpioRegisters:
     def test_an_analyzer_metric_cannot_overwrite_them(self, monkeypatch):
         names = set(_build_gpio_application(monkeypatch)._build_gpio_registers())
         assert names <= main._HEALTH_REGISTER_NAMES
+
+
+# Un mapa con lo que escribe el PLC: un disparo, una variable booleana, una con rango y una
+# con escala, más una fila de la app y un umbral publicado.
+_PLC_MAP = RegisterSchema([
+    Reg(81, "heartbeat", "Latido", PRODUCER_HEALTH),
+    Reg(10, "max_load_y_px", "Límite", PRODUCER_CONFIG, config_key="process.max_load_y_px"),
+    Reg(101, "pipeline_1_trigger_seq", "Disparo", PRODUCER_PLC),
+    Reg(105, "process_ok", "Proceso OK", PRODUCER_PLC, is_bool=True),
+    Reg(106, "product_code", "Producto", PRODUCER_PLC, min_value=0, max_value=999),
+    Reg(108, "belt_speed_mps", "Velocidad", PRODUCER_PLC, unit="m/s", scale=100,
+        min_value=0, max_value=10),
+])
+
+
+def _build_plc_application():
+    """`Application` sin `__init__`, con las variables del PLC y las señales en reposo."""
+    app = main.Application.__new__(main.Application)
+    app._plc_variables = PlcVariables(_PLC_MAP)
+    app._frame_signals = main.FrameSignals(plc=app._plc_variables.rest_values())
+    return app
+
+
+class TestPlcVariables:
+    """El cableado del drenado: lo que escribe el PLC llega a las señales de los frames."""
+
+    def test_a_write_reaches_the_frame_signals(self):
+        app = _build_plc_application()
+        app._plc_variables.on_write({105: 1, 108: 150})
+        app._on_plc_writes_tick()
+        assert app._frame_signals.plc["process_ok"] is True
+        assert app._frame_signals.plc["belt_speed_mps"] == pytest.approx(1.5)
+
+    def test_rewriting_the_same_value_keeps_the_same_signals(self):
+        app = _build_plc_application()
+        before = app._frame_signals
+        app._plc_variables.on_write({106: 0})
+        app._on_plc_writes_tick()
+        assert app._frame_signals is before
+
+    def test_the_signals_are_replaced_and_never_modified(self):
+        """Los hilos de captura las leen sin lock: la foto vieja tiene que seguir igual."""
+        app = _build_plc_application()
+        before = app._frame_signals
+        app._plc_variables.on_write({106: 42})
+        app._on_plc_writes_tick()
+        assert app._frame_signals is not before
+        assert before.plc["product_code"] == 0
+
+    def test_a_plc_write_keeps_the_gpio_inputs(self):
+        app = _build_plc_application()
+        app._on_gpio_inputs_updated({1: 1})
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert dict(app._frame_signals.gpio_inputs) == {1: 1}
+
+    def test_a_gpio_reading_keeps_the_plc_variables(self):
+        app = _build_plc_application()
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        app._on_gpio_inputs_updated({1: 1})
+        assert app._frame_signals.plc["process_ok"] is True
+
+
+class TestPlcServerWiring:
+    def test_the_plc_writes_only_its_rows(self, monkeypatch):
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        monkeypatch.setattr(main, "REGISTER_MAP_ERROR", "")
+        server = main._build_modbus_server(_MockConfig(), on_write=lambda writes: None)
+        simulator = server._simulator
+        assert simulator.validate(_FC_WRITE_SINGLE, 105 - 1, 1)
+        assert simulator.validate(_FC_WRITE_SINGLE, 101 - 1, 1), "un contador de disparo"
+        assert not simulator.validate(_FC_WRITE_SINGLE, 10 - 1, 1), "un umbral publicado"
+        assert not simulator.validate(_FC_WRITE_SINGLE, 81 - 1, 1)
+
+    def test_without_anyone_to_receive_them_nothing_is_writable(self, monkeypatch):
+        """Aceptar escrituras que nadie aplica sería peor que rechazarlas."""
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        server = main._build_modbus_server(_MockConfig())
+        assert not server._simulator.validate(_FC_WRITE_SINGLE, 105 - 1, 1)
+
+    def test_the_datastore_reaches_the_last_row_of_the_map(self, monkeypatch):
+        monkeypatch.setattr(main, "SCHEMA", _PLC_MAP)
+        assert main._build_modbus_server(_MockConfig()).register_count >= 108
+
+    def test_a_metric_cannot_take_a_plc_or_published_row(self):
+        """Las dos tienen otro dueño: el PLC, y el config que publica `mirror_batch()`."""
+        assert not {reg.name for reg in registers.REGISTERS
+                    if reg.producer in (PRODUCER_PLC, PRODUCER_CONFIG)} & main._REGISTER_NAMES
+
+
+def _watch_signals(app) -> list:
+    """Reemplaza el hook del fork por uno que anota (antes, ahora) en cada llamada."""
+    calls: list = []
+    app._on_signals_changed = lambda previous, current: calls.append((previous, current))
+    return calls
+
+
+class TestSignalsChanged:
+    """El aviso al fork: una vez por cambio, con la foto de antes y la de ahora."""
+
+    def test_a_plc_write_calls_it_with_both_snapshots(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        before = app._frame_signals
+        app._plc_variables.on_write({101: 7})
+        app._on_plc_writes_tick()
+        assert calls == [(before, app._frame_signals)]
+        assert calls[0][1].plc["pipeline_1_trigger_seq"] == 7
+
+    def test_several_writes_in_one_tick_are_one_call(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._plc_variables.on_write({101: 7})
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert len(calls) == 1
+
+    def test_rewriting_the_same_value_does_not_call_it(self):
+        """El PLC escribe sus variables en cada ciclo: eso no es un evento."""
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._plc_variables.on_write({106: 0})
+        app._on_plc_writes_tick()
+        assert calls == []
+
+    def test_a_new_gpio_reading_calls_it(self):
+        app = _build_plc_application()
+        calls = _watch_signals(app)
+        app._on_gpio_inputs_updated({1: 1})
+        assert len(calls) == 1
+        assert dict(calls[0][1].gpio_inputs) == {1: 1}
+
+    def test_the_same_gpio_reading_does_not_call_it(self):
+        """El polling trae la misma lectura en cada vuelta."""
+        app = _build_plc_application()
+        app._on_gpio_inputs_updated({1: 1})
+        calls = _watch_signals(app)
+        before = app._frame_signals
+        app._on_gpio_inputs_updated({1: 1})
+        assert calls == []
+        assert app._frame_signals is before
+
+    def test_the_new_signals_are_in_place_before_the_call(self):
+        """Lo que el fork pida desde ahí ya se mide con las señales nuevas."""
+        app = _build_plc_application()
+        seen = []
+        app._on_signals_changed = lambda previous, current: seen.append(
+            app._frame_signals is current)
+        app._plc_variables.on_write({105: 1})
+        app._on_plc_writes_tick()
+        assert seen == [True]
+
+    def test_a_failing_hook_warns_and_keeps_the_new_signals(self, caplog):
+        app = _build_plc_application()
+
+        def broken(previous, current):
+            raise RuntimeError("roto")
+
+        app._on_signals_changed = broken
+        app._plc_variables.on_write({105: 1})
+        with caplog.at_level("WARNING"):
+            app._on_plc_writes_tick()
+        assert "_on_signals_changed falló: roto" in caplog.text
+        assert app._frame_signals.plc["process_ok"] is True
+
+    def test_the_template_hook_takes_the_change_without_failing(self, caplog):
+        app = _build_plc_application()
+        app._plc_variables.on_write({101: 7})
+        with caplog.at_level("WARNING"):
+            app._on_plc_writes_tick()
+        assert "_on_signals_changed" not in caplog.text
+        assert app._frame_signals.plc["pipeline_1_trigger_seq"] == 7
 
 
 class _StopRecorder:

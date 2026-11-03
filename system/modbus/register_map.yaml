@@ -13,16 +13,19 @@
 #   addr      dirección base-1, única
 #   name      id corto y único; es el nombre con el que el código lo pide
 #   desc      texto humano; va a la UI y a la doc del integrador
-#   producer  inference | health | config — quién escribe el registro
+#   producer  inference | health | config | plc — quién escribe el registro
 #   scale     registro = round(valor * scale). El productor entrega el valor
 #             físico y el esquema escala; nadie multiplica por su cuenta.
 #   unit      unidad del valor SIN escalar, para la doc
 #   is_bool   codifica como 0/1
+#   min_value / max_value
+#             rango aceptado, en la unidad física; sólo en filas plc.
+#             Lo que el PLC escriba afuera se rechaza con la excepción 0x03.
 #
-# Las filas `config` son un espejo R/W que el PLC puede escribir; este mapa no
-# declara ninguna, porque en el template la configuración se edita sólo en el
-# equipo. Los campos config_key / default / apply / mirror_from_config sólo
-# aplican a esas filas.
+# Las filas `plc` son lo que escribe el PLC (bloque 101-150) y las `config`, la copia de
+# un valor de config.yaml que el equipo publica para el HMI (bloque de lectura); cada
+# bloque explica la suya abajo, con ejemplos comentados. config_key (obligatorio) y
+# default sólo aplican a las filas `config`.
 #
 # Este archivo es lo que cambia en cada fork. La maquinaria que lo lee, no.
 
@@ -46,6 +49,18 @@
 # fracciones por clase, el registro reporta siempre el mismo slot, y renombrar una
 # clase o mover un umbral no cambia qué registro la transporta. El PLC no se
 # reprograma porque en el equipo se haya editado un nombre.
+#
+# Acá van también los umbrales que el equipo publica para que el HMI los muestre: un
+# valor del config, copiado y escalado en cada tick. El PLC los lee y no los escribe —una
+# escritura da 0x02—; se cambian desde la interfaz o el archivo, y el registro lo sigue en
+# el tick siguiente.
+#
+# - addr: 10
+#   name: max_load_y_px_camera_1
+#   desc: Altura del límite de carga en la cámara 1
+#   producer: config
+#   config_key: process.max_load_y_px.camera_1
+#   unit: px
 
 # ── Cámaras (51-80) ──────────────────────────────────────────────────────────
 # Bloque de 4 registros por cámara, con paso fijo: `camera_N` arranca en
@@ -202,3 +217,40 @@
   desc: Días hasta el vencimiento de la licencia
   producer: health
   unit: días
+
+# ── Lo que escribe el PLC (101-150) ──────────────────────────────────────────
+# Sin filas en el template: el PLC no escribe nada hasta que el fork declare acá lo suyo.
+# Se escriben con FC06 o FC16, cada valor contra su rango; el resto del mapa da 0x02. Lo
+# escrito llega por nombre a `FrameSignals.plc` y a `InferenceResult.signals`, y el fork lo
+# lee como NIVEL —en una compuerta o en el analyzer— o como EVENTO —un contador, en
+# `_on_signals_changed()`—. El 0 es el reposo: al reiniciar el equipo todo vuelve a 0.
+# Ver docs/plc_commands.md.
+
+- addr: 101
+  name: ramp_state
+  desc: Plataforma — 0 sin información, 1 horizontal, 2 inclinada; con 2 el grano y la calza dejan de medir
+  producer: plc
+  min_value: 0
+  max_value: 2
+
+# Ejemplos de las otras formas de una variable:
+#
+# - addr: 101
+#   name: measure_seq
+#   desc: Contador de disparo — el PLC lo incrementa (1-65535) para pedir una medición
+#   producer: plc
+#
+# - addr: 105
+#   name: process_ok
+#   desc: El PLC avisa que el proceso está OK y se puede inferir (1) o no (0)
+#   producer: plc
+#   is_bool: true
+#
+# - addr: 106
+#   name: belt_speed_mps
+#   desc: Velocidad de la cinta que mide el PLC
+#   producer: plc
+#   unit: m/s
+#   scale: 100
+#   min_value: 0
+#   max_value: 10

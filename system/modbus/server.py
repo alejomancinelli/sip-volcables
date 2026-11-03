@@ -1,22 +1,28 @@
 """
 Servidor Modbus esclavo: TCP y RTU sobre un mismo datastore en RAM.
 
-Expone los holding registers del mapa como **sólo lectura**: el PLC lee (FC03) y
-la app escribe desde adentro con `update_register` / `update_block`. Cualquier
-otra función —FC01, FC02, FC04 y todas las de escritura— se rechaza con la
-excepción 0x02 en vez de contestar un valor que parezca una medición.
+Expone los holding registers del mapa. El PLC lee todo con FC03 y la app escribe desde
+adentro con `update_register` / `update_block`. **El PLC escribe —FC06 y FC16— sólo en las
+direcciones de `write_ranges`**, y sólo si hay un `on_write` que lo reciba; sin él, todo es
+de sólo lectura. Cualquier otra función se rechaza con 0x02 en vez de contestar un valor que
+parezca una medición.
 
-Los dos transportes comparten el mismo contexto, así que el PLC ve los mismos
-valores por el cable que sea, y son independientes: se pueden habilitar los dos,
-uno o ninguno desde `modbus` en el config.yaml. Cada uno reporta su propio
-`status` con el vocabulario `STATUS_*` de este módulo, que es lo que la palabra de
-comunicaciones espera leer.
+Una escritura se valida **entera antes de tocar un registro**: 0x02 si alguna dirección no
+es escribible, 0x03 si algún valor cae fuera de su rango. Después se escribe y se avisa a
+`on_write` bajo el mismo lock que `update_block()`: la app se entera por evento, y entre la
+escritura y el aviso no se mete nada.
 
-`run()` toma el hilo que lo llama y arma ahí su propio loop de asyncio; `stop()`
-lo desarma desde afuera. La forma de uso es un QThread cuyo `run()` llame a este.
+Los dos transportes comparten el contexto, así que el PLC ve los mismos valores por el
+cable que sea, y son independientes: se habilitan los dos, uno o ninguno desde `modbus` en
+el config.yaml. Cada uno reporta su `status` con el vocabulario `STATUS_*` de este módulo,
+que es lo que espera la palabra de comunicaciones.
 
-El mapa de registros no se conoce acá: este módulo sirve un rango de direcciones,
-y qué significa cada una es de `system/modbus/registers.py`.
+`run()` toma el hilo que lo llama y arma ahí su loop de asyncio; `stop()` lo desarma desde
+afuera. La forma de uso es un QThread cuyo `run()` llame a este.
+
+El mapa no se conoce acá: el cableado le pasa sólo hasta qué dirección llega (`max_addr`) y
+el rango crudo de cada dirección que escribe el PLC (`write_ranges`). Qué significa cada
+dirección es de `system/modbus/registers.py`.
 
     server = SharedModbusServer(ConfigManager())
     server.update_block(SCHEMA.encode_batch({"cpu_usage_pct": 37}))
@@ -29,13 +35,17 @@ import asyncio
 import logging
 import sys
 import threading
+import time
+from collections.abc import Callable, Mapping
 
+from pymodbus.constants import ExcCodes
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.datastore.simulator import ModbusSimulatorContext
 from pymodbus.server import StartAsyncSerialServer, StartAsyncTcpServer
 
 from system.config_manager import ConfigManager
 from system.logger import logger
+from system.modbus.schema import to_plc_address
 
 # pymodbus 3.x emite sus advertencias de obsolescencia por su propio logger, no por
 # los warnings de Python. Se suprimen acá, en la fuente; migrar a SimData/SimDevice
@@ -48,20 +58,31 @@ STATUS_ACTIVE = "active"        # sirviendo
 STATUS_ERROR = "error"          # quiso levantar y no pudo
 
 # Tamaño del mapa expuesto cuando el config no dice otra cosa: registros 1-100
-# (40001-40100). El datastore no expone nada más allá: una lectura que se pase del
-# final se rechaza en vez de contestar un 0 que parezca medición.
+# (40001-40100). Si el mapa llega más lejos, el datastore llega hasta su última fila y
+# no más allá: una lectura que se pase del final se rechaza en vez de contestar un 0 que
+# parezca medición.
 DEFAULT_REGISTER_COUNT = 100
 
 DEFAULT_SLAVE_ID = 1
 
-# Única función Modbus servida: FC03, lectura de holding registers.
+# Las funciones servidas: FC03 sobre todo el mapa; FC06 y FC16 sólo donde escribe el PLC.
 _FC_READ_HOLDING_REGISTERS = 3
+_FC_WRITE_SINGLE_REGISTER = 6
+_FC_WRITE_MULTIPLE_REGISTERS = 16
+_WRITE_FUNC_CODES = (_FC_WRITE_SINGLE_REGISTER, _FC_WRITE_MULTIPLE_REGISTERS)
+
+# Lo que el cableado le pasa al servidor para que el PLC escriba.
+WriteRanges = Mapping[int, tuple[int, int]]    # {addr base-1: (mínimo, máximo) crudos}
+OnWrite = Callable[[dict[int, int]], None]     # {addr base-1: crudo} de una petición
 
 _SLAVE_ID_MIN = 1
 _SLAVE_ID_MAX = 247
 
 # Margen entre el bind y el "está andando": si en ese tiempo no falló, levantó.
 _STARTUP_GRACE_S = 2.0
+
+# Cada cuánto se repite el aviso de una escritura rechazada con la misma dirección y motivo.
+_REJECTION_LOG_INTERVAL_S = 60.0
 
 
 def _build_simulator_config(register_count: int) -> dict:
@@ -91,23 +112,121 @@ def _build_simulator_config(register_count: int) -> dict:
     }
 
 
-class _ReadOnlyHoldingRegisters(ModbusSimulatorContext):
+class _RejectedWriteLog:
     """
-    Contexto que sólo sirve FC03 dentro del mapa.
+    El aviso de una escritura del PLC rechazada, uno por dirección y motivo cada
+    `interval_s`.
 
-    Rechaza toda escritura y las demás funciones de lectura con 0x02. También
-    arregla el rango: `validate()` de pymodbus chequea sólo la dirección de ARRANQUE
-    (y con `>` en vez de `>=`), así que una lectura que empieza adentro y se pasa del
-    final revienta con IndexError → 0x04 más un traceback por cada consulta.
+    El PLC ya se entera por la excepción; esto es para el equipo, que si no, no deja rastro
+    de que un programa manda un valor que no corresponde. Un PLC que lo reintenta en cada
+    ciclo llenaría el log, así que los repetidos se cuentan y salen en el aviso siguiente.
+
+    Lo llama sólo el hilo del servidor —los dos transportes comparten su loop—, así que no
+    lleva lock.
+    """
+
+    def __init__(self, interval_s: float, clock: Callable[[], float] = time.monotonic):
+        self._interval_s = interval_s
+        self._clock = clock
+        self._last_logged: dict[tuple[int, int], float] = {}
+        self._silenced: dict[tuple[int, int], int] = {}
+
+    def report(self, func_code: int, first_addr: int, count: int,
+               addr: int, raw: int, code: ExcCodes, reason: str):
+        """`addr` y `raw` son los del registro que hizo rechazar la petición entera."""
+        key = (addr, int(code))
+        now = self._clock()
+        last = self._last_logged.get(key)
+        if last is not None and now - last < self._interval_s:
+            self._silenced[key] = self._silenced.get(key, 0) + 1
+            return
+        self._last_logged[key] = now
+        silenced = self._silenced.pop(key, 0)
+
+        span = to_plc_address(first_addr)
+        if count > 1:
+            span += f"-{to_plc_address(first_addr + count - 1)}"
+        message = (f"[Modbus] Escritura del PLC rechazada: FC{func_code:02d} en {span}, "
+                   f"{to_plc_address(addr)} = {raw} {reason} (0x{int(code):02X}); "
+                   f"no se escribió ningún registro.")
+        if silenced:
+            message += f" Otras {silenced} iguales desde el aviso anterior."
+        logger.warning(message)
+
+
+class _HoldingRegisters(ModbusSimulatorContext):
+    """
+    Contexto que sirve FC03 dentro del mapa, y FC06 / FC16 sólo sobre `write_ranges`.
+
+    Rechaza las demás funciones con 0x02. También arregla el rango: `validate()` de
+    pymodbus chequea sólo la dirección de ARRANQUE (y con `>` en vez de `>=`), así que una
+    lectura que empieza adentro y se pasa del final revienta con IndexError → 0x04 más un
+    traceback por cada consulta.
 
     **La lectura del PLC toma el mismo lock que la escritura de la app.** pymodbus
     recorre los registros sin lock desde el hilo del servidor, así que una consulta que
     cae en medio de `update_block()` leería medio bloque nuevo y medio viejo.
+
+    **La escritura del PLC se valida entera antes de tocar nada.** La de la base valida
+    registro por registro mientras escribe, así que un FC16 que se mete en una fila no
+    escribible dejaría escrita la primera mitad.
+
+    `write_ranges` va en direcciones base-1, como el mapa. `on_write` corre en el hilo del
+    servidor con el lock tomado: tiene que volver enseguida —encolar, no procesar—.
     """
 
-    def __init__(self, config: dict, custom_actions, write_lock: threading.Lock):
-        super().__init__(config, custom_actions)
+    def __init__(self, config: dict, write_lock: threading.Lock,
+                 write_ranges: WriteRanges, on_write: OnWrite | None):
+        super().__init__(config, None)
         self._write_lock = write_lock
+        # Aceptar escrituras que nadie aplica sería peor que rechazarlas.
+        self._write_ranges = dict(write_ranges) if on_write is not None else {}
+        self._on_write = on_write
+        self._rejections = _RejectedWriteLog(_REJECTION_LOG_INTERVAL_S)
+
+    async def async_OLD_setValues(self, func_code, address, values):
+        """
+        FC06 / FC16 del PLC: valida la petición entera, escribe y avisa bajo el lock.
+
+        Es el método al que `ModbusServerContext.async_setValues` delega en pymodbus 3.x.
+        Devolver un `ExcCodes` es lo que pymodbus convierte en la respuesta de excepción.
+        """
+        writes = {address + 1 + offset: raw for offset, raw in enumerate(values)}
+        rejection = self._rejection(func_code, writes)
+        if rejection is not None:
+            addr, code, reason = rejection
+            self._rejections.report(func_code, address + 1, len(values), addr,
+                                    writes.get(addr, 0), code, reason)
+            return code
+
+        start = self.fc_offset[func_code] + address
+        with self._write_lock:
+            for offset, raw in enumerate(values):
+                self.registers[start + offset].value = raw
+            self._on_write(writes)
+        return None
+
+    def _rejection(self, func_code: int, writes: dict[int, int]
+                   ) -> tuple[int, ExcCodes, str] | None:
+        """
+        Por qué se rechaza la petición entera —(registro culpable, excepción, motivo)—, o
+        None si se acepta. Una dirección no escribible gana sobre un valor fuera de rango.
+        """
+        first_addr = min(writes, default=0)
+        if func_code not in _WRITE_FUNC_CODES:
+            return first_addr, ExcCodes.ILLEGAL_ADDRESS, f"la función FC{func_code:02d} no se sirve"
+        for addr in writes:
+            if not self._is_writable(addr):
+                return addr, ExcCodes.ILLEGAL_ADDRESS, "no es escribible"
+        for addr, raw in writes.items():
+            low, high = self._write_ranges[addr]
+            if not low <= raw <= high:
+                return addr, ExcCodes.ILLEGAL_VALUE, "fuera de rango"
+        return None
+
+    def _is_writable(self, addr: int) -> bool:
+        """La única regla de qué dirección base-1 escribe el PLC."""
+        return addr in self._write_ranges and addr <= self.register_count
 
     async def async_OLD_getValues(self, func_code, address, count=1):
         """
@@ -126,13 +245,18 @@ class _ReadOnlyHoldingRegisters(ModbusSimulatorContext):
             return [cell.value for cell in self.registers[start:start + count]]
 
     def validate(self, func_code, address, count=1):
-        if func_code != _FC_READ_HOLDING_REGISTERS:
+        if func_code not in (_FC_READ_HOLDING_REGISTERS, *_WRITE_FUNC_CODES):
             return False
         real_address = self.fc_offset[func_code] + address
         if real_address < 0 or count < 1:
             return False
         if real_address + count > self.register_count:
             return False
+        if func_code in _WRITE_FUNC_CODES:
+            # También la relectura del eco: después de un FC06, pymodbus arma la respuesta
+            # con `getValues(fc=6)`. Si esto aceptara sólo FC03, el registro quedaría
+            # escrito y el PLC recibiría 0x02 por una escritura que sí se aplicó.
+            return all(self._is_writable(address + 1 + offset) for offset in range(count))
         return super().validate(func_code, address, count)
 
 
@@ -152,9 +276,23 @@ class SharedModbusServer:
     no puede distinguir «no hay medición» de «falta el mapa», y sin conexión ni latido esa
     ambigüedad desaparece. Este módulo no sabe qué es un mapa de registros y no tiene por
     qué saberlo: recibe el motivo ya escrito.
+
+    Lo mismo con lo que sale del mapa:
+
+    - `max_addr` es la dirección más alta; el datastore llega por lo menos hasta ahí,
+      aunque `modbus.register_count` diga menos. Así una fila nueva no obliga a acordarse
+      de subir otra clave, y un mapa chico no expone registros que nadie escribe.
+    - `write_ranges` son las direcciones que escribe el PLC (base-1), cada una con su rango
+      crudo, como lo arma `RegisterSchema.write_ranges()`.
+    - `on_write` recibe `{addr: crudo}` por cada petición aceptada, en el hilo del
+      servidor y con el lock tomado: encola y vuelve. Sin él no se acepta ninguna
+      escritura. Las escrituras de la app (`update_block`) no lo llaman nunca, así que lo
+      que llega ahí es siempre del PLC.
     """
 
-    def __init__(self, config_manager: ConfigManager, blocked_reason: str = ""):
+    def __init__(self, config_manager: ConfigManager, blocked_reason: str = "", *,
+                 max_addr: int = 0, write_ranges: WriteRanges | None = None,
+                 on_write: OnWrite | None = None):
         self._config = config_manager
         self._blocked_reason = blocked_reason
         self._lock = threading.Lock()
@@ -162,9 +300,10 @@ class SharedModbusServer:
         self._rtu_status = STATUS_DISABLED
         self._loop: asyncio.AbstractEventLoop | None = None
 
-        self._register_count = self._read_register_count()
-        self._simulator = _ReadOnlyHoldingRegisters(
-            _build_simulator_config(self._register_count), None, self._lock
+        self._register_count = max(self._read_register_count(), max_addr)
+        self._simulator = _HoldingRegisters(
+            _build_simulator_config(self._register_count), self._lock,
+            write_ranges or {}, on_write,
         )
         self._hr_offset = self._simulator.fc_offset[_FC_READ_HOLDING_REGISTERS]
 
@@ -265,7 +404,7 @@ class SharedModbusServer:
         return value
 
     def _read_register_count(self) -> int:
-        """Lee `modbus.register_count`: cuántos registros expone el datastore."""
+        """Lee `modbus.register_count`: cuántos registros expone el datastore como mínimo."""
         raw = self._config.get("modbus.register_count", DEFAULT_REGISTER_COUNT)
         try:
             value = int(raw)

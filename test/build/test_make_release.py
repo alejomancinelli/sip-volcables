@@ -12,6 +12,9 @@ import re
 
 import pytest
 
+from calibration import registry
+from calibration.registry import CalibrationTool
+
 _SCRIPT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), os.pardir,
     "build", "make_release.py")
@@ -69,6 +72,108 @@ class TestModelsDirectory:
         """
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(_SCRIPT)))
         assert os.path.isdir(os.path.join(repo_root, make_release._MODELS_DIR))
+
+
+def _mesh_tool(**overrides) -> CalibrationTool:
+    fields = {"name": "mesh", "module": "calibration.mesh.mesh_calibrator",
+              "launcher": "Calibrar mallas", "description": "Ajusta los umbrales de malla.",
+              "folders": (("samples/sieve", "Los CSV del zarandeo.\n"),
+                          ("out", "Lo que deja cada corrida.\n"))}
+    fields.update(overrides)
+    return CalibrationTool(**fields)
+
+
+class TestCalibrationTools:
+    """
+    Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en
+    `installation/`. El fork no edita este script para tenerlos.
+    """
+
+    def test_the_template_ships_only_the_app_launchers(self, make_release, monkeypatch):
+        monkeypatch.setattr(registry, "TOOLS", ())
+        names = [row[0] for row in make_release._launchers("App", ".cmd")]
+        assert names == ["App.cmd", "App sin pantalla.cmd"]
+
+    def test_each_tool_gets_a_launcher_that_waits(self, make_release, monkeypatch):
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+        rows = make_release._launchers("App", ".cmd")
+        assert rows[-1] == ("Calibrar mallas.cmd", "Ajusta los umbrales de malla.",
+                            "--calibrate mesh", False)
+
+    def test_the_windows_launcher_keeps_the_console_open(self, make_release, monkeypatch,
+                                                         tmp_path):
+        """Abierto con doble clic, sin el `pause` el resultado se cierra con la consola."""
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+        program = tmp_path / "release" / "program"
+        program.mkdir(parents=True)
+        make_release._write_windows_scripts(str(tmp_path / "release"), str(program), "App")
+
+        launcher = (tmp_path / "release" / "Calibrar mallas.cmd").read_text(encoding="utf-8")
+        assert '"%~dp0program\\main.exe" --calibrate mesh %*' in launcher
+        assert "start " not in launcher
+        assert launcher.rstrip().endswith("pause")
+        app = (tmp_path / "release" / "App.cmd").read_text(encoding="utf-8")
+        assert "pause" not in app
+
+    def test_the_linux_launcher_calls_the_same_binary(self, make_release, monkeypatch,
+                                                      tmp_path):
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+        program = tmp_path / "release" / "program"
+        program.mkdir(parents=True)
+        make_release._write_linux_scripts(str(tmp_path / "release"), str(program),
+                                          "main.bin", "App", accelerated=True)
+
+        launcher = (tmp_path / "release" / "Calibrar mallas.sh").read_text(encoding="utf-8")
+        assert 'exec "$BASE/program/main.bin" --calibrate mesh "$@"' in launcher
+
+    def test_its_folders_are_created_empty_with_a_note(self, make_release, monkeypatch,
+                                                       tmp_path):
+        """
+        Lo que haya en el repo es una corrida del equipo de desarrollo y no viaja; el
+        ejemplo de formato sí.
+        """
+        source = tmp_path / "repo" / "calibration" / "mesh" / "samples" / "sieve"
+        source.mkdir(parents=True)
+        (source / "example.csv").write_text("timestamp;class;grams\n", encoding="utf-8")
+        (source / "zarandeo_de_ayer.csv").write_text("no viaja\n", encoding="utf-8")
+        monkeypatch.setattr(make_release, "_REPO_ROOT", str(tmp_path / "repo"))
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+
+        installation = tmp_path / "installation"
+        make_release._write_calibration_dirs(str(installation))
+
+        sieve = installation / "calibration" / "mesh" / "samples" / "sieve"
+        assert sorted(item.name for item in sieve.iterdir()) == ["LEEME.txt", "example.csv"]
+        assert (sieve / "LEEME.txt").read_text(encoding="utf-8") == "Los CSV del zarandeo.\n"
+        out = installation / "calibration" / "mesh" / "out"
+        assert [item.name for item in out.iterdir()] == ["LEEME.txt"]
+
+    def test_its_guide_travels_with_it(self, make_release, monkeypatch, tmp_path):
+        """Quien calibra está en la planta, y sin la guía tiene el lanzador y no cómo usarlo."""
+        tool_dir = tmp_path / "repo" / "calibration" / "mesh"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "README.md").write_text("# Umbrales de malla\n", encoding="utf-8")
+        monkeypatch.setattr(make_release, "_REPO_ROOT", str(tmp_path / "repo"))
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(folders=()),))
+
+        make_release._write_calibration_dirs(str(tmp_path / "installation"))
+
+        guide = tmp_path / "installation" / "calibration" / "mesh" / "README.md"
+        assert guide.read_text(encoding="utf-8") == "# Umbrales de malla\n"
+
+    def test_without_tools_there_is_no_calibration_folder(self, make_release, monkeypatch,
+                                                         tmp_path):
+        monkeypatch.setattr(registry, "TOOLS", ())
+        make_release._write_calibration_dirs(str(tmp_path))
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_broken_table_stops_the_release(self, make_release, monkeypatch):
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(name="Mallas"),))
+        with pytest.raises(SystemExit, match="snake_case"):
+            make_release._require_valid_tools()
+
+    def test_the_shipped_table_can_be_packaged(self, make_release):
+        make_release._require_valid_tools()
 
 
 class TestLinuxRelease:

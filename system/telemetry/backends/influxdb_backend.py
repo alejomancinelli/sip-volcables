@@ -15,6 +15,13 @@ telemetría hasta el timeout HTTP, y hacerlo en cada batch llenaba la cola de
 `persistence.py` de puntos descartados. Pasado `_PENDING_MAX_POINTS` se descartan los más
 viejos, y al cerrar se pierde lo pendiente: no hay buffer en disco.
 
+**El tope supone InfluxDB en el mismo equipo**, donde un corte es el servicio que se
+reinicia o que todavía no levantó al arrancar: segundos, o un par de minutos. Agrandarlo
+para cubrir un corte de red largo tiene un costo que no se ve en la memoria: al volver, lo
+pendiente sale **en una sola escritura**, y si esa escritura pasa el timeout HTTP el
+backlog entero se reintenta más grande. Antes de agrandarlo, la escritura se parte en
+tandas —InfluxDB recomienda unas 5000 líneas por pedido—.
+
 Un batch que el servidor **rechaza** —un 4xx como el conflicto de tipo de un campo— no se
 reintenta: fallaría siempre y arrastraría a todos los que vengan detrás.
 
@@ -55,7 +62,7 @@ _NS_PER_S = 1_000_000_000
 
 _TIMEOUT_MS = 5000             # timeout HTTP de cada escritura; el de la librería es 10 s
 _RETRY_INTERVAL_S = 30.0       # espera entre intentos mientras el servidor no contesta
-_PENDING_MAX_POINTS = 6000     # puntos guardados durante un corte: ~10 min a 10 puntos/s
+_PENDING_MAX_POINTS = 6000     # puntos guardados durante un corte: ~5 min a 19 puntos/s (2 cámaras), ~3 min a 35 (4)
 
 
 class InfluxDBBackend(AbstractTelemetryBackend):

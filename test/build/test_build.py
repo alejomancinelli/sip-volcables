@@ -94,8 +94,7 @@ class TestOptionalPackages:
     def test_a_missing_one_is_left_out(self, standalone, monkeypatch):
         """En Windows no existe, y pedirlo cortaría el build con «package not found»."""
         monkeypatch.setattr(standalone, "_is_installed", lambda package: False)
-        assert not [flag for flag in standalone._flags("build/out")
-                    if flag.startswith("--include-package=")]
+        assert "--include-package=gpiod" not in standalone._flags("build/out")
 
     def test_the_fork_block_stays_empty_either_way(self, build_script, monkeypatch):
         monkeypatch.setattr(build_script, "_is_installed", lambda package: True)
@@ -105,6 +104,27 @@ class TestOptionalPackages:
         """Acelerado, `gpiod` viaja en `site-packages` con el resto de lo de terceros."""
         monkeypatch.setattr(accelerated, "_is_installed", lambda package: True)
         assert "--include-package=gpiod" not in accelerated._flags("build/out")
+
+
+class TestCalibrators:
+    """
+    `calibration/` entra al binario aunque `main.py` no lo importe de forma estática: el
+    registro importa cada calibrador por nombre, y Nuitka no sigue un import armado con un
+    string. Sin esto el build sale bien y el lanzador falla recién en la planta.
+    """
+
+    def test_the_standalone_build_includes_them(self, standalone, monkeypatch):
+        monkeypatch.setattr(standalone, "_is_installed", lambda package: False)
+        assert "--include-package=calibration" in standalone._flags("build/out")
+
+    def test_the_accelerated_build_compiles_them(self, accelerated):
+        flags = accelerated._flags("build/out")
+        assert "--follow-import-to=calibration" in flags
+        assert "--include-package=calibration" in flags
+
+    def test_the_package_is_the_folder_the_repo_ships(self, build_script):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(_BUILD_SCRIPT)))
+        assert os.path.isdir(os.path.join(repo_root, build_script._CALIBRATION_PACKAGE))
 
 
 class TestExclusions:

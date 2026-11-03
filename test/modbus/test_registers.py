@@ -8,8 +8,9 @@ convenciones que el integrador y el código dan por ciertas. Un fork que edite
 
 import os
 
+import main
 from system.modbus.registers import MAP_PATH, REGISTERS, SCHEMA
-from system.modbus.schema import PRODUCERS, UINT16_MAX
+from system.modbus.schema import PRODUCERS, UINT16_MAX, write_range
 from system.modbus.server import DEFAULT_REGISTER_COUNT
 
 # Geometría del bloque de cámaras, tal como la documenta el mapa.
@@ -29,14 +30,29 @@ class TestMapLoads:
         assert SCHEMA.registers == REGISTERS
 
 
+class _MockConfig:
+    """ConfigManager mínimo: `get` con clave punteada, sin archivo ni Lock."""
+
+    def __init__(self, **values):
+        self._values = dict(values)
+
+    def get(self, key: str, default: object = None) -> object:
+        return self._values.get(key, default)
+
+
 class TestAddressSpace:
-    def test_every_address_fits_in_the_default_datastore(self):
+    def test_the_datastore_reaches_every_address_of_the_map(self):
         """
-        El mapa tiene que caber en `modbus.register_count`. Con una dirección más
-        alta, `update_register` la descarta con un warning y el PLC lee 0 para
-        siempre.
+        El servidor que arma `main.py` llega hasta la última fila del mapa, aunque
+        `modbus.register_count` diga menos —las filas del PLC empiezan en 101—. Una
+        dirección afuera la descartaría `update_register` con un warning, y el PLC leería
+        0 para siempre.
         """
-        assert SCHEMA.max_addr() <= DEFAULT_REGISTER_COUNT
+        server = main._build_modbus_server(
+            _MockConfig(**{"modbus.register_count": DEFAULT_REGISTER_COUNT}))
+        assert server.register_count >= SCHEMA.max_addr()
+        server.update_register(SCHEMA.max_addr(), 7)
+        assert server.get_register(SCHEMA.max_addr()) == 7
 
     def test_addresses_are_base_1(self):
         assert all(r.addr >= 1 for r in REGISTERS)
@@ -82,13 +98,10 @@ class TestConventions:
             if reg.is_bool:
                 assert reg.scale == 1, reg.name
 
-    def test_the_map_declares_no_config_block(self):
-        """
-        En el template la configuración se edita en el equipo, no desde el PLC. Un
-        fork que agregue filas `config` tiene que cablear también el ciclo de
-        `detect_plc_writes` / `apply_plc_writes`, así que este test es el recordatorio.
-        """
-        assert SCHEMA.config_regs() == []
+    def test_the_ramp_state_accepts_only_its_three_values(self):
+        """0 sin información, 1 horizontal, 2 inclinada: otro valor el servidor lo rechaza."""
+        ramp_state = next(reg for reg in SCHEMA.plc_regs() if reg.name == "ramp_state")
+        assert write_range(ramp_state) == (0, 2)
 
 
 class TestScaledRangesAreUsable:
@@ -154,9 +167,6 @@ class TestLookupsUsedByTheApp:
         high = SCHEMA.addr("clock_epoch_s_high")
         assert SCHEMA.addr("clock_epoch_s_low") == high + 1
         assert SCHEMA.addr("license_days_remaining") == high + 2
-
-    def test_readback_addrs_are_a_subset_of_the_map(self):
-        assert set(SCHEMA.readback_addrs()) <= {r.addr for r in REGISTERS}
 
 
 class TestAMissingMapDoesNotKillTheImport:

@@ -1,9 +1,10 @@
 """Tests de la maquinaria genérica del esquema de registros: carga del YAML,
-codificación con escala, espejo de configuración y detección de escrituras del PLC.
+codificación con escala, la copia del config que se publica al PLC, y qué filas
+puede escribir el PLC y con qué rango.
 
 Nada de acá abre el mapa que se despacha con el repo —eso es de test_registers.py—
-ni levanta un servidor Modbus: el servidor se reemplaza por un doble que sólo
-recuerda valores.
+ni levanta un servidor Modbus: el esquema no conoce al servidor, y el config se
+reemplaza por un doble que sólo recuerda valores.
 """
 
 from dataclasses import FrozenInstanceError
@@ -14,6 +15,7 @@ from system.modbus.schema import (
     PRODUCER_CONFIG,
     PRODUCER_HEALTH,
     PRODUCER_INFERENCE,
+    PRODUCER_PLC,
     PRODUCERS,
     UINT16_MAX,
     Reg,
@@ -21,21 +23,8 @@ from system.modbus.schema import (
     default_map_path,
     load_registers,
     to_uint16,
+    write_range,
 )
-
-
-class _FakeServer:
-    """Sólo lo que `detect_plc_writes` le pide a un servidor: leer un registro."""
-
-    def __init__(self, values: dict[int, int] | None = None):
-        self._values = dict(values or {})
-
-    def get_register(self, address: int) -> int:
-        return self._values.get(address, 0)
-
-    def set_register(self, address: int, value: int):
-        """Simula al PLC escribiendo el registro."""
-        self._values[address] = value
 
 
 class _FakeConfig:
@@ -92,7 +81,6 @@ class TestRegDefaults:
         assert reg.is_bool is False
         assert reg.unit == ""
         assert reg.config_key is None
-        assert reg.mirror_from_config is True
 
     def test_is_frozen(self):
         """El mapa se arma al importar y se comparte entre hilos sin lock."""
@@ -101,7 +89,7 @@ class TestRegDefaults:
             reg.addr = 2
 
     def test_producers_vocabulary(self):
-        assert PRODUCERS == (PRODUCER_INFERENCE, PRODUCER_HEALTH, PRODUCER_CONFIG)
+        assert PRODUCERS == (PRODUCER_INFERENCE, PRODUCER_HEALTH, PRODUCER_CONFIG, PRODUCER_PLC)
 
 
 class TestLoadRegisters:
@@ -201,6 +189,283 @@ class TestLoadRegisters:
         assert default_map_path().endswith("register_map.yaml")
 
 
+class TestLoadPlcRows:
+    """Lo que el mapa deja escribir al PLC, y lo que hace que no cargue."""
+
+    def test_a_plc_row_with_a_range_loads(self, tmp_path):
+        registers = load_registers(_write_map(tmp_path, """
+- addr: 106
+  name: product_code
+  desc: Código del producto
+  producer: plc
+  min_value: 0
+  max_value: 999
+"""))
+        assert registers[0].producer == PRODUCER_PLC
+        assert (registers[0].min_value, registers[0].max_value) == (0, 999)
+
+    def test_a_plc_row_without_a_range_loads(self, tmp_path):
+        """Un contador de disparo usa el registro entero."""
+        registers = load_registers(_write_map(tmp_path, """
+- addr: 101
+  name: pipeline_1_trigger_seq
+  desc: Disparo
+  producer: plc
+"""))
+        assert registers[0].min_value is None and registers[0].max_value is None
+
+    @pytest.mark.parametrize("config_key", [
+        "process.max_load_y_px.camera_1",
+        "inference.pipelines.pipeline_1.min_result_confidence_pct",
+        "cameras.camera_1.exposure_us",
+    ])
+    def test_a_config_row_publishes_any_key(self, tmp_path, config_key):
+        """El PLC sólo la lee: publicar un valor del config no cambia nada en el equipo."""
+        registers = load_registers(_write_map(tmp_path, f"""
+- addr: 115
+  name: threshold
+  desc: Umbral
+  producer: config
+  config_key: {config_key}
+"""))
+        assert registers[0].config_key == config_key
+
+    def test_a_config_row_without_a_config_key_is_rejected(self, tmp_path):
+        """No habría qué publicar, y nadie más escribe esa fila: el PLC leería 0."""
+        with pytest.raises(ValueError, match="necesita config_key"):
+            load_registers(_write_map(tmp_path, """
+- addr: 10
+  name: threshold
+  desc: Umbral
+  producer: config
+"""))
+
+    def test_apply_is_no_longer_a_field(self, tmp_path):
+        """Era el hook para que el PLC escribiera el config, y el PLC no lo escribe."""
+        with pytest.raises(ValueError, match="desconocida"):
+            load_registers(_write_map(tmp_path, """
+- addr: 117
+  name: min_load_pct
+  desc: Carga mínima
+  producer: config
+  config_key: process.min_load_pct
+  apply: on_min_load_changed
+"""))
+
+    @pytest.mark.parametrize("field", ["config_key: process.min_load_pct",
+                                       "default: 1"])
+    def test_a_plc_row_cannot_point_at_the_config(self, tmp_path, field):
+        with pytest.raises(ValueError, match="no va al config"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 105
+  name: event_active
+  desc: Evento
+  producer: plc
+  {field}
+"""))
+
+    @pytest.mark.parametrize("producer", ["health", "inference", "config"])
+    def test_a_range_on_a_row_the_plc_does_not_write_is_rejected(self, tmp_path, producer):
+        """Ahí no lo controla nadie, y la tabla del integrador diría que sí."""
+        with pytest.raises(ValueError, match="sólo van en filas que escribe el PLC"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 1
+  name: cpu_usage_pct
+  desc: CPU
+  producer: {producer}
+  max_value: 100
+"""))
+
+    def test_a_range_on_a_boolean_row_is_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="is_bool"):
+            load_registers(_write_map(tmp_path, """
+- addr: 105
+  name: event_active
+  desc: Evento
+  producer: plc
+  is_bool: true
+  max_value: 1
+"""))
+
+    def test_min_above_max_is_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="mayor que max_value"):
+            load_registers(_write_map(tmp_path, """
+- addr: 106
+  name: product_code
+  desc: Producto
+  producer: plc
+  min_value: 10
+  max_value: 5
+"""))
+
+    @pytest.mark.parametrize("bound", ["max_value: 6553.6", "min_value: -1"])
+    def test_a_range_that_does_not_fit_the_register_is_rejected(self, tmp_path, bound):
+        """`to_uint16` saturaría, y el rango aceptado no sería el declarado."""
+        with pytest.raises(ValueError, match="no entra en un registro"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 108
+  name: belt_speed_mps
+  desc: Velocidad de la cinta
+  producer: plc
+  unit: m/s
+  scale: 10
+  {bound}
+"""))
+
+    @pytest.mark.parametrize("bound", ["max_value: cien", "max_value: true"])
+    def test_a_non_numeric_bound_is_rejected(self, tmp_path, bound):
+        with pytest.raises(ValueError, match="tiene que ser un número"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 106
+  name: product_code
+  desc: Producto
+  producer: plc
+  {bound}
+"""))
+
+    def test_the_error_names_the_file_the_entry_and_the_row(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: heartbeat
+  desc: Heartbeat
+  producer: health
+- addr: 105
+  name: camera_switch
+  desc: Cámara
+  producer: plc
+  config_key: cameras.camera_1.enabled
+""")
+        with pytest.raises(ValueError) as excinfo:
+            load_registers(path)
+        message = str(excinfo.value)
+        assert path in message
+        assert "entrada 2" in message
+        assert "camera_switch" in message
+
+
+class TestWritable:
+    def setup_method(self):
+        self.schema = RegisterSchema([
+            Reg(1, "heartbeat", "Latido", PRODUCER_HEALTH),
+            Reg(3, "object_count", "Objetos", PRODUCER_INFERENCE),
+            Reg(101, "pipeline_1_trigger_seq", "Disparo", PRODUCER_PLC),
+            Reg(105, "event_active", "Evento", PRODUCER_PLC, is_bool=True),
+            Reg(106, "product_code", "Producto", PRODUCER_PLC, min_value=0, max_value=999),
+            Reg(115, "max_load_y_px", "Límite", PRODUCER_PLC, unit="px",
+                min_value=10, max_value=4000),
+            Reg(117, "belt_speed_mps", "Velocidad", PRODUCER_PLC, unit="m/s", scale=10,
+                min_value=0, max_value=100),
+            Reg(120, "min_load_pct", "Carga", PRODUCER_CONFIG, unit="%",
+                config_key="process.min_load_pct"),
+        ])
+
+    def test_only_the_plc_rows_are_writable(self):
+        assert set(self.schema.write_ranges()) == {101, 105, 106, 115, 117}
+        assert [r.addr for r in self.schema.plc_regs()] == [101, 105, 106, 115, 117]
+
+    def test_a_config_row_is_read_only(self):
+        """El umbral se publica para que el PLC lo muestre; cambiarlo es de la interfaz."""
+        assert 120 not in self.schema.write_ranges()
+
+    def test_a_row_the_app_writes_is_not_writable(self):
+        assert not {1, 3} & set(self.schema.write_ranges())
+
+    def test_an_undeclared_address_is_not_writable(self):
+        """El hueco entre dos filas escribibles no es escribible."""
+        assert 102 not in self.schema.write_ranges()
+
+    def test_without_a_range_the_whole_register_is_valid(self):
+        assert self.schema.write_ranges()[101] == (0, UINT16_MAX)
+
+    def test_a_boolean_row_accepts_only_zero_and_one(self):
+        assert self.schema.write_ranges()[105] == (0, 1)
+
+    def test_both_bounds_are_the_declared_ones(self):
+        assert self.schema.write_ranges()[115] == (10, 4000)
+
+    def test_the_raw_range_is_scaled(self):
+        """100 % con escala x10 es 1000 en el registro."""
+        assert self.schema.write_ranges()[117] == (0, 1000)
+
+    def test_the_physical_range_stays_in_the_unit(self):
+        """Es el que lee el integrador en la tabla, antes de multiplicar por la escala."""
+        assert write_range(self.schema.registers[6]) == (0, 100)
+
+    def test_without_a_max_the_physical_range_is_the_whole_register_unscaled(self):
+        reg = Reg(118, "speed", "Velocidad", PRODUCER_PLC, scale=100)
+        assert write_range(reg) == (0, UINT16_MAX / 100)
+        assert RegisterSchema([reg]).write_ranges()[118] == (0, UINT16_MAX)
+
+    def test_the_caller_cannot_change_the_ranges(self):
+        """El servidor guarda lo que recibe; el esquema es inmutable y compartido."""
+        self.schema.write_ranges()[101] = (0, 1)
+        assert self.schema.write_ranges()[101] == (0, UINT16_MAX)
+
+    def test_an_empty_map_has_nothing_writable(self):
+        schema = RegisterSchema([])
+        assert schema.write_ranges() == {}
+        assert schema.plc_regs() == []
+
+
+class TestDecode:
+    def setup_method(self):
+        self.schema = RegisterSchema([
+            Reg(1, "cpu_usage_pct", "CPU", PRODUCER_HEALTH, unit="%"),
+            Reg(2, "cpu_temp_c", "Temp", PRODUCER_HEALTH, unit="°C", scale=10),
+            Reg(105, "event_active", "Evento", PRODUCER_PLC, is_bool=True),
+            Reg(106, "product_code", "Producto", PRODUCER_PLC),
+        ])
+
+    def test_unscaled_value(self):
+        assert self.schema.decode("cpu_usage_pct", 37) == 37
+
+    def test_scaled_value(self):
+        assert self.schema.decode("cpu_temp_c", 415) == pytest.approx(41.5)
+
+    def test_boolean(self):
+        assert self.schema.decode("event_active", 1) is True
+        assert self.schema.decode("event_active", 0) is False
+
+    def test_a_plc_row_decodes(self):
+        """Leer lo que mandó el PLC es justamente lo que la app hace con esas filas."""
+        assert self.schema.decode("product_code", 42) == 42
+
+    def test_is_the_inverse_of_encode(self):
+        assert self.schema.decode("cpu_temp_c", self.schema.encode("cpu_temp_c", 41.5)) \
+            == pytest.approx(41.5)
+
+    def test_unknown_name_raises(self):
+        with pytest.raises(KeyError):
+            self.schema.decode("no_existe", 0)
+
+
+class TestEncodeRefusesPlcRows:
+    """Una fila `plc` tiene un solo dueño: si la app la escribiera, pisaría al PLC."""
+
+    def setup_method(self):
+        self.schema = RegisterSchema([
+            Reg(1, "heartbeat", "Latido", PRODUCER_HEALTH),
+            Reg(105, "event_active", "Evento", PRODUCER_PLC, is_bool=True),
+            Reg(115, "max_load_y_px", "Límite", PRODUCER_CONFIG,
+                config_key="process.max_load_y_px", default=430),
+        ])
+
+    def test_encode_raises(self):
+        with pytest.raises(ValueError, match="sólo el PLC"):
+            self.schema.encode("event_active", 1)
+
+    def test_encode_batch_raises_even_with_other_rows(self):
+        with pytest.raises(ValueError, match="sólo el PLC"):
+            self.schema.encode_batch({"heartbeat": 1, "event_active": 1})
+
+    def test_config_rows_still_encode(self):
+        """Los umbrales los publica la app: es la única que escribe esas filas."""
+        assert self.schema.encode("max_load_y_px", 620) == 620
+
+    def test_the_mirror_never_includes_a_plc_row(self):
+        assert self.schema.mirror_batch(_FakeConfig()) == {115: 430}
+
+
 class TestRegisterSchemaValidation:
     def test_duplicate_address_is_rejected(self):
         with pytest.raises(ValueError, match="Dirección Modbus duplicada"):
@@ -247,9 +512,6 @@ class TestIndexes:
     def test_descriptions(self):
         assert self.schema.descriptions() == {1: "Estado", 5: "Cobertura",
                                               9: "Confianza", 20: "Intervalo"}
-
-    def test_readback_addrs_are_only_the_inference_rows(self):
-        assert self.schema.readback_addrs() == [5, 9]
 
     def test_config_regs_are_only_the_config_rows(self):
         assert [r.addr for r in self.schema.config_regs()] == [20]
@@ -308,9 +570,6 @@ class TestMirrorBatch:
                 config_key="collector.enabled", default=False),
             Reg(12, "threshold_pct", "Umbral", PRODUCER_CONFIG, scale=10,
                 config_key="inference.threshold_pct", default=0),
-            Reg(13, "external", "Externo", PRODUCER_CONFIG,
-                config_key="algo.externo", mirror_from_config=False),
-            Reg(14, "no_backing", "Sin config", PRODUCER_CONFIG),
         ])
 
     def test_mirrors_only_the_config_rows(self):
@@ -329,105 +588,3 @@ class TestMirrorBatch:
     def test_encodes_booleans(self):
         config = _FakeConfig(**{"collector.enabled": True})
         assert self.schema.mirror_batch(config)[11] == 1
-
-    def test_skips_externally_sourced_rows(self):
-        """Su sitio productor las rellena; el espejo las pisaría."""
-        assert 13 not in self.schema.mirror_batch(_FakeConfig())
-
-    def test_skips_rows_without_a_config_key(self):
-        assert 14 not in self.schema.mirror_batch(_FakeConfig())
-
-
-class TestDetectPlcWrites:
-    def setup_method(self):
-        self.schema = RegisterSchema([
-            Reg(1, "cpu_usage_pct", "CPU", PRODUCER_HEALTH),
-            Reg(10, "interval_s", "Intervalo", PRODUCER_CONFIG,
-                config_key="collector.interval_s", default=60),
-        ])
-
-    def test_first_cycle_detects_nothing(self):
-        """`last_pushed` vacío es el prime natural: el datastore arranca en 0."""
-        server = _FakeServer({10: 90})
-        assert self.schema.detect_plc_writes(server, {}) == {}
-
-    def test_a_plc_write_is_detected(self):
-        server = _FakeServer({10: 60})
-        server.set_register(10, 120)
-        assert self.schema.detect_plc_writes(server, {10: 60}) == {10: 120}
-
-    def test_an_untouched_register_is_not_a_write(self):
-        server = _FakeServer({10: 60})
-        assert self.schema.detect_plc_writes(server, {10: 60}) == {}
-
-    def test_a_local_config_change_is_not_a_plc_write(self):
-        """
-        El caso que motiva comparar contra `last_pushed` y no contra el espejo: la
-        app cambió config, el servidor sigue con lo último que ella escribió. Contra
-        el espejo nuevo esto daría una escritura del PLC falsa, y el valor viejo del
-        registro terminaría pisando el valor nuevo de config.
-        """
-        server = _FakeServer({10: 60})           # el PLC no tocó nada
-        mirror = self.schema.mirror_batch(_FakeConfig(**{"collector.interval_s": 120}))
-        assert mirror[10] == 120                 # el espejo ya difiere
-        assert self.schema.detect_plc_writes(server, {10: 60}) == {}
-
-    def test_health_rows_are_never_checked(self):
-        """Sólo el bloque de config es escribible; el resto no se compara."""
-        server = _FakeServer({1: 99})
-        assert self.schema.detect_plc_writes(server, {1: 37}) == {}
-
-
-class TestApplyPlcWrites:
-    def setup_method(self):
-        self.schema = RegisterSchema([
-            Reg(10, "interval_s", "Intervalo", PRODUCER_CONFIG,
-                config_key="collector.interval_s", default=60),
-            Reg(11, "enabled", "Habilitado", PRODUCER_CONFIG, is_bool=True,
-                config_key="collector.enabled", default=False),
-            Reg(12, "threshold_pct", "Umbral", PRODUCER_CONFIG, scale=10,
-                config_key="inference.threshold_pct", default=0),
-            Reg(13, "active", "Activo", PRODUCER_CONFIG, is_bool=True,
-                apply="set_active"),
-        ])
-
-    def test_writes_land_in_config(self):
-        config = _FakeConfig()
-        batch = {}
-        assert self.schema.apply_plc_writes(config, {10: 120}, {}, batch) is True
-        assert config.get("collector.interval_s") == 120
-
-    def test_decodes_the_scale(self):
-        config = _FakeConfig()
-        self.schema.apply_plc_writes(config, {12: 75}, {}, {})
-        assert config.get("inference.threshold_pct") == 7.5
-
-    def test_decodes_booleans(self):
-        config = _FakeConfig()
-        self.schema.apply_plc_writes(config, {11: 1}, {}, {})
-        assert config.get("collector.enabled") is True
-
-    def test_the_raw_value_is_echoed_into_the_batch(self):
-        """
-        Sin el eco, el `update_block` posterior reescribiría el valor viejo y el
-        ciclo siguiente lo volvería a leer como una escritura nueva del PLC.
-        """
-        batch = {10: 60}
-        self.schema.apply_plc_writes(_FakeConfig(), {10: 120}, {}, batch)
-        assert batch[10] == 120
-
-    def test_a_row_with_a_hook_calls_it_with_the_decoded_value(self):
-        seen = []
-        hooks = {"set_active": seen.append}
-        needs_save = self.schema.apply_plc_writes(_FakeConfig(), {13: 1}, hooks, {})
-        assert seen == [True]
-        assert needs_save is False, "la fila con hook persiste por su cuenta"
-
-    def test_a_missing_hook_is_not_a_crash(self):
-        """Un hook sin cablear no puede tirar abajo el ciclo del PLC."""
-        batch = {}
-        assert self.schema.apply_plc_writes(_FakeConfig(), {13: 1}, {}, batch) is False
-        assert batch[13] == 1
-
-    def test_nothing_to_apply_needs_no_save(self):
-        assert self.schema.apply_plc_writes(_FakeConfig(), {}, {}, {}) is False

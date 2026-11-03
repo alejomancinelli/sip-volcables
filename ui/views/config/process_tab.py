@@ -1,96 +1,163 @@
 """
-Pestaña de proceso: la sección `process:` del config — **vacía en el template**.
+Pestaña de proceso: la sección `process:` del config, con lo que se calibra en esta planta.
 
-Es la única pestaña que llega sin campos, y es a propósito: `process:` es la única
-sección cuya *forma* cambia entre proyectos. Escalas de píxel, límites de carga, anchos
-de cinta, umbrales de aceptación —lo que el cliente mide— no tienen nada en común entre
-una instalación y la siguiente, así que el template no puede declararlos.
+**Específico del proyecto.** Es la única pestaña cuya forma cambia entre forks, porque
+`process:` es la única sección cuya forma cambia. Acá van las calzas: un grupo por cada
+cámara que mira un pipeline `stopper_check`, con la altura de calza levantada —que se
+tipea o se marca sobre el frame en vivo—, los píxeles mínimos sobre ella, la distancia máxima
+entre la rueda y la calza y de qué lado va la rueda. Qué hace cada valor está en la sección `process.stopper_check` del config.
 
-La pestaña existe igual porque **el punto de extensión tiene que verse**: un fork que
-necesita que el operador ajuste un umbral encuentra el archivo, agrega sus campos y ya
-está en la pantalla, sin tocar el ConfigView ni descubrir de casualidad que se podía.
+**Los grupos salen de los pipelines, no de una lista propia.** Qué cámaras miran calzas lo
+dice `inference.pipelines`, y la regla para leerlo —habilitados, de ese `type`, `cameras: []`
+= todas— es la misma con la que `hooks.py` arma el annotator: `read_pipelines()`. Una cámara
+nueva en el pipeline aparece acá sola al reiniciar.
 
-Cómo se llena. Dos patrones cubren casi todo:
+La altura marcada sobre la imagen la escribe y la persiste su diálogo, como el ROI, y al
+cerrarse el ConfigView pide `reload_level()` para que el campo la muestre. Una altura o una
+distancia «sin calibrar» se guarda como null, que es lo que el annotator lee como ese
+veredicto sin dar.
 
-    def _build_box(self) -> QWidget:
-        box, form = build_group_box(tr("mi_grupo"))
-
-        # 1. Escalar: un valor para todo el proceso.
-        self._min_load = add_form_row(form, tr("mi_min_load"), build_spin_box(0, 100, 60))
-
-        # 2. Mapa por cámara: una fila por slot de `cameras:`, como hace CamerasTab.
-        self._scales = {}
-        for camera_slot in (self._config.get("cameras", {}) or {}):
-            name = self._config.get(f"cameras.{camera_slot}.name", "") or camera_slot
-            self._scales[camera_slot] = add_form_row(
-                form, f"{tr('mi_escala')} — {name}",
-                build_double_spin_box(0.01, 100.0, 1.0, decimals=2),
-            )
-        return box
-
-    def load(self):
-        prefix = "process.belt_1"
-        self._min_load.setValue(int(self._config.get(f"{prefix}.min_load_pct", 60)))
-        scales = self._config.get(f"{prefix}.scale_px_per_mm", {}) or {}
-        for camera_slot, field in self._scales.items():
-            field.setValue(float(scales.get(camera_slot, 1.0)))
-
-    def save(self):
-        prefix = "process.belt_1"
-        self._config.set(f"{prefix}.min_load_pct", self._min_load.value())
-        for camera_slot, field in self._scales.items():
-            self._config.set(f"{prefix}.scale_px_per_mm.{camera_slot}", field.value())
-
-Dos cosas que **no** van acá:
-
-  - **La validación de lo obligatorio.** Un valor cuya ausencia corrompe una medición
-    —una escala de píxel— tiene que frenar el arranque, y eso lo chequea `main.py`, que
-    es quien lee la sección y la inyecta. Un valor cuya ausencia es un no-op documentado
-    —un mínimo en 0— sí puede tener default.
-  - **Qué cámaras usa cada proceso.** Va en el config, como `process.<nombre>.cameras`,
-    con la misma forma que `inference.pipelines.<slot>.cameras`. No se deduce de las
-    claves de los mapas por cámara: un parámetro uniforme no tiene mapa, y un error de
-    tipeo en una clave movería una cámara de proceso en silencio.
-
-Un proyecto con varios procesos idénticos abre una sub-sección por proceso y esta
-pestaña arma un grupo por cada uno, con el mismo bucle de arriba sobre
-`self._config.get("process", {})`.
+Dos cosas que **no** van acá: la validación de lo que tiene que frenar el arranque —es de
+quien lee la sección, `hooks.py`— y qué cámaras usa cada proceso, que es config.
 """
 
-from PySide6.QtWidgets import QLabel, QVBoxLayout
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from system.config_manager import ConfigManager
+from system.inference.annotations import (
+    DEFAULT_MIN_RAISED_PX, WHEEL_SIDE_ANY, WHEEL_SIDE_LEFT, WHEEL_SIDE_RIGHT,
+)
+from system.inference.hooks import STOPPER_PIPELINE_TYPE, read_pipelines
 
 from ui.strings import tr
 from ui.views.config.abstract_tab import AbstractConfigTab
+from ui.widgets.form import (
+    add_form_row, add_hint_row, build_group_box, build_spin_box, build_value_combo_box,
+    set_combo_data,
+)
+
+_STOPPER_SECTION = "process.stopper_check"
+# Clave de idioma -> valor de `wheel_side` en el config; el valor viaja en el item del combo.
+_WHEEL_SIDES = (
+    ("wheel_side_any", WHEEL_SIDE_ANY),
+    ("wheel_side_left", WHEEL_SIDE_LEFT),
+    ("wheel_side_right", WHEEL_SIDE_RIGHT),
+)
+_MAX_FRAME_SIDE_PX = 8192
+_MAX_RAISED_PX = 10_000_000
+_UNCALIBRATED = -1           # valor del spin que se muestra «sin calibrar» y se guarda null
 
 
 class ProcessTab(AbstractConfigTab):
-    """Sección `process:` del config. Sin campos hasta que el fork los agregue."""
+    """Sección `process:` del config: un grupo de calza por cámara de `stopper_check`."""
 
     TITLE_KEY = "tab_process"
 
+    # (slot de cámara, clave del config donde va la altura, clave de idioma del título).
+    open_level_requested = Signal(str, str, str)
+
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
-
-        note = QLabel(tr("process_empty_note"))
-        note.setObjectName("hintLabel")
-        note.setWordWrap(True)
+        self._stoppers: dict[str, _StopperFields] = {}
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
-        layout.addWidget(note)
+        _, stopper_cameras = read_pipelines(self._config, STOPPER_PIPELINE_TYPE)
+        for camera_slot in stopper_cameras:
+            fields = _StopperFields(self._config, camera_slot)
+            fields.open_level_requested.connect(self.open_level_requested)
+            self._stoppers[camera_slot] = fields
+            layout.addWidget(fields)
+        if not self._stoppers:
+            note = QLabel(tr("process_empty_note"))
+            note.setObjectName("hintLabel")
+            note.setWordWrap(True)
+            layout.addWidget(note)
         layout.addStretch()
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
     def load(self):
-        """Sin campos que cargar. El fork la escribe junto con los suyos."""
+        for fields in self._stoppers.values():
+            fields.load()
 
     def save(self):
-        """
-        Sin campos que guardar.
+        for fields in self._stoppers.values():
+            fields.save()
 
-        Vacío y no `NotImplementedError`: el ConfigView recorre todas las pestañas al
-        guardar, y una que levante excepción abortaría el guardado de las demás.
-        """
+    def reload_level(self, camera_slot: str):
+        """Recarga la altura de una cámara cuando su diálogo terminó de escribirla."""
+        fields = self._stoppers.get(camera_slot)
+        if fields is not None:
+            fields.load_level()
+
+
+class _StopperFields(QWidget):
+    """El grupo de calza de una cámara: la altura, los píxeles sobre ella y la rueda."""
+
+    open_level_requested = Signal(str, str, str)
+
+    def __init__(self, config_manager: ConfigManager, camera_slot: str, parent=None):
+        super().__init__(parent)
+        self._config = config_manager
+        self._camera_slot = camera_slot
+        camera_name = str(self._config.get(f"cameras.{camera_slot}.name", "") or camera_slot)
+
+        box, form = build_group_box(f"{tr('process_stopper_box')} — {camera_name}")
+        self._raised_y_spin = add_form_row(
+            form, tr("process_stopper_level"),
+            build_spin_box(_UNCALIBRATED, _MAX_FRAME_SIDE_PX, _UNCALIBRATED))
+        self._raised_y_spin.setSpecialValueText(tr("process_uncalibrated"))
+        level_button = QPushButton(tr("process_draw_level"))
+        level_button.clicked.connect(
+            lambda: self.open_level_requested.emit(
+                self._camera_slot, f"{_STOPPER_SECTION}.raised_y_px.{self._camera_slot}",
+                "process_stopper_level"))
+        form.addRow("", level_button)
+        self._min_raised_spin = add_form_row(
+            form, tr("process_stopper_min_raised"),
+            build_spin_box(1, _MAX_RAISED_PX, DEFAULT_MIN_RAISED_PX))
+        self._max_gap_spin = add_form_row(
+            form, tr("process_stopper_max_gap"),
+            build_spin_box(_UNCALIBRATED, _MAX_FRAME_SIDE_PX, _UNCALIBRATED))
+        self._max_gap_spin.setSpecialValueText(tr("process_uncalibrated"))
+        self._wheel_side_combo = add_form_row(
+            form, tr("process_wheel_side"),
+            build_value_combo_box({tr(label_key): side for label_key, side in _WHEEL_SIDES},
+                                  WHEEL_SIDE_ANY))
+        add_hint_row(form, tr("process_stopper_hint"))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(box)
+
+    def load(self):
+        self.load_level()
+        min_raised = self._read_camera_value("min_raised_px")
+        self._min_raised_spin.setValue(
+            int(min_raised) if min_raised is not None else DEFAULT_MIN_RAISED_PX)
+        max_gap = self._read_camera_value("max_gap_px")
+        self._max_gap_spin.setValue(int(max_gap) if max_gap is not None else _UNCALIBRATED)
+        set_combo_data(self._wheel_side_combo,
+                       self._read_camera_value("wheel_side") or WHEEL_SIDE_ANY)
+
+    def load_level(self):
+        raised_y = self._read_camera_value("raised_y_px")
+        self._raised_y_spin.setValue(int(raised_y) if raised_y is not None else _UNCALIBRATED)
+
+    def save(self):
+        raised_y = self._raised_y_spin.value()
+        self._config.set(f"{_STOPPER_SECTION}.raised_y_px.{self._camera_slot}",
+                         None if raised_y == _UNCALIBRATED else raised_y)
+        self._config.set(f"{_STOPPER_SECTION}.min_raised_px.{self._camera_slot}",
+                         self._min_raised_spin.value())
+        max_gap = self._max_gap_spin.value()
+        self._config.set(f"{_STOPPER_SECTION}.max_gap_px.{self._camera_slot}",
+                         None if max_gap == _UNCALIBRATED else max_gap)
+        self._config.set(f"{_STOPPER_SECTION}.wheel_side.{self._camera_slot}",
+                         self._wheel_side_combo.currentData())
+
+    def _read_camera_value(self, key: str) -> object:
+        values = self._config.get(f"{_STOPPER_SECTION}.{key}", {}) or {}
+        return values.get(self._camera_slot)
