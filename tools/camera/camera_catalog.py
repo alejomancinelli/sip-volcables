@@ -19,6 +19,7 @@ CAMERA_CATALOG: dict[str, dict] = {
         "driver": "basler_gige",
         "models": [
             "a2A1920-51gcBAS",
+            "acA4024-8gc",
         ],
     },
     "sentech": {
