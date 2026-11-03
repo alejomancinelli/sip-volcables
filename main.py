@@ -250,6 +250,20 @@ _COLLECTOR_MODE_INTERVAL = "interval"
 
 _GATE_WARN_PERIOD_S = 10.0        # techo del aviso de una compuerta que falla, por pipeline
 
+# La plataforma, como la escribe el PLC (register_map.yaml): 0 sin información, 1 horizontal.
+_RAMP_STATE_NAME = "ramp_state"
+_RAMP_TILTED = 2
+
+
+def _is_ramp_not_tilted(camera_slot: str, signals: FrameSignals) -> bool:
+    """
+    Compuerta de la plataforma: corta sólo cuando el PLC dice que está inclinada.
+
+    Sin información (0) deja pasar: hasta que el PLC escribe, el equipo mide como sin
+    compuerta. Es la misma para todas las cámaras porque la plataforma es una sola.
+    """
+    return signals.plc.get(_RAMP_STATE_NAME) != _RAMP_TILTED
+
 
 # ── Log a archivo ────────────────────────────────────────────────────────────────
 
@@ -798,13 +812,11 @@ class Application(QObject):
         corriendo se ve en vivo, sin overlay. El modelo queda cargado: al abrirse la
         compuerta, el frame siguiente ya se infiere.
 
-        **El template no declara ninguna.** Un fork que la necesita arma acá la suya:
-
-            def _build_frame_gates(self):
-                tilt_input = {"camera_1": 1, "camera_2": 2}   # leído de `process:`
-                def is_tilted(camera_slot, signals):
-                    return signals.gpio_inputs.get(tilt_input.get(camera_slot)) == 1
-                return {"pipeline_1": is_tilted}
+        En esta planta la corta la plataforma: los pipelines de `process.ramp_gate.pipelines`
+        miden con la plataforma horizontal y dejan de medir cuando el PLC avisa que se
+        inclinó, porque pasado ese ángulo el camión sale del ROI y el polvo en el aire hace
+        la inferencia no confiable. Personas no va en la lista: la zona se vigila también
+        durante el volteo. Sin la lista no hay compuertas.
 
         Va acá y no en `hooks.py` porque lee el estado vivo de la planta, que sólo la app
         tiene: la corrida de imágenes sueltas comparte los hooks y no tiene señales.
@@ -814,7 +826,8 @@ class Application(QObject):
         ese hilo. Una que levanta deja pasar el frame y avisa. Es para pipelines de un
         resultado por frame: con ciclo, una cámara cortada traba la ronda.
         """
-        return {}
+        pipeline_slots = self._config.get("process.ramp_gate.pipelines", []) or []
+        return {pipeline_slot: _is_ramp_not_tilted for pipeline_slot in pipeline_slots}
 
     def _on_signals_changed(self, previous: FrameSignals, current: FrameSignals):
         """

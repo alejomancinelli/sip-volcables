@@ -28,3 +28,4 @@ Los valores con escala viajan multiplicados por ella: un registro con escala x10
 | 98 | 40098 | clock_epoch_s_high | Reloj del equipo, palabra alta (epoch UTC = alta*65536 + baja) | s | - | lectura | - | health |
 | 99 | 40099 | clock_epoch_s_low | Reloj del equipo, palabra baja | s | - | lectura | - | health |
 | 100 | 40100 | license_days_remaining | Días hasta el vencimiento de la licencia | días | - | lectura | - | health |
+| 101 | 40101 | ramp_state | Plataforma — 0 sin información, 1 horizontal, 2 inclinada; con 2 el grano y la calza dejan de medir | - | - | escribe el PLC | 0-2 | plc |

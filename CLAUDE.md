@@ -482,6 +482,15 @@ Lo que no se deduce leyendo un archivo suelto:
   olvida, no espera a que venza— y el bit 6 de su palabra lo dice: la señal no siempre es
   del PLC, y sin el bit una pausa se lee como un pipeline sano. Así un veredicto como el
   del grano aparece sólo mientras el proceso corre.
+- **La plataforma inclinada corta el grano y la calza, no a las personas.** El PLC escribe
+  `ramp_state` (40101: 0 sin información, 1 horizontal, 2 inclinada) y la compuerta de
+  `_build_frame_gates()` corta los pipelines de `process.ramp_gate.pipelines` sólo con 2:
+  pasado ese ángulo el camión sale del ROI y el polvo vuelve la inferencia no confiable. El
+  0 deja medir, para que un equipo con el PLC sin integrar siga andando; cerrarlo con 0 es
+  cambiar una comparación. Mientras está cortada sus registros quedan con el último valor y
+  el PLC, que es quien manda la señal, sabe que no los tiene que leer. No hay timeout: un
+  PLC que deja de escribir deja la plataforma en el último estado, y el latido del PLC
+  queda para después.
 - **Un veredicto del frame no es una detección ni una métrica.** Lo que dice una
   clasificación de la imagen entera —el estado de la cinta— viaja en `labels`, que es
   texto: no tiene forma ni posición, y si tiene que llegar al PLC lo traduce a bit el
@@ -819,9 +828,8 @@ La tabla completa, archivo por archivo, está en `README.md`.
   compuertas de frames y la reacción a un cambio de señal. Lo que sigue faltando es el
   contenido: qué se mide y qué se publica.
 - El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
-  pero qué publica es lo más específico de cada fork y se declara al escribirlo. Lo mismo
-  el bloque 40101-40150 que escribe el PLC: la maquinaria está, y el mapa trae ejemplos
-  comentados.
+  pero qué publica es lo más específico de cada fork y se declara al escribirlo. Del
+  bloque 40101-40150 que escribe el PLC, la única fila es `ramp_state`.
 - **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
   y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
   `inference.pipelines`, incluidos los que no arrancaron, y se filtra contra el mapa como

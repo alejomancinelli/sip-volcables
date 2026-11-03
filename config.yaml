@@ -96,9 +96,16 @@ process:
   min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
   # Caída de grano. Declarada, el anotado de cada cámara del grano lleva el estado de la
   # descarga: un borde verde sólo si cae grano y no hay personas en la zona de exclusión,
-  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK. Acá va a ir el canal de GPIO de
-  # la señal de volteo de cada cámara.
+  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK.
   grain_flow: {}
+  ramp_gate:
+    # La plataforma corta la medición. Estos pipelines miden con la plataforma horizontal y
+    # dejan de recibir frames cuando el PLC escribe `ramp_state` = 2 (inclinada): pasado ese
+    # ángulo el camión sale del ROI y el polvo vuelve la inferencia no confiable. Con 0 (sin
+    # información) siguen midiendo. Mientras está cortada no hay overlay, telemetría ni
+    # dataset de esos pipelines, y sus registros quedan con el último valor. Personas no va:
+    # la zona se vigila también durante el volteo. [] = ninguno cortado.
+    pipelines: [pipeline_1, pipeline_3]
   person_safety:
     # Zona de exclusión por cámara: un polígono en píxeles del frame de referencia —el que
     # sale después del decodificador, así que cambiar su tamaño obliga a redibujarla—.

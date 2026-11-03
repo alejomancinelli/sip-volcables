@@ -225,6 +225,15 @@
 # lee como NIVEL —en una compuerta o en el analyzer— o como EVENTO —un contador, en
 # `_on_signals_changed()`—. El 0 es el reposo: al reiniciar el equipo todo vuelve a 0.
 # Ver docs/plc_commands.md.
+
+- addr: 101
+  name: ramp_state
+  desc: Plataforma — 0 sin información, 1 horizontal, 2 inclinada; con 2 el grano y la calza dejan de medir
+  producer: plc
+  min_value: 0
+  max_value: 2
+
+# Ejemplos de las otras formas de una variable:
 #
 # - addr: 101
 #   name: measure_seq

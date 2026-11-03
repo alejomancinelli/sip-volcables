@@ -10,7 +10,7 @@ import os
 
 import main
 from system.modbus.registers import MAP_PATH, REGISTERS, SCHEMA
-from system.modbus.schema import PRODUCERS, UINT16_MAX
+from system.modbus.schema import PRODUCERS, UINT16_MAX, write_range
 from system.modbus.server import DEFAULT_REGISTER_COUNT
 
 # Geometría del bloque de cámaras, tal como la documenta el mapa.
@@ -98,13 +98,10 @@ class TestConventions:
             if reg.is_bool:
                 assert reg.scale == 1, reg.name
 
-    def test_the_map_declares_no_config_block(self):
-        """
-        En el template el PLC no escribe nada. Un fork que agregue filas `plc` tiene
-        que tener cableado también el drenado de sus escrituras, así que este test es
-        el recordatorio.
-        """
-        assert SCHEMA.plc_regs() == []
+    def test_the_ramp_state_accepts_only_its_three_values(self):
+        """0 sin información, 1 horizontal, 2 inclinada: otro valor el servidor lo rechaza."""
+        ramp_state = next(reg for reg in SCHEMA.plc_regs() if reg.name == "ramp_state")
+        assert write_range(ramp_state) == (0, 2)
 
 
 class TestScaledRangesAreUsable:

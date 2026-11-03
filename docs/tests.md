@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**89 archivos, 532 grupos, 2743 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**89 archivos, 533 grupos, 2749 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 367 |
+| [test/](#test) | 7 | 373 |
 | [test/build/](#testbuild) | 2 | 55 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
@@ -227,7 +227,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 138 tests
+### [test_main.py](../test/test_main.py) — 144 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -250,7 +250,8 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
-| `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
+| `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 11 |
+| `TestRampGate` | La plataforma inclinada corta los pipelines de `process.ramp_gate`, y sólo a ésos. | 7 |
 | `TestGatedOverlay` | El overlay de un proceso cortado se va en el acto, y una cámara sin nada se ve en vivo. | 5 |
 | `TestDatasetGating` | Con la recolección apagada, o sin esa cámara, el resultado no se serializa: corre por frame en la GUI. | 4 |
 | `TestDatasetSubset` | Un pipeline con ROI propio guarda lo que vio, en un dataset aparte de la cámara. | 4 |
@@ -359,7 +360,6 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_an_older_result_is_not_shown`
   - `test_the_dataset_gets_each_pipeline_own_annotated_frame`
 - `TestFrameGates`
-  - `test_the_template_declares_no_gates`
   - `test_a_closed_gate_stops_that_camera_for_that_pipeline_only`
   - `test_the_gate_receives_the_camera_and_the_current_inputs`
   - `test_new_inputs_replace_the_snapshot_instead_of_changing_it`
@@ -371,6 +371,14 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_a_reopened_gate_clears_the_bit`
   - `test_a_gate_on_a_cycled_pipeline_is_warned_at_startup`
   - `test_a_gate_for_a_pipeline_without_thread_is_warned_at_startup`
+- `TestRampGate`
+  - `test_only_the_listed_pipelines_get_the_gate`
+  - `test_without_the_list_there_are_no_gates`
+  - `test_a_tilted_ramp_closes_the_gate`
+  - `test_a_level_ramp_keeps_it_open`
+  - `test_without_information_it_stays_open`
+  - `test_a_tilted_ramp_stops_the_grain_but_not_the_persons`
+  - `test_the_register_map_declares_the_variable_the_gate_reads`
 - `TestGatedOverlay`
   - `test_closing_the_gate_drops_the_overlay_on_the_next_frame`
   - `test_a_camera_with_nothing_fresh_shows_the_live_frame`
@@ -3116,7 +3124,7 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_scales_are_positive_integers`
   - `test_scaled_rows_declare_their_unit`
   - `test_booleans_are_not_scaled`
-  - `test_the_map_declares_no_config_block`
+  - `test_the_ramp_state_accepts_only_its_three_values`
 - `TestScaledRangesAreUsable`
   - `test_every_scaled_row_can_carry_a_plausible_value`
 - `TestLookupsUsedByTheApp`

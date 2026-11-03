@@ -1036,10 +1036,6 @@ def _closed_on(*camera_slots: str):
 class TestFrameGates:
     """Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése."""
 
-    def test_the_template_declares_no_gates(self):
-        app = main.Application.__new__(main.Application)
-        assert app._build_frame_gates() == {}
-
     def test_a_closed_gate_stops_that_camera_for_that_pipeline_only(self):
         grain = _FrameSink("pipeline_1")
         person = _FrameSink("pipeline_2")
@@ -1141,6 +1137,53 @@ class TestFrameGates:
         with caplog.at_level("WARNING"):
             app._check_frame_gates()
         assert "pipeline_7" in caplog.text
+
+
+def _ramp_signals(ramp_state: int) -> main.FrameSignals:
+    return main.FrameSignals(plc=MappingProxyType({"ramp_state": ramp_state}))
+
+
+class TestRampGate:
+    """La plataforma inclinada corta los pipelines de `process.ramp_gate`, y sólo a ésos."""
+
+    def _app_with_ramp_gate(self, pipeline_slots, engines=()):
+        app = _build_frame_application(engines=engines)
+        app._config = _MockConfig(**{"process.ramp_gate.pipelines": pipeline_slots})
+        app._frame_gates = app._build_frame_gates()
+        return app
+
+    def test_only_the_listed_pipelines_get_the_gate(self):
+        app = self._app_with_ramp_gate(["pipeline_1", "pipeline_3"])
+        assert set(app._frame_gates) == {"pipeline_1", "pipeline_3"}
+
+    def test_without_the_list_there_are_no_gates(self):
+        app = main.Application.__new__(main.Application)
+        app._config = _MockConfig()
+        assert app._build_frame_gates() == {}
+
+    def test_a_tilted_ramp_closes_the_gate(self):
+        assert not main._is_ramp_not_tilted("camera_1", _ramp_signals(2))
+
+    def test_a_level_ramp_keeps_it_open(self):
+        assert main._is_ramp_not_tilted("camera_1", _ramp_signals(1))
+
+    def test_without_information_it_stays_open(self):
+        """El 0 es lo que hay hasta que el PLC escribe: sin integrar, el equipo mide igual."""
+        assert main._is_ramp_not_tilted("camera_1", _ramp_signals(0))
+        assert main._is_ramp_not_tilted("camera_1", main.FrameSignals())
+
+    def test_a_tilted_ramp_stops_the_grain_but_not_the_persons(self):
+        grain = _FrameSink("pipeline_1")
+        person = _FrameSink("pipeline_2")
+        app = self._app_with_ramp_gate(["pipeline_1"], engines=[grain, person])
+        app._frame_signals = _ramp_signals(2)
+        app._on_frame_captured(np.zeros((4, 4, 3), np.uint8), "camera_3")
+        assert grain.pushed == []
+        assert [camera_slot for _, camera_slot, _ in person.pushed] == ["camera_3"]
+
+    def test_the_register_map_declares_the_variable_the_gate_reads(self):
+        """Renombrarla en el mapa dejaría la compuerta abierta para siempre, sin ningún error."""
+        assert main._RAMP_STATE_NAME in {reg.name for reg in registers.SCHEMA.plc_regs()}
 
 
 class TestGatedOverlay:
