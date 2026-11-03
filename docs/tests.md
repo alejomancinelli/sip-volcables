@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 539 grupos, 2778 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**90 archivos, 539 grupos, 2779 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 606 |
+| [test/inference/](#testinference) | 15 | 607 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
@@ -1982,7 +1982,7 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 
 </details>
 
-### [test_overlay.py](../test/inference/test_overlay.py) — 69 tests
+### [test_overlay.py](../test/inference/test_overlay.py) — 70 tests
 
 Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de cámara nunca se toque.
 
@@ -1996,7 +1996,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 | `TestTextPanelColours` | Un panel puede pintar cada línea de su color, y es lo que deja que el resumen de clases coincida con el color de las máscaras. Lo que no se declara cae en el del panel. | 4 |
 | `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 2 |
 | `TestTextThickness` | El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve pálido y roto, que es lo que pasaba después de escalarlo con el ancho del frame. | 3 |
-| `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 5 |
+| `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 6 |
 | `TestPipelineStyle` |  | 6 |
 | `TestDrawRoi` |  | 9 |
 | `TestRoiState` | El borde del ROI se pinta por el veredicto, y un resultado inválido nunca de estado. | 13 |
@@ -2052,6 +2052,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_where_two_classes_overlap_the_last_one_wins`
   - `test_the_tint_still_reaches_the_frame`
   - `test_two_classes_side_by_side_keep_their_own_colour`
+  - `test_between_two_instances_of_a_class_the_frame_is_untouched`
   - `test_an_outline_is_still_drawn_per_instance`
 - `TestPipelineStyle`
   - `test_no_color_is_green_red_or_yellow`

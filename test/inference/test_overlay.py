@@ -364,6 +364,16 @@ class TestOverlappingFill:
         assert frame[20, 20, 2] > frame[20, 20, 1]    # rojo a la izquierda
         assert frame[20, 70, 1] > frame[20, 70, 2]    # verde a la derecha
 
+    def test_between_two_instances_of_a_class_the_frame_is_untouched(self):
+        """Se tiñe el rectángulo que cubre las dos, pero sólo lo que es de alguna máscara."""
+        left = _detection(class_index=0, mask=np.ones((20, 20), np.uint8),
+                          bbox_px=(10, 10, 30, 30))
+        right = _detection(class_index=0, mask=np.ones((20, 20), np.uint8),
+                           bbox_px=(60, 60, 80, 80))
+        frame = self._painted([left, right])
+        assert np.array_equal(frame[30:60, 30:60], _frame()[30:60, 30:60])
+        assert _changed_pixels(_frame()[10:30, 10:30], frame[10:30, 10:30]) > 0
+
     def test_an_outline_is_still_drawn_per_instance(self):
         """El contorno es lo que deja ver cada instancia por separado."""
         frame = _frame()
