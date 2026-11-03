@@ -2050,7 +2050,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_the_automatic_one_follows_the_short_side_within_its_limits`
   - `test_a_positive_value_is_kept_on_any_frame`
   - `test_the_boxes_are_drawn_with_it`
-  - `test_the_roi_grows_with_the_frame_and_nok_stays_thicker`
+  - `test_the_roi_grows_with_the_frame`
 - `TestTextThickness`
   - `test_it_grows_with_the_scale`
   - `test_it_is_never_zero`
@@ -2085,7 +2085,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_without_a_state_the_border_is_the_pipeline_color`
   - `test_each_state_paints_its_color_and_not_the_pipeline_one`
   - `test_the_label_keeps_the_pipeline_color_and_says_the_verdict`
-  - `test_nok_is_thicker_than_ok`
+  - `test_every_state_has_the_same_width`
   - `test_an_invalid_result_is_never_painted_with_a_state`
   - `test_an_invalid_result_has_a_dashed_grey_border_and_its_reason`
   - `test_an_invalid_result_without_a_reason_still_says_it_is_invalid`

@@ -100,7 +100,6 @@ _COLUMN_GAP = "  "        # aire entre la etiqueta y el valor, medido con la fue
 _TIMESTAMP_RATIO = 0.8    # el timestamp va más chico que el panel: es referencia, no dato
 _LABEL_SCALE = 0.55       # etiqueta de una referencia dibujada con draw_line()
 _ROI_THICKNESS_PX = 1     # mínimo del ROI; crece con el trazo de las cajas
-_ROI_NOK_FACTOR = 2       # el rojo además engorda: es el que no se puede pasar por alto
 _DASH_LENGTH_PX = 10      # largo de un trazo y de su hueco en un ROI punteado
 
 # Grosor automático de las líneas (`thickness: 0`): una fracción del lado menor del frame,
@@ -300,7 +299,7 @@ def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int], *,
     en una cámara con varios se distinguen. El trazo es la mitad del de las cajas, con
     `_ROI_THICKNESS_PX` de mínimo: crece con el frame igual que ellas. Encima va el estado:
       - `state` (un `ROI_STATE_*`) pinta el borde del color del veredicto y lo escribe en
-        la etiqueta, y el `nok` además va más grueso;
+        la etiqueta, con el mismo trazo en los tres estados;
       - `invalid_reason` no vacío gana sobre `state`: el resultado no es una medición, así
         que el borde va gris y punteado con el motivo, nunca de un color de estado.
     La etiqueta conserva siempre el color del pipeline.
@@ -317,8 +316,6 @@ def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int], *,
         label = f"{label} ({invalid_reason})".strip()
     elif state in ROI_STATE_COLORS_BGR:
         color, is_dashed = ROI_STATE_COLORS_BGR[state], False
-        if state == ROI_STATE_NOK:
-            thickness *= _ROI_NOK_FACTOR
         label = f"{label} {_ROI_STATE_TEXT[state]}".strip()
 
     x_px, y_px, width_px, height_px = (int(value) for value in roi_px)
