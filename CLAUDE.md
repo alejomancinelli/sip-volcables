@@ -447,7 +447,8 @@ Lo que no se deduce leyendo un archivo suelto:
   los usara de identidad se confundiría con un veredicto, y por eso pueden pintar el borde: el
   pipeline declara `roi_state` (`ok`/`nok`/`warning`, de `result.py`) junto a sus `labels`, porque
   sólo su código sabe qué es «bien» o «mal», y el overlay lo pinta con el texto del veredicto en
-  la etiqueta —el color solo no alcanza— y el `nok` más grueso. Un resultado no confiable nunca
+  la etiqueta —el color solo no alcanza—, con el mismo trazo en los tres estados: un `nok` más
+  grueso hacía saltar el recuadro cada vez que el veredicto cambiaba. Un resultado no confiable nunca
   se pinta de estado: va gris y punteado con el motivo. Una región propia guarda el tamaño
   del frame sobre el que se dibujó, para avisar cuando el que llega es otro. El recorte de
   la interfaz de la cámara no es de la app: lo hace quien instala con la herramienta del

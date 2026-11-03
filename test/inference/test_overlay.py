@@ -346,7 +346,7 @@ class TestLineThickness:
 
         assert np.array_equal(boxed(0), boxed(4))
 
-    def test_the_roi_grows_with_the_frame_and_nok_stays_thicker(self):
+    def test_the_roi_grows_with_the_frame(self):
         def roi_rows(height_px: int, width_px: int, state: str = "") -> int:
             frame = self._sized(height_px, width_px)
             overlay.draw_roi(frame, (20, 20, 100, 60), state=state,
@@ -354,7 +354,7 @@ class TestLineThickness:
             return int(np.count_nonzero(np.any(frame[:60, 70] != 128, axis=1)))
 
         assert roi_rows(2160, 3840) > roi_rows(360, 640)
-        assert roi_rows(2160, 3840, ROI_STATE_NOK) > roi_rows(2160, 3840)
+        assert roi_rows(2160, 3840, ROI_STATE_NOK) == roi_rows(2160, 3840)
 
 
 class TestTextThickness:
@@ -593,12 +593,14 @@ class TestRoiState:
         assert not np.array_equal(painted[label_area], plain[label_area])
         assert np.any(np.all(painted[label_area] == self._BLUE, axis=2))
 
-    def test_nok_is_thicker_than_ok(self):
-        nok = self._annotate(roi_state=ROI_STATE_NOK)
-        ok = self._annotate(roi_state=ROI_STATE_OK)
-        count_nok = np.count_nonzero(np.all(nok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK], axis=1))
-        count_ok = np.count_nonzero(np.all(ok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK], axis=1))
-        assert count_nok > count_ok
+    def test_every_state_has_the_same_width(self):
+        """Un trazo que cambia con el veredicto hace saltar el recuadro entre un frame y otro."""
+        def width_px(state: str) -> int:
+            painted = self._annotate(roi_state=state)
+            color = overlay.ROI_STATE_COLORS_BGR[state]
+            return int(np.count_nonzero(np.all(painted[80:100, 100] == color, axis=1)))
+
+        assert width_px(ROI_STATE_NOK) == width_px(ROI_STATE_OK) == width_px(ROI_STATE_WARNING)
 
     def test_an_invalid_result_is_never_painted_with_a_state(self):
         for state in overlay.ROI_STATE_COLORS_BGR:
