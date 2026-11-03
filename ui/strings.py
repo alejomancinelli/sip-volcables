@@ -885,6 +885,12 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "Clique ou arraste sobre a imagem para posicionar a "
                                      "linha; é horizontal e cobre toda a largura."},
     "level_save":             {"es": "Guardar altura", "en": "Save height",   "pt": "Salvar altura"},
+    "level_no_snapshot":      {"es": "No hay un resultado de inferencia de esta cámara para "
+                                     "medir: el video quedó congelado en el último frame.",
+                               "en": "There is no inference result from this camera to "
+                                     "measure: the video froze on the last frame.",
+                               "pt": "Não há resultado de inferência desta câmera para "
+                                     "medir: o vídeo congelou no último quadro."},
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
     "dialog_pause":           {"es": "Pausar video",   "en": "Pause video",   "pt": "Pausar vídeo"},
     "dialog_resume":          {"es": "Reanudar video", "en": "Resume video",  "pt": "Retomar vídeo"},
