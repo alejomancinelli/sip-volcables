@@ -158,6 +158,18 @@ class ConfigView(QWidget):
         if self._level_requester is not None:
             self._level_requester.reload_level(camera_slot)
 
+    def build_level_inspector(self, camera_slot: str, result_source):
+        """
+        El inspector del diálogo de la altura, si la pestaña que la pidió sabe armarlo.
+
+        Es opcional: una pestaña sin `build_level_inspector()` abre el diálogo sin medidas en
+        pausa. Ver `ui/dialogs/level_dialog.py`.
+        """
+        builder = getattr(self._level_requester, "build_level_inspector", None)
+        if builder is None or result_source is None:
+            return None
+        return builder(camera_slot, result_source)
+
     def _build_button_row(self) -> QHBoxLayout:
         discard_button = QPushButton(tr("config_discard"))
         discard_button.setObjectName("discardButton")

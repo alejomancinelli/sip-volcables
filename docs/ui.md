@@ -150,7 +150,9 @@ ui/
                         por pipeline, con vista previa y avisos; se abre sólo desde la pestaña
                         Inferencia con `open_regions_requested`
     level_dialog.py     marcar una altura —una línea horizontal— sobre el frame en vivo; la
-                        pide una pestaña con `open_level_requested`, igual que el ROI
+                        pide una pestaña con `open_level_requested`, igual que el ROI. En
+                        pausa puede medir sobre el último frame inferido si esa pestaña
+                        arma un inspector (`build_level_inspector()`)
     gpio_dialog.py      entradas y salidas digitales
   styles/               dark.qss y light.qss
   icons/                logos y el .ico de la ventana
