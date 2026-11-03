@@ -65,7 +65,6 @@ _STATUS_UNKNOWN_BGR = (170, 170, 170)
 _STATUS_BORDER_FRACTION = 0.03
 _STATUS_BORDER_MIN_PX = 12      # más que el margen del panel, para que siempre lo pise
 _STATUS_TEXT_FRACTION = 0.05    # alto del texto del panel
-_ZONE_THICKNESS_FRACTION = 0.004
 _TIMESTAMP_TEXT_FRACTION = 0.04  # `draw_timestamp` lo dibuja un punto más chico que esto
 _GAP_TEXT_FRACTION = 0.03
 # Un veredicto más viejo que esto, contado desde el más nuevo de su cámara, ya no cuenta:
@@ -108,7 +107,7 @@ def max_load_line_annotator(y_px_by_camera: dict[str, int], *,
         if not 0 <= int(y_px) < height_px:
             return
         overlay.draw_line(frame_bgr, (0, int(y_px)), (width_px, int(y_px)),
-                          _MAX_LOAD_BGR, thickness=2, label=label)
+                          _MAX_LOAD_BGR, thickness=_get_stroke_px(frame_bgr), label=label)
 
     draw.__name__ = f"max_load_line({y_px_by_camera})"
     return draw
@@ -215,9 +214,10 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
                              wheel_side_by_camera: dict[str, str] | None = None,
                              language: str = _FALLBACK_LANGUAGE) -> Annotator:
     """
-    Dibuja el estado de las calzas de cada cámara: un borde en todo el frame, la altura de
-    calza levantada como una línea horizontal, la distancia más corta entre la rueda y la calza, y un panel con los
-    dos veredictos.
+    Dibuja el estado de las calzas de cada cámara: la altura de calza levantada como una
+    línea horizontal, la distancia más corta entre la rueda y la calza, y un panel con los
+    dos veredictos. Sin borde de estado: si la calza está bien puesta lo decide el PLC, y
+    un borde verde en la pantalla afirmaría una decisión que no es del equipo.
 
     - **Calza:** OK si al menos `min_raised_px` píxeles de la máscara de la calza más
       confiable quedan por encima de `raised_y_px`, la fila de su cámara; sin calza
@@ -234,8 +234,7 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
       está puesta del lado equivocado. Sin valor, `any`.
 
     Una cámara sin altura o sin distancia máxima tiene ese veredicto sin calibrar: sale `--`
-    en gris y el borde, rojo, porque lo que nadie calibró no se afirma. Verde sólo con los
-    dos en OK. Un resultado de otro pipeline —se reconoce por `stopper_pipelines`— o no
+    en gris, porque lo que nadie calibró no se afirma. Un resultado de otro pipeline —se reconoce por `stopper_pipelines`— o no
     confiable no dibuja nada. Una cámara sin `min_raised_px` usa `DEFAULT_MIN_RAISED_PX`.
     """
     raised_y_px_by_camera = dict(raised_y_px_by_camera or {})
@@ -257,12 +256,9 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
                 or frame_bgr is None or frame_bgr.size == 0):
             return
         camera_slot = result.camera_slot
-        stopper = max((d for d in result.detections if d.class_name == stopper_class),
-                      key=lambda detection: detection.confidence_pct, default=None)
-        wheels = [d for d in result.detections if d.class_name == wheel_class]
-        side = wheel_side_by_camera.get(camera_slot, WHEEL_SIDE_ANY)
-        if stopper is not None and side != WHEEL_SIDE_ANY:
-            wheels = [wheel for wheel in wheels if _is_on_side(wheel, stopper, side)]
+        stopper, wheels = pick_stopper_and_wheels(
+            result.detections, stopper_class=stopper_class, wheel_class=wheel_class,
+            wheel_side=wheel_side_by_camera.get(camera_slot, WHEEL_SIDE_ANY))
 
         raised_y_px = raised_y_px_by_camera.get(camera_slot)
         is_raised = None
@@ -277,9 +273,7 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
         is_touching = None
         max_gap_px = max_gap_px_by_camera.get(camera_slot)
         if is_raised:
-            gaps = [geometry.find_closest_points(stopper, wheel) for wheel in wheels]
-            closest = min((gap for gap in gaps if gap is not None),
-                          key=lambda gap: gap[0], default=None)
+            closest = find_closest_wheel(stopper, wheels)
             if max_gap_px is not None:
                 is_touching = closest is not None and closest[0] <= float(max_gap_px)
 
@@ -288,12 +282,38 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
         if closest is not None:
             _draw_gap(frame_bgr, closest, _get_state_bgr(is_touching))
         _draw_status(frame_bgr, [(labels["stopper"], is_raised),
-                                 (labels["contact"], is_touching)])
+                                 (labels["contact"], is_touching)], draw_border=False)
 
     draw.__name__ = (f"stopper_status(pipelines={sorted(stopper_pipelines)}, "
                      f"levels={raised_y_px_by_camera}, gaps={sorted(max_gap_px_by_camera)}, "
                      f"sides={wheel_side_by_camera})")
     return draw
+
+
+def pick_stopper_and_wheels(detections: list[Detection], *, stopper_class: str,
+                            wheel_class: str, wheel_side: str = WHEEL_SIDE_ANY
+                            ) -> tuple[Detection | None, list[Detection]]:
+    """
+    La calza que se juzga —la más confiable— y las ruedas que cuentan contra ella: con
+    `wheel_side` en `left` o `right`, sólo las de ese lado de la calza.
+
+    Es la regla del annotator y la usa también quien calibra sobre un frame quieto: dos
+    lecturas del mismo resultado que eligieran otra calza o otra rueda mostrarían números
+    que el equipo no mide.
+    """
+    stopper = max((d for d in detections if d.class_name == stopper_class),
+                  key=lambda detection: detection.confidence_pct, default=None)
+    wheels = [d for d in detections if d.class_name == wheel_class]
+    if stopper is not None and wheel_side != WHEEL_SIDE_ANY:
+        wheels = [wheel for wheel in wheels if _is_on_side(wheel, stopper, wheel_side)]
+    return stopper, wheels
+
+
+def find_closest_wheel(stopper: Detection, wheels: list[Detection]
+                       ) -> tuple[float, geometry.Point, geometry.Point] | None:
+    """La distancia más corta entre la calza y la rueda más cercana, con sus dos puntos."""
+    gaps = [geometry.find_closest_points(stopper, wheel) for wheel in wheels]
+    return min((gap for gap in gaps if gap is not None), key=lambda gap: gap[0], default=None)
 
 
 def _is_on_side(wheel: Detection, stopper: Detection, side: str) -> bool:
@@ -335,8 +355,11 @@ def _get_state_bgr(state: bool | None) -> tuple[int, int, int]:
 
 
 def _get_stroke_px(frame_bgr: np.ndarray) -> int:
-    """Grosor de una referencia dibujada —zona, línea, distancia— según el tamaño del frame."""
-    return max(2, int(round(min(frame_bgr.shape[:2]) * _ZONE_THICKNESS_FRACTION)))
+    """
+    Grosor de una referencia dibujada —zona, línea, distancia—: el automático de las cajas,
+    así las dos se ven con el mismo trazo en cualquier tamaño de frame.
+    """
+    return overlay.get_line_thickness(frame_bgr)
 
 
 def _get_text_scale(frame_bgr: np.ndarray, height_fraction: float) -> float:
@@ -345,28 +368,33 @@ def _get_text_scale(frame_bgr: np.ndarray, height_fraction: float) -> float:
     return min(frame_bgr.shape[:2]) * height_fraction / unit_height_px
 
 
-def _draw_status(frame_bgr: np.ndarray, rows: list[tuple[str, bool | None]]):
+def _draw_status(frame_bgr: np.ndarray, rows: list[tuple[str, bool | None]], *,
+                 draw_border: bool = True):
     """
     Dibuja in-place el borde de estado y, encima, el panel con un renglón por veredicto.
 
     El borde es verde sólo si todos los veredictos son OK; uno en None —sin dar— sale `--`
-    en gris y deja el borde en rojo.
+    en gris y deja el borde en rojo. Con `draw_border` en false sale sólo el panel, pegado
+    a la esquina: el margen era para que el borde lo enmarcara, y sin él queda una franja de
+    video alrededor.
     """
-    is_ok = all(state is True for _, state in rows)
-    border_bgr = _STATUS_OK_BGR if is_ok else _STATUS_NOK_BGR
-    side_px = min(frame_bgr.shape[:2])
-    border_px = max(_STATUS_BORDER_MIN_PX, int(round(side_px * _STATUS_BORDER_FRACTION)))
-    frame_bgr[:border_px] = border_bgr
-    frame_bgr[-border_px:] = border_bgr
-    frame_bgr[:, :border_px] = border_bgr
-    frame_bgr[:, -border_px:] = border_bgr
+    if draw_border:
+        is_ok = all(state is True for _, state in rows)
+        border_bgr = _STATUS_OK_BGR if is_ok else _STATUS_NOK_BGR
+        side_px = min(frame_bgr.shape[:2])
+        border_px = max(_STATUS_BORDER_MIN_PX, int(round(side_px * _STATUS_BORDER_FRACTION)))
+        frame_bgr[:border_px] = border_bgr
+        frame_bgr[-border_px:] = border_bgr
+        frame_bgr[:, :border_px] = border_bgr
+        frame_bgr[:, -border_px:] = border_bgr
 
     lines = [(label, "--" if state is None else "OK" if state else "NOK")
              for label, state in rows]
     colors = tuple(_get_state_bgr(state) for _, state in rows)
     font_scale = _get_text_scale(frame_bgr, _STATUS_TEXT_FRACTION)
     overlay.draw_text_panel(frame_bgr, lines, line_colors_bgr=colors,
-                            options=overlay.OverlayOptions(font_scale=font_scale))
+                            options=overlay.OverlayOptions(font_scale=font_scale),
+                            margin_px=None if draw_border else 0)
 
 
 def _draw_level(frame_bgr: np.ndarray, y_px: int, color_bgr: tuple[int, int, int]):
