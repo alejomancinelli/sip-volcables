@@ -459,10 +459,11 @@ gpio:
   initial_outputs: {}           # p. ej. {DO1: 1}
 
 lens_health:
-  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez de la región de
-  # óptica de cada cámara (`cameras.<slot>.lens_health.roi`) —la varianza del Laplaciano, que el polvo sobre el vidrio hace caer— y
-  # prende el bit de lente sucio de la palabra de estado de esa cámara, que es el mismo
-  # que lee el PLC. No agrega registros: el bit ya existe en el mapa.
+  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez de la región
+  # de óptica de cada cámara (`cameras.<slot>.lens_health.roi`) —la varianza del
+  # Laplaciano, que el polvo sobre el vidrio hace caer— y prende el bit de lente sucio de
+  # la palabra de estado de esa cámara, que es el mismo que lee el PLC. No agrega
+  # registros: el bit ya existe en el mapa.
   #
   # LA REFERENCIA DE VIDRIO LIMPIO NO VA ACÁ. Es de cada cámara y vive en
   # `cameras.<slot>.lens_health.reference`, porque depende del lente, de la exposición y
@@ -535,8 +536,9 @@ cameras:
       #
       # Se calibra con el lente recién limpiado y la cámara ya apuntada: lo que se está
       # guardando es el techo de nitidez de ese montaje. `conditions` deja constancia de
-      # con qué exposición, ganancia, rotación y región de óptica se midió — si después cambian, la
-      # pantalla avisa que el número puede haberse movido sin que el vidrio se ensucie.
+      # con qué exposición, ganancia, rotación y región de óptica se midió — si después
+      # cambian, la pantalla avisa que el número puede haberse movido sin que el vidrio se
+      # ensucie.
       reference:
         variance: 0.0         # varianza del Laplaciano con el lente limpio
         luma: 0.0             # nivel de gris medio de esa calibración, 0–255
