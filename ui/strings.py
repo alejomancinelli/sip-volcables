@@ -502,6 +502,32 @@ _TEXTS: dict[str, dict[str, str]] = {
     "wheel_side_any":         {"es": "Cualquiera",     "en": "Either",        "pt": "Qualquer"},
     "wheel_side_left":        {"es": "Izquierda",      "en": "Left",          "pt": "Esquerda"},
     "wheel_side_right":       {"es": "Derecha",        "en": "Right",         "pt": "Direita"},
+    "stopper_inspect_frame":  {"es": "Frame inferido a las {time}",
+                               "en": "Frame inferred at {time}",
+                               "pt": "Quadro inferido às {time}"},
+    "stopper_inspect_px":     {"es": "Píxeles de la calza sobre la línea: {px} (mín. {min}) — "
+                                     "{verdict}",
+                               "en": "Stopper pixels above the line: {px} (min. {min}) — "
+                                     "{verdict}",
+                               "pt": "Pixels do calço acima da linha: {px} (mín. {min}) — "
+                                     "{verdict}"},
+    "stopper_inspect_gap":    {"es": "Distancia rueda-calza: {gap} px (máx. {max}) — {verdict}",
+                               "en": "Wheel-stopper distance: {gap} px (max. {max}) — {verdict}",
+                               "pt": "Distância roda-calço: {gap} px (máx. {max}) — {verdict}"},
+    "stopper_inspect_gap_uncalibrated": {"es": "Distancia rueda-calza: {gap} px (máximo sin "
+                                               "calibrar)",
+                                         "en": "Wheel-stopper distance: {gap} px (maximum not "
+                                               "calibrated)",
+                                         "pt": "Distância roda-calço: {gap} px (máximo não "
+                                               "calibrado)"},
+    "stopper_inspect_ok":     {"es": "OK",             "en": "OK",            "pt": "OK"},
+    "stopper_inspect_nok":    {"es": "NOK",            "en": "NOK",           "pt": "NOK"},
+    "stopper_inspect_no_stopper": {"es": "No se detectó la calza en este frame.",
+                                   "en": "No stopper was detected in this frame.",
+                                   "pt": "O calço não foi detectado neste quadro."},
+    "stopper_inspect_no_wheel": {"es": "No se detectó una rueda del lado configurado.",
+                                 "en": "No wheel was detected on the configured side.",
+                                 "pt": "Nenhuma roda foi detectada no lado configurado."},
     "process_stopper_hint":   {"es": "La calza está levantada si al menos esa cantidad de "
                                      "píxeles de su máscara queda por encima de esa altura, "
                                      "una línea horizontal de borde a borde. Recién con la calza levantada, "

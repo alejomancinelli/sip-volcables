@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 541 grupos, 2791 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**90 archivos, 542 grupos, 2801 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 613 |
+| [test/inference/](#testinference) | 15 | 614 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
@@ -31,7 +31,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 6 | 217 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 15 | 208 |
+| [test/ui/](#testui) | 15 | 217 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -1531,7 +1531,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 62 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 63 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1542,7 +1542,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 | `TestLabelsPanel` | 2 |
 | `TestUnloadStatus` | 20 |
 | `TestTimestamp` | 4 |
-| `TestStopperStatus` | 21 |
+| `TestStopperStatus` | 22 |
 
 <details><summary>Tests</summary>
 
@@ -1593,24 +1593,25 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_it_is_taller_than_the_status_border`
   - `test_an_empty_frame_is_ignored`
 - `TestStopperStatus`
-  - `test_a_raised_stopper_against_the_wheel_is_green`
-  - `test_a_stopper_below_the_line_is_red`
-  - `test_too_few_pixels_above_the_line_is_red`
-  - `test_a_wheel_farther_than_the_maximum_is_red`
-  - `test_without_a_stopper_it_is_red`
-  - `test_without_a_wheel_it_is_red`
-  - `test_an_uncalibrated_camera_is_red`
-  - `test_an_uncalibrated_verdict_is_gray_in_the_panel`
+  - `test_a_raised_stopper_against_the_wheel_is_ok_in_both`
+  - `test_there_is_no_status_border`
+  - `test_the_height_line_stops_growing_where_the_boxes_do`
+  - `test_without_a_border_the_panel_sits_in_the_corner`
+  - `test_a_stopper_below_the_line_is_nok_and_the_contact_is_not_judged`
+  - `test_too_few_pixels_above_the_line_is_nok`
+  - `test_a_wheel_farther_than_the_maximum_is_no_contact`
+  - `test_without_a_stopper_it_is_nok`
+  - `test_without_a_wheel_it_is_no_contact`
+  - `test_an_uncalibrated_verdict_is_not_affirmed`
   - `test_the_gap_is_drawn_between_the_two_masks`
   - `test_before_the_stopper_is_raised_the_wheel_changes_nothing`
-  - `test_before_the_stopper_is_raised_the_contact_is_gray`
   - `test_without_a_calibrated_height_the_contact_is_not_judged`
   - `test_the_height_is_drawn_across_the_whole_width`
   - `test_another_pipeline_draws_nothing`
   - `test_an_invalid_result_draws_nothing`
   - `test_a_height_that_is_not_a_row_stops_the_build`
   - `test_a_wheel_on_the_configured_side_counts`
-  - `test_a_wheel_only_on_the_other_side_is_red`
+  - `test_a_wheel_only_on_the_other_side_is_no_contact`
   - `test_the_side_picks_the_wheel_among_two`
   - `test_an_unknown_side_stops_the_build`
   - `test_the_labels_follow_the_language`
@@ -1904,11 +1905,11 @@ Tests de la geometría sobre detecciones: una máscara contra una línea y la di
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
-| Grupo | Tests |
-|---|---:|
-| `TestTemplateHooks` | 9 |
-| `TestStopperHooks` | 5 |
-| `TestReadPipelines` | 3 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestTemplateHooks` |  | 9 |
+| `TestStopperHooks` | El annotator de calzas no lleva borde de estado —lo decide el PLC—, así que estos tests no leen un veredicto: comparan el dibujo con el de otro config, y un valor que se lee es uno que lo cambia. | 5 |
+| `TestReadPipelines` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -4598,21 +4599,23 @@ Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y q
 
 </details>
 
-### [test_process_tab.py](../test/ui/test_process_tab.py) — 11 tests
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 20 tests
 
-Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
+Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestGroups` | 2 |
-| `TestRoundTrip` | 7 |
-| `TestLevel` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestCameraTabs` |  | 3 |
+| `TestRoundTrip` |  | 7 |
+| `TestLevel` |  | 2 |
+| `TestLevelInspector` | En pausa, el diálogo de la altura mide sobre el último frame inferido: los píxeles de la calza sobre la línea y la distancia a la rueda, con las reglas del annotator. | 8 |
 
 <details><summary>Tests</summary>
 
-- `TestGroups`
-  - `test_one_group_per_stopper_camera`
-  - `test_without_stopper_pipelines_there_are_no_groups`
+- `TestCameraTabs`
+  - `test_one_tab_per_stopper_camera`
+  - `test_each_tab_is_named_after_its_camera`
+  - `test_without_stopper_pipelines_there_are_no_tabs`
 - `TestRoundTrip`
   - `test_the_values_go_back_as_they_were`
   - `test_a_missing_minimum_shows_the_default`
@@ -4624,6 +4627,15 @@ Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check
 - `TestLevel`
   - `test_reload_level_shows_what_the_dialog_wrote`
   - `test_the_mark_button_asks_for_its_camera_key`
+- `TestLevelInspector`
+  - `test_it_measures_the_last_valid_result_of_the_camera`
+  - `test_the_pixels_follow_the_line`
+  - `test_it_judges_with_the_values_on_screen_even_unsaved`
+  - `test_an_uncalibrated_gap_is_shown_without_a_verdict`
+  - `test_a_wheel_on_the_other_side_does_not_count`
+  - `test_without_a_stopper_it_says_so`
+  - `test_without_a_valid_result_there_is_nothing_to_show`
+  - `test_a_camera_without_stoppers_has_no_inspector`
 
 </details>
 
