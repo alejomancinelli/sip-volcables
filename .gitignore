@@ -488,3 +488,7 @@ calibration/*/samples/**
 calibration/*/out/**
 !calibration/*/out/**/
 !calibration/*/out/**/.gitkeep
+
+# Configs written by setup/device-config: each one is a single device's, and it lives on
+# that device as installation/config.yaml.
+setup/device-config/out/

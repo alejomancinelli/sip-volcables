@@ -172,6 +172,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
     setup/                    instalación (en inglés, ver skill)
       cameras/                SDK de cámara, por fabricante y sistema
       venv-setup/             el venv, y verify_env.py que lo verifica en este equipo
+      device-config/          el config.yaml de un equipo: del config completo, deja las
+                              cámaras y pipelines que tiene; se corre una vez, desde el repo
       jetson/                 lo de sistema de la Jetson; el framework de inferencia y
                               sus versiones fijadas son de cada fork
     packages/                 wheels que no están en PyPI (stapipy)

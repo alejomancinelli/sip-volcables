@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**88 archivos, 519 grupos, 2652 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**89 archivos, 525 grupos, 2681 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -25,6 +25,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
+| [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/camera/](#testtoolscamera) | 6 | 217 |
@@ -3261,6 +3262,61 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
 - `TestSharedDatastore`
   - `test_the_context_serves_the_registered_device`
   - `test_a_query_to_another_unit_id_finds_nothing`
+
+</details>
+
+## test/setup/
+
+### [test_device_config.py](../test/setup/test_device_config.py) — 29 tests
+
+Tests del armado del config de un equipo: qué se saca, qué cámaras ve cada pipeline, qué se avisa y qué se rechaza.
+
+| Grupo | Tests |
+|---|---:|
+| `TestCameras` | 4 |
+| `TestPipelines` | 9 |
+| `TestKept` | 3 |
+| `TestOverrides` | 3 |
+| `TestWizard` | 6 |
+| `TestMain` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestCameras`
+  - `test_cameras_left_out_disappear_from_every_place_that_names_them`
+  - `test_a_camera_no_pipeline_sees_is_reported`
+  - `test_an_unknown_camera_is_rejected`
+  - `test_an_empty_camera_selection_is_rejected`
+- `TestPipelines`
+  - `test_without_a_map_each_pipeline_keeps_its_declared_cameras`
+  - `test_a_pipeline_can_skip_one_of_its_cameras`
+  - `test_a_pipeline_can_run_on_a_camera_it_does_not_declare`
+  - `test_a_pipeline_left_out_is_removed_from_every_list_that_names_it`
+  - `test_a_pipeline_given_no_cameras_is_removed`
+  - `test_a_pipeline_without_declared_cameras_keeps_seeing_them_all`
+  - `test_a_camera_the_device_does_not_have_is_rejected`
+  - `test_a_selected_pipeline_without_its_cameras_is_rejected`
+  - `test_an_unknown_pipeline_is_rejected`
+- `TestKept`
+  - `test_models_are_kept`
+  - `test_a_list_that_was_already_empty_is_not_reported`
+  - `test_the_base_is_not_modified`
+- `TestOverrides`
+  - `test_an_existing_value_is_replaced_and_parsed_as_yaml`
+  - `test_a_key_that_does_not_exist_is_rejected`
+  - `test_an_assignment_without_equals_is_rejected`
+- `TestWizard`
+  - `test_each_pipeline_is_asked_over_the_cameras_of_the_device`
+  - `test_enter_takes_the_declared_cameras_of_each_pipeline`
+  - `test_the_default_output_is_named_after_the_device`
+  - `test_an_invalid_answer_is_asked_again`
+  - `test_declining_returns_nothing`
+  - `test_an_existing_file_is_kept_unless_confirmed`
+- `TestMain`
+  - `test_without_arguments_it_guides_and_writes`
+  - `test_a_cancel_writes_nothing`
+  - `test_the_arguments_choose_the_cameras_of_each_pipeline`
+  - `test_an_existing_output_is_not_overwritten_without_force`
 
 </details>
 
