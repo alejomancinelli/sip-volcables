@@ -20,3 +20,9 @@ numpy>=1.24,<2.0
 #     torch==2.5.0a0
 #     torchvision==0.20.0
 #     ultralytics==8.4.90
+
+# Pins of this fork: its models run on TensorRT through NVIDIA's torch (JetPack 6, L4T 36),
+# whose buffers hold the engine's input and output. ultralytics is not needed to run a
+# model, only to export one, and it is not installed.
+torch==2.5.0a0
+torchvision==0.20.0
