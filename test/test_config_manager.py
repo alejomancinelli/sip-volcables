@@ -410,3 +410,47 @@ class TestBackup:
         config.set("system.log_level", "INFO")
         config.save()
         assert not (tmp_path / "config.yaml.bak").exists()
+
+
+class TestDelete:
+    def test_it_removes_a_key_and_says_so(self, tmp_path):
+        cfg = _manager(_write_config(tmp_path))
+        assert cfg.delete("cameras.camera_1.name") is True
+        assert cfg.get("cameras.camera_1.name", "GONE") == "GONE"
+
+    def test_the_siblings_stay(self, tmp_path):
+        cfg = _manager(_write_config(tmp_path))
+        cfg.delete("cameras.camera_1.name")
+        assert cfg.get("cameras.camera_1.enabled") is True
+
+    def test_it_removes_a_whole_section(self, tmp_path):
+        cfg = _manager(_write_config(tmp_path))
+        cfg.set("cameras.camera_1.roi", {"x_px": 1})
+        assert cfg.delete("cameras.camera_1.roi") is True
+        assert cfg.get("cameras.camera_1.roi", "GONE") == "GONE"
+
+    def test_a_key_that_is_null_in_the_file_is_still_a_key(self, tmp_path):
+        cfg = _manager(_write_config(tmp_path))
+        assert cfg.delete("cameras.camera_1.roi") is True
+
+    @pytest.mark.parametrize("path", ["nope", "cameras.nope.name", "cameras.camera_1.name.x",
+                                      "", "cameras.camera_1.roi.x_px"])
+    def test_a_path_that_does_not_exist_does_nothing(self, tmp_path, path):
+        cfg = _manager(_write_config(tmp_path))
+        before = cfg.revision
+        assert cfg.delete(path) is False
+        assert cfg.revision == before
+
+    def test_it_bumps_the_revision_so_cached_readers_notice(self, tmp_path):
+        cfg = _manager(_write_config(tmp_path))
+        before = cfg.revision
+        cfg.delete("cameras.camera_1.name")
+        assert cfg.revision == before + 1
+
+    def test_it_does_not_touch_the_disk_until_save(self, tmp_path):
+        path = _write_config(tmp_path)
+        cfg = _manager(path)
+        cfg.delete("cameras.camera_1.name")
+        assert "name: CAM" in _read(path)
+        cfg.save()
+        assert "name: CAM" not in _read(path)

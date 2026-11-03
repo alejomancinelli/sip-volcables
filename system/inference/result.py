@@ -13,7 +13,8 @@ salen del config.
 Puntos del contrato que no se ven en los campos:
   - **Todas las coordenadas son del frame de cámara**, en píxeles y con el origen
     arriba a la izquierda, incluso cuando la inferencia corrió sobre un ROI: quien
-    recorta vuelve a sumar el origen con `offset_detections` antes de entregar. Así
+    recorta vuelve a sumar el origen con `offset_detections` antes de entregar —y, si
+    la región llegó a otra escala, la devuelve primero con `scale_detections`—. Así
     una detección se dibuja sobre el frame crudo sin saber si hubo recorte.
   - **`mask` va recortada al bbox**, no al tamaño del frame: con cientos de instancias,
     una máscara por detección del tamaño de la imagen no entra en memoria.
@@ -26,15 +27,22 @@ Puntos del contrato que no se ven en los campos:
     fuera de rango»). Van aparte de `detections` porque no tienen forma ni posición, y
     aparte de `metrics` porque son texto: quien necesite publicarlos al PLC los traduce
     a un número o a un bit en el analyzer, que es el que sabe a qué equivalen.
+  - **`roi_state` es el veredicto del recuadro del ROI**: con qué estado se pinta la región
+    que mira el pipeline —`ROI_STATE_OK`, `ROI_STATE_NOK` o `ROI_STATE_WARNING`—, o
+    `ROI_STATE_NONE` si no dice nada. Lo declara el pipeline junto a sus `labels`, porque
+    sólo el código del proyecto sabe qué veredicto equivale a «bien» o «mal». Un resultado
+    con `is_valid` en False no se pinta aunque traiga un estado: sus números no son una
+    medición, y un recuadro verde sobre algo que no se midió es peor que ninguno.
   - **`signals` es la foto de las variables de la planta** —hoy, las que escribe el PLC por
     Modbus, por nombre de fila— **del instante en que el frame entró al motor**, no del
     instante en que salió. Es lo que lee el analyzer para calcular con un dato de afuera —la
     velocidad de la cinta, el código de producto—: si el valor cambia mientras el frame se
     infiere, la medición sale con el de ese frame, y el dataset guarda el que se usó. Vacío
     cuando nadie las manda, como en la corrida de imágenes sueltas.
-  - **Los frames viajan por referencia.** `source_bgr` es el frame que entró y
-    `annotated_bgr` una copia con las anotaciones dibujadas: quien recibe el resultado
-    no los modifica.
+  - **Los frames viajan por referencia.** `source_bgr` es el frame que entró,
+    `region_bgr` la imagen sobre la que corrió el pipeline —el recorte del ROI, o la
+    vista que el decodificador cortó a resolución nativa— y `annotated_bgr` una copia
+    con las anotaciones dibujadas: quien recibe el resultado no los modifica.
 
 `is_valid` es la única señal de confianza: en False el resultado se emite igual —el
 frame anotado y la iluminación siguen sirviendo— pero sus números no son una medición
@@ -45,6 +53,7 @@ vocabulario REASON_* de este módulo.
 import time
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 # Vocabulario de `invalid_reason`, para que la UI y los tests no repitan literales.
@@ -53,6 +62,15 @@ REASON_DARK_FRAME = "dark_frame"            # iluminación por debajo del mínim
 REASON_LOW_CONFIDENCE = "low_confidence"    # confianza media por debajo del mínimo del pipeline
 REASON_FEW_DETECTIONS = "few_detections"    # menos detecciones que el mínimo del pipeline
 REASON_ERROR = "error"                      # excepción en alguna etapa
+REASON_NO_VIEW = "no_view"                  # el pipeline pide la vista nativa y no llegó
+
+# Vocabulario de `roi_state`. Es el único lugar donde están los textos: el pipeline los
+# declara, el overlay los pinta y el JSON del dataset los guarda.
+ROI_STATE_NONE = ""
+ROI_STATE_OK = "ok"
+ROI_STATE_NOK = "nok"
+ROI_STATE_WARNING = "warning"
+ROI_STATES = (ROI_STATE_OK, ROI_STATE_NOK, ROI_STATE_WARNING)
 
 
 @dataclass
@@ -109,6 +127,7 @@ class InferenceResult:
     timestamp_s: float = field(default_factory=time.time)
     detections: list[Detection] = field(default_factory=list)
     labels: dict = field(default_factory=dict)           # veredictos de frame: {nombre: valor}
+    roi_state: str = ROI_STATE_NONE          # cómo se pinta el recuadro del ROI: ROI_STATE_*
     metrics: dict = field(default_factory=dict)
     confidence_pct: float = 0.0              # media de las detecciones que sobrevivieron
     inference_time_ms: float = 0.0           # frame completo: recorte, etapas y filtros
@@ -117,6 +136,7 @@ class InferenceResult:
     illumination_pct: int = 0                # brillo medio del ROI, 0–100
     roi_px: tuple[int, int, int, int] | None = None      # None = se infirió el frame entero
     source_bgr: np.ndarray | None = None
+    region_bgr: np.ndarray | None = None     # lo que vio el pipeline; None = no llegó a verlo
     annotated_bgr: np.ndarray | None = None
     is_valid: bool = True
     invalid_reason: str = ""
@@ -150,6 +170,7 @@ class InferenceResult:
             "stage_times_ms": dict(self.stage_times_ms),
             "roi_px": None if self.roi_px is None else list(self.roi_px),
             "labels": dict(self.labels),
+            "roi_state": self.roi_state,
             "metrics": dict(self.metrics),
             "signals": dict(self.signals),
             "detections": [detection.to_dict() for detection in self.detections],
@@ -172,4 +193,35 @@ def offset_detections(detections: list[Detection], x_px: int, y_px: int) -> list
         if detection.centroid_px is not None:
             cx, cy = detection.centroid_px
             detection.centroid_px = (cx + x_px, cy + y_px)
+    return detections
+
+
+def scale_detections(detections: list[Detection], scale_x: float,
+                     scale_y: float) -> list[Detection]:
+    """
+    Lleva las detecciones de una imagen a otra de distinta escala. Modifica las que recibe.
+
+    Lo llama quien le dio al pipeline la región a otra resolución que el frame —la vista
+    que el decodificador corta a tamaño nativo— con el factor de esa imagen al frame, y
+    después corre el origen con `offset_detections`. Las máscaras se reescalan al bbox
+    nuevo, así que el área de una detección con máscara se vuelve a contar. Con (1, 1)
+    no hay nada que hacer.
+    """
+    if scale_x == 1.0 and scale_y == 1.0:
+        return detections
+    for detection in detections:
+        x1, y1, x2, y2 = detection.bbox_px
+        x1, x2 = round(x1 * scale_x), round(x2 * scale_x)
+        y1, y2 = round(y1 * scale_y), round(y2 * scale_y)
+        detection.bbox_px = (x1, y1, x2, y2)
+        if detection.centroid_px is not None:
+            cx, cy = detection.centroid_px
+            detection.centroid_px = (round(cx * scale_x), round(cy * scale_y))
+        if detection.mask is not None:
+            # Vecino más cercano: la máscara es 0/1 y un bilineal le inventaría valores.
+            detection.mask = cv2.resize(detection.mask, (max(1, x2 - x1), max(1, y2 - y1)),
+                                        interpolation=cv2.INTER_NEAREST)
+            detection.area_px = int(np.count_nonzero(detection.mask))
+        else:
+            detection.area_px = max(0, x2 - x1) * max(0, y2 - y1)
     return detections

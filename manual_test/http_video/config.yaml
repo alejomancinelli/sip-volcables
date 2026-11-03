@@ -12,7 +12,7 @@ video:
     log_connections: true       # en false, abrir y cerrar pestañas no dice nada
 
 # De esta sección el servidor sólo usa las claves: son los slots que van en la ruta
-# (/camera_1/raw). Los campos de una cámara real —`name`, `driver`, `roi`— no
+# (/camera_1/raw). Los campos de una cámara real —`name`, `driver`— no
 # aparecen porque no lee ninguno; la ruta sale del slot, no del nombre.
 cameras:
   camera_1: {}

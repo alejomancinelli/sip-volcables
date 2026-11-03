@@ -39,6 +39,15 @@ Qué fija el contrato:
     motor la copia al resultado. Es también la forma de contar lo que se decidió cuando
     una etapa se saltea: la etapa que no corrió no deja tiempo en `stage_times_ms`, pero
     el veredicto que la salteó queda a la vista.
+  - **El estado del recuadro del ROI lo declara el pipeline** con `_set_roi_state()`, igual
+    que los labels: sólo él sabe qué veredicto es «bien» o «mal». El motor lo copia al
+    resultado y el overlay pinta el recuadro de ese color. Sin llamarlo el recuadro va del
+    color del pipeline, que es lo normal.
+  - **La primera etapa fija el tamaño de la región.** El decodificador corta la región de un
+    pipeline del video nativo y la reduce al tamaño que usaría el modelo que la lee
+    (`peek_view_input()`), así el modelo no tiene que reescalarla. Con etapas en cascada
+    manda la primera —las siguientes miran recortes de lo que ella encontró—; un pipeline
+    que quiera otra la declara en `view_model_slot`.
   - **El pipeline no dibuja, no filtra por resultado y no calcula métricas del proceso.**
     Eso es de `overlay`, del motor y del analyzer, en ese orden.
   - **No propaga los errores de una etapa hacia adentro:** los deja subir al motor, que
@@ -55,9 +64,9 @@ import numpy as np
 
 from system.config_manager import ConfigManager
 
-from .models.abstract_model import AbstractModel
+from .models.abstract_model import AbstractModel, InputSpec
 from .models.model_factory import create_model
-from .result import Detection
+from .result import ROI_STATE_NONE, ROI_STATES, Detection
 
 
 class AbstractPipeline(ABC):
@@ -78,6 +87,7 @@ class AbstractPipeline(ABC):
         self._models: dict[str, AbstractModel] = {}
         self._stage_times_ms: dict[str, float] = {}
         self._labels: dict[str, str] = {}
+        self._roi_state = ROI_STATE_NONE
 
     # ── Estado ───────────────────────────────────────────────────────────────
 
@@ -103,6 +113,24 @@ class AbstractPipeline(ABC):
     def labels(self) -> dict:
         """Veredictos de frame de la última corrida: {nombre: valor}, todos texto."""
         return dict(self._labels)
+
+    @property
+    def view_model_slot(self) -> str:
+        """El slot de la etapa cuya entrada fija el tamaño de la región: la primera."""
+        return self.model_slots[0] if self.model_slots else ""
+
+    def peek_view_input(self) -> InputSpec | None:
+        """
+        La entrada del modelo que lee la región, sin cargar ninguna etapa, o None si no se
+        sabe. Se pregunta antes de abrir las cámaras (ver `AbstractModel.peek_input()`).
+        """
+        slot = self.view_model_slot
+        return create_model(self._config, slot).peek_input() if slot else None
+
+    @property
+    def roi_state(self) -> str:
+        """Estado del recuadro del ROI de la última corrida: un `ROI_STATE_*`."""
+        return self._roi_state
 
     def get_status(self) -> dict:
         """
@@ -143,6 +171,7 @@ class AbstractPipeline(ABC):
         self._models.clear()
         self._stage_times_ms.clear()
         self._labels.clear()
+        self._roi_state = ROI_STATE_NONE
 
     # ── Corrida ──────────────────────────────────────────────────────────────
 
@@ -150,12 +179,13 @@ class AbstractPipeline(ABC):
         """
         Corre el pipeline sobre el frame de una cámara y devuelve las detecciones finales.
 
-        Reinicia los tiempos por etapa y los labels antes de llamar a `_run()`, así que
-        los dos corresponden siempre a la última corrida y un veredicto viejo no
+        Reinicia los tiempos por etapa, los labels y el estado del recuadro antes de llamar a
+        `_run()`, así que corresponden siempre a la última corrida y un veredicto viejo no
         sobrevive al frame que lo produjo.
         """
         self._stage_times_ms = {}
         self._labels = {}
+        self._roi_state = ROI_STATE_NONE
         return self._run(frame_bgr, camera_slot)
 
     @abstractmethod
@@ -199,3 +229,13 @@ class AbstractPipeline(ABC):
         proceso no van acá: los calcula el analyzer y viajan en `metrics`.
         """
         self._labels[name] = str(value)
+
+    def _set_roi_state(self, state: str):
+        """
+        Declara con qué estado se pinta el recuadro del ROI en esta corrida: un `ROI_STATE_*`.
+
+        Un valor que no es del vocabulario se ignora: el recuadro quedaría de un color que
+        nadie sabe leer.
+        """
+        if state in ROI_STATES:
+            self._roi_state = state

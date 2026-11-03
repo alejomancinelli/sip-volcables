@@ -128,8 +128,10 @@ inference:
   # recorta el segundo, qué hace con lo que encontró el primero—. Acá va de dónde sale
   # cada modelo y qué cámaras entran a cada pipeline.
   #
-  # El ROI y el mínimo de iluminación son de la cámara y viven en su sección: se recorta
-  # y se mide antes de gastar una pasada del modelo.
+  # La cámara no tiene ROI: la región es de cada pipeline (`roi:` en su sección, abajo),
+  # porque dos modelos sobre la misma cámara miran partes distintas. Se recorta y se mide
+  # el brillo antes de gastar una pasada del modelo; el mínimo de iluminación sí es de la
+  # cámara (`cameras.<slot>.illumination_min`).
   overlay:
     # Dibujado del resultado sobre el frame. Sale una sola vez y el mismo array viaja a
     # la UI, al stream `annotated` y al dataset. La sección entera se edita sólo acá: la
@@ -139,7 +141,9 @@ inference:
     draw_boxes: true
     draw_masks: true            # sólo hace algo si el modelo devuelve máscaras
     draw_labels: true           # nombre de clase y confianza sobre cada caja
-    draw_roi: true              # recuadro de la zona que se analizó
+    # Recuadro de la región de cada pipeline, con su color y su nombre; de verde, rojo o
+    # amarillo si el pipeline declara un veredicto, y gris punteado si el resultado no vale.
+    draw_roi: true
     draw_timestamp: true
     font_scale: 0.6
     thickness: 2
@@ -148,6 +152,9 @@ inference:
     # Una entrada por pipeline, numeradas pipeline_1 … pipeline_N. La clave es el slot:
     # es la identidad con la que el pipeline aparece en el resto del sistema.
     pipeline_1:
+      # Cómo lo llama el operador: es lo que muestran el diálogo de regiones y la pestaña
+      # Inferencia. Opcional; sin él se muestra el slot, que sigue siendo la identidad.
+      name: ''
       enabled: true
       # Qué clase corre este slot: ver REGISTERED_PIPELINES en pipeline_factory.py.
       # Ausente = `default`. Dos slots del mismo tipo son dos hilos con sus propios pesos:
@@ -174,6 +181,22 @@ inference:
       # medición. El descarte por detección es del modelo (`min_confidence_pct`).
       min_detections: 0         # menos detecciones que esto = resultado no confiable
       min_result_confidence_pct: 0   # confianza media por debajo de esto = resultado no confiable
+      # Región de este pipeline, por cámara. Sin la cámara acá, en null o con
+      # `enabled: false`, el pipeline ve el frame completo. Se dibuja con el diálogo de
+      # regiones (pestaña Inferencia → «Editar regiones…»), y las coordenadas son del frame
+      # que entrega la cámara —el que se ve en pantalla—. `frame_width_px` /
+      # `frame_height_px` son el tamaño del frame sobre el que se dibujó: si el que llega es
+      # otro, el diálogo y el log avisan que el recuadro puede haber quedado corrido.
+      #
+      # En una cámara que decodifica video (`rtsp`, `video_file`) la región se corta del
+      # video NATIVO antes de reducirlo (tools/camera/decoder.py), así el modelo no pierde
+      # el detalle que la reducción le quita al frame, y sale ya a la entrada del modelo,
+      # leída del .engine. No se elige: lo decide la cámara. Con corrección de lente o
+      # ajuste de imagen se recorta del frame de referencia. Cambiar el rectángulo se aplica
+      # al reiniciar. El dataset de un pipeline con región guarda la región que vio, en una
+      # carpeta `<cámara>-<pipeline>`.
+      roi: {}                   # {camera_1: {enabled: true, x_px: 0, y_px: 0, width_px: 0,
+                                #  height_px: 0, frame_width_px: 0, frame_height_px: 0}}
       # ── El ciclo de medición ──────────────────────────────────────────────
       # El motor no lee ninguna de estas: emite un resultado por frame y no promedia. Las
       # lee `system/camera/capture_scheduler.py`, que junta los N resultados y los agrega
@@ -230,6 +253,7 @@ image_collector:
   enabled: false                # se prende y se apaga en caliente
   cameras: []                   # slots que se guardan; [] = todas, también las que se agreguen
                                 # después. Con una lista, una cámara nueva no entra hasta sumarla
+  pipelines: []                 # de qué pipelines se guardan resultados; [] = todos
   # on_demand: cada guardado lo pide quien orquesta el ciclo de medición, una vez por
   # medición, que es lo que sirve cuando la inferencia corre cada varios minutos y la luz
   # se enciende solo para la captura; sin ningún pipeline con `frames_per_cycle` > 1 no
@@ -328,10 +352,11 @@ gpio:
   initial_outputs: {}           # p. ej. {DO1: 1}
 
 lens_health:
-  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez del ROI de
-  # cada cámara —la varianza del Laplaciano, que el polvo sobre el vidrio hace caer— y
-  # prende el bit de lente sucio de la palabra de estado de esa cámara, que es el mismo
-  # que lee el PLC. No agrega registros: el bit ya existe en el mapa.
+  # Detección de lente sucio (system/camera/lens_health.py). Mide la nitidez de la región
+  # de óptica de cada cámara (`cameras.<slot>.lens_health.roi`) —la varianza del
+  # Laplaciano, que el polvo sobre el vidrio hace caer— y prende el bit de lente sucio de
+  # la palabra de estado de esa cámara, que es el mismo que lee el PLC. No agrega
+  # registros: el bit ya existe en el mapa.
   #
   # LA REFERENCIA DE VIDRIO LIMPIO NO VA ACÁ. Es de cada cámara y vive en
   # `cameras.<slot>.lens_health.reference`, porque depende del lente, de la exposición y
@@ -373,21 +398,26 @@ cameras:
       #
       # El tamaño es de la cámara y no del backend: con los dos en 0 sale al del video, y
       # con un tamaño lo reduce el VIC o la CPU, los dos bilineales. Para la app la cámara
-      # pasa a ser de ese tamaño, como si se le bajara la resolución: el ROI, el dataset y
-      # los streams quedan en él, y cambiarlo obliga a revisar el ROI y a recalibrar la
-      # nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
+      # pasa a ser de ese tamaño, como si se le bajara la resolución: las regiones, el
+      # dataset y los streams quedan en él, y cambiarlo obliga a revisar las regiones y a
+      # recalibrar la nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
       # que decodificar y reducir por CPU; NVDEC sin reducir ahorra poco.
       backend: cpu              # cpu | nvdec | auto; se aplica al reiniciar
       width_px: 0               # 0 y 0 = tamaño del video
       height_px: 0
-    roi:
-      enabled: false
-      x_px: 0
-      y_px: 0
-      width_px: 0
-      height_px: 0
-    illumination_min: 50        # brillo medio mínimo del ROI 0–100
+    # Sin `roi`: la cámara no recorta, la región es de cada pipeline. El recorte de la propia
+    # cámara se hace en su interfaz, fuera de la app (docs/jetson.md §4.4.1).
+    illumination_min: 50        # brillo medio mínimo de la región de cada pipeline 0–100
     lens_health:
+      # Dónde se mide la nitidez: una zona con textura fija y nítida, que no tiene que ver
+      # con lo que mira cada modelo. Se dibuja en la pestaña de óptica; apagada = el frame
+      # entero.
+      roi:
+        enabled: false
+        x_px: 0
+        y_px: 0
+        width_px: 0
+        height_px: 0
       # Referencia de vidrio limpio de ESTA cámara, contra la que se compara la nitidez
       # medida. La escribe la calibración desde la pantalla; a mano se toca sólo para
       # copiar la de un equipo gemelo. `variance: 0` = sin calibrar, y esa cámara queda
@@ -395,8 +425,9 @@ cameras:
       #
       # Se calibra con el lente recién limpiado y la cámara ya apuntada: lo que se está
       # guardando es el techo de nitidez de ese montaje. `conditions` deja constancia de
-      # con qué exposición, ganancia, rotación y ROI se midió — si después cambian, la
-      # pantalla avisa que el número puede haberse movido sin que el vidrio se ensucie.
+      # con qué exposición, ganancia, rotación y región de óptica se midió — si después
+      # cambian, la pantalla avisa que el número puede haberse movido sin que el vidrio se
+      # ensucie.
       reference:
         variance: 0.0         # varianza del Laplaciano con el lente limpio
         luma: 0.0             # nivel de gris medio de esa calibración, 0–255
@@ -408,7 +439,7 @@ cameras:
       # Intrínsecos del lente, para corregir la distorsión (tools/image/undistort.py). Son
       # del lente y del montaje, no del proceso. Con esto declarado, main.py le pasa al
       # motor el preprocessor y la imagen corregida pasa a ser el frame de referencia: la
-      # que ve el modelo, la que se anota y la que define el espacio del ROI.
+      # que ve el modelo, la que se anota y la que define el espacio de las regiones.
       camera_matrix: []         # 3x3; [] = sin corrección
       dist_coeffs: []           # 4, 5, 8, 12 o 14 coeficientes
     image_adjust:
@@ -421,7 +452,7 @@ cameras:
       # Entra por el mismo preprocessor que la corrección de lente, después de ella, así que
       # no es un ajuste de pantalla —eso es `video.display`—: cambia el frame de referencia.
       #   - el dataset guarda la imagen ajustada, así que se reentrena con eso;
-      #   - `illumination_min` y el brillo del ROI que sale al PLC se miden después del
+      #   - `illumination_min` y el brillo de la región que sale al PLC se miden después del
       #     ajuste: cambiar el factor obliga a revisar ese umbral;
       #   - la vista cruda sigue mostrando lo que entrega el sensor, y la anotada el frame
       #     ajustado.
