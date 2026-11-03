@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**89 archivos, 525 grupos, 2682 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**89 archivos, 526 grupos, 2688 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 527 |
+| [test/inference/](#testinference) | 15 | 533 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
@@ -1904,7 +1904,7 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 
 </details>
 
-### [test_overlay.py](../test/inference/test_overlay.py) — 70 tests
+### [test_overlay.py](../test/inference/test_overlay.py) — 76 tests
 
 Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de cámara nunca se toque.
 
@@ -1916,7 +1916,8 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 | `TestMaskStyle` | Contorno y relleno son dueños de píxeles distintos. | 5 |
 | `TestFontScale` | `font_scale: 0` calcula el tamaño del texto a partir del ancho del frame. | 4 |
 | `TestTextPanelColours` | Un panel puede pintar cada línea de su color, y es lo que deja que el resumen de clases coincida con el color de las máscaras. Lo que no se declara cae en el del panel. | 4 |
-| `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 2 |
+| `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 4 |
+| `TestLineThickness` | `thickness: 0` sigue al lado menor del frame, con topes; un valor positivo es fijo. Así una cámara reducida por el decodificador se ve con el mismo trazo que una nativa. | 4 |
 | `TestTextThickness` | El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve pálido y roto, que es lo que pasaba después de escalarlo con el ancho del frame. | 3 |
 | `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 6 |
 | `TestPipelineStyle` |  | 6 |
@@ -1965,6 +1966,13 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 - `TestTextPanelLayout`
   - `test_the_values_end_in_the_same_column`
   - `test_the_space_between_lines_grows_with_the_text`
+  - `test_by_default_it_leaves_a_margin_to_the_border`
+  - `test_with_no_margin_it_sits_in_the_corner`
+- `TestLineThickness`
+  - `test_the_automatic_one_follows_the_short_side_within_its_limits`
+  - `test_a_positive_value_is_kept_on_any_frame`
+  - `test_the_boxes_are_drawn_with_it`
+  - `test_the_roi_grows_with_the_frame_and_nok_stays_thicker`
 - `TestTextThickness`
   - `test_it_grows_with_the_scale`
   - `test_it_is_never_zero`
