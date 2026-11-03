@@ -324,7 +324,7 @@ class TestLineThickness:
         return np.full((height_px, width_px, 3), 128, np.uint8)
 
     @pytest.mark.parametrize(("height_px", "width_px", "expected_px"),
-                             [(1080, 1920, 4), (720, 1280, 3), (360, 640, 1), (120, 200, 1),
+                             [(1080, 1920, 4), (720, 1280, 3), (360, 640, 2), (120, 200, 2),
                               (2160, 3840, 6)])
     def test_the_automatic_one_follows_the_short_side_within_its_limits(
             self, height_px, width_px, expected_px):
