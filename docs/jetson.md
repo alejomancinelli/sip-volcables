@@ -490,7 +490,7 @@ pantalla, al stream anotado y al dataset.
 | Clave | Qué hace en la imagen |
 |---|---|
 | `draw_boxes`, `draw_masks`, `draw_labels`, `draw_roi`, `draw_timestamp` | Qué se dibuja. Las máscaras sólo si el modelo las devuelve. `draw_roi` dibuja el recuadro de cada pipeline con su color y su nombre, y lo pinta de verde, rojo o amarillo si el pipeline declara un veredicto (`roi_state`); un resultado no confiable va gris y punteado. |
-| `font_scale`, `thickness` | Tamaño del texto y del trazo. En 0 son automáticos y siguen al frame: el trazo es el 0,4 % del lado menor, entre 1 y 6 px, y el texto se ajusta al ancho. Un valor positivo es fijo **en píxeles del frame**, igual para todas las cámaras: al reducir con `decode`, sale proporcionalmente más grande. |
+| `font_scale`, `thickness` | Tamaño del texto y del trazo. En 0 son automáticos y siguen al frame: el trazo es el 0,4 % del lado menor, entre 2 y 6 px, y el texto se ajusta al ancho. Un valor positivo es fijo **en píxeles del frame**, igual para todas las cámaras: al reducir con `decode`, sale proporcionalmente más grande. |
 | `class_colors_bgr` | Color por clase; `[]` = la paleta del módulo. |
 
 Si nadie mira el stream anotado ni la pantalla, no se dibuja.

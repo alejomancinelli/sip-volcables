@@ -99,15 +99,16 @@ _LINE_PAD_RATIO = 0.4     # ídem, en fracción del alto del texto: crece con la
 _COLUMN_GAP = "  "        # aire entre la etiqueta y el valor, medido con la fuente del panel
 _TIMESTAMP_RATIO = 0.8    # el timestamp va más chico que el panel: es referencia, no dato
 _LABEL_SCALE = 0.55       # etiqueta de una referencia dibujada con draw_line()
-_ROI_THICKNESS_PX = 1     # mínimo del ROI; crece con el trazo de las cajas
+_ROI_THICKNESS_PX = 2     # mínimo del ROI; crece con el trazo de las cajas
 _DASH_LENGTH_PX = 10      # largo de un trazo y de su hueco en un ROI punteado
 
 # Grosor automático de las líneas (`thickness: 0`): una fracción del lado menor del frame,
-# con topes. Da 4 px en 1080 y 1 px en 360, así que una cámara reducida por el decodificador
-# se ve en pantalla con el mismo trazo que una nativa; el máximo evita que en 4K las cajas
-# tapen lo que encierran.
+# con topes. Da 4 px en 1080, así que una cámara reducida por el decodificador se ve en
+# pantalla con casi el mismo trazo que una nativa. El mínimo es 2 y no 1: en 360 la cuenta da
+# 1 px, que se pierde en una cámara chica mirada en la grilla. El máximo evita que en 4K las
+# cajas tapen lo que encierran.
 _AUTO_THICKNESS_FRACTION = 0.004
-_AUTO_THICKNESS_MIN_PX = 1
+_AUTO_THICKNESS_MIN_PX = 2
 _AUTO_THICKNESS_MAX_PX = 6
 
 # Escala automática (`font_scale: 0`). El texto se calcula para que la línea más larga
