@@ -743,10 +743,28 @@ class TestEngines:
         app = main.Application.__new__(main.Application)
         app._camera_illumination = {}
         app._last_valid_by_pair = {}
+        app._last_result_by_pair = {}
         app._ui = types.SimpleNamespace(monitor_content=None)
         app._on_result_ready(InferenceResult(camera_slot="camera_1",
                                              pipeline_slot="pipeline_2", is_valid=False))
         assert app._last_valid_by_pair == {("camera_1", "pipeline_2"): False}
+
+    def test_the_last_result_of_each_pair_is_kept_without_its_drawings(self):
+        """Lo pide el diálogo de la altura: el frame de referencia y sus detecciones, nada más."""
+        import types
+        app = main.Application.__new__(main.Application)
+        app._camera_illumination = {}
+        app._last_valid_by_pair = {}
+        app._last_result_by_pair = {}
+        app._ui = types.SimpleNamespace(monitor_content=None)
+        frame = np.zeros((4, 4, 3), np.uint8)
+        app._on_result_ready(InferenceResult(
+            camera_slot="camera_1", pipeline_slot="pipeline_3", source_bgr=frame,
+            annotated_bgr=frame.copy(), region_bgr=frame.copy()))
+        kept = app._get_last_result("camera_1", "pipeline_3")
+        assert kept.source_bgr is frame
+        assert kept.annotated_bgr is None and kept.region_bgr is None
+        assert app._get_last_result("camera_2", "pipeline_3") is None
 
 
 def _build_metrics_application(monkeypatch):

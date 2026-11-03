@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 532 grupos, 2725 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**90 archivos, 533 grupos, 2731 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 367 |
+| [test/](#test) | 7 | 368 |
 | [test/build/](#testbuild) | 2 | 64 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
@@ -31,7 +31,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 14 | 192 |
+| [test/ui/](#testui) | 14 | 197 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -228,7 +228,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 138 tests
+### [test_main.py](../test/test_main.py) — 139 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -247,7 +247,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestCycleTimeFields` | El período de la cámara se agrega sin contar el 0 del primer frame. | 2 |
 | `TestFrameViews` | Las vistas viajan con su frame hasta el motor, por los dos caminos. | 2 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
-| `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
+| `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 7 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
@@ -340,6 +340,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_an_unlicensed_feature_gets_no_engine`
   - `test_an_unlicensed_pipeline_is_remembered_for_its_status_word`
   - `test_each_result_records_whether_its_pair_was_valid`
+  - `test_the_last_result_of_each_pair_is_kept_without_its_drawings`
 - `TestMetricRegisters`
   - `test_two_pipelines_on_one_camera_keep_their_own_metrics`
   - `test_two_pairs_publishing_the_same_metric_are_warned_once`
@@ -4399,14 +4400,15 @@ Tests de la pestaña de óptica: la región donde se mide la nitidez de cada cá
 
 </details>
 
-### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 5 tests
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 10 tests
 
 Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestLevelDialog` | 4 |
-| `TestPause` | 1 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestLevelDialog` |  | 4 |
+| `TestPause` |  | 1 |
+| `TestInspector` | En pausa, el diálogo muestra el frame que trae el inspector y sus renglones para la altura marcada. Lo que se mide no es del diálogo: el inspector lo arma. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -4417,6 +4419,12 @@ Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse 
   - `test_it_saves_one_row_under_its_key_and_persists`
 - `TestPause`
   - `test_a_paused_dialog_keeps_the_frame_it_had`
+- `TestInspector`
+  - `test_pausing_shows_the_inspected_frame_and_its_lines`
+  - `test_moving_the_line_rebuilds_the_lines`
+  - `test_without_a_snapshot_it_says_there_is_nothing_to_measure`
+  - `test_resuming_hides_the_lines`
+  - `test_without_an_inspector_pausing_shows_no_lines`
 
 </details>
 

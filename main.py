@@ -372,6 +372,9 @@ class _HeadlessUi:
     def set_gpio(self, gpio_controller: object, gpio_thread: object):
         """Sin pantalla no hay botón: las palabras de GPIO salen igual al PLC."""
 
+    def set_result_source(self, result_source: Callable[[str, str], object]):
+        """Sin pantalla no hay diálogo que mida sobre un frame inferido."""
+
 
 class _QtUi:
     """
@@ -452,6 +455,9 @@ class _QtUi:
 
     def set_gpio(self, gpio_controller: object, gpio_thread: object):
         self._window.set_gpio(gpio_controller, gpio_thread)
+
+    def set_result_source(self, result_source: Callable[[str, str], object]):
+        self._window.set_result_source(result_source)
 
 
 def create_ui(config: ConfigManager, *, headless: bool):
@@ -537,6 +543,9 @@ class Application(QObject):
         self._metrics_by_pair: dict[tuple[str, str], dict] = {}
         # Si el último resultado de cada par fue confiable, para la palabra de su pipeline.
         self._last_valid_by_pair: dict[tuple[str, str], bool] = {}
+        # El último resultado de cada par, para el diálogo que mide sobre un frame inferido.
+        # Sin el anotado ni la región: retiene sólo el frame de referencia, uno por par.
+        self._last_result_by_pair: dict[tuple[str, str], InferenceResult] = {}
         # Resultados de cada par (cámara, pipeline) desde la última muestra. La clave es el
         # par y no la cámara: una cámara puede entrar a dos pipelines —dos modelos mirando
         # lo mismo con distinto propósito— y con la cámara sola los dos se mezclarían en un
@@ -700,6 +709,7 @@ class Application(QObject):
                                           self._on_license_install_requested)
         self._ui.connect_lens_calibration(self._on_lens_calibration_requested)
         self._ui.update_license(self._license.get_status())
+        self._ui.set_result_source(self._get_last_result)
         # Con `gpio.enabled: false` no hay nada del otro lado que comandar, así que no hay
         # botón. Habilitado y sin hardware sí lo hay: el diálogo es el que avisa que las
         # salidas no llegan a ningún borne.
@@ -1053,11 +1063,18 @@ class Application(QObject):
         """
         self._camera_illumination[result.camera_slot] = result.illumination_pct
         self._last_valid_by_pair[(result.camera_slot, result.pipeline_slot)] = result.is_valid
+        self._last_result_by_pair[(result.camera_slot, result.pipeline_slot)] = (
+            dataclasses.replace(result, annotated_bgr=None, region_bgr=None))
         content = self._ui.monitor_content
         if content is not None:
             setter = getattr(content, "set_illumination_pct", None)
             if setter is not None:
                 setter(result.camera_slot, result.illumination_pct)
+
+    def _get_last_result(self, camera_slot: str,
+                         pipeline_slot: str) -> InferenceResult | None:
+        """El último resultado del par (cámara, pipeline), o None si todavía no dio ninguno."""
+        return self._last_result_by_pair.get((camera_slot, pipeline_slot))
 
     @Slot(object)
     def _on_cycle_complete(self, result: InferenceResult):

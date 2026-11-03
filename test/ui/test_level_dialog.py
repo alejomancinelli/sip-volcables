@@ -13,7 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication                              # noqa: E402
 
-from ui.dialogs.level_dialog import LevelDialog                         # noqa: E402
+from ui.dialogs.level_dialog import LevelDialog, LevelSnapshot          # noqa: E402
+from ui.strings import tr                                               # noqa: E402
 from ui.widgets.pause_button import PauseButton                         # noqa: E402
 
 _KEY = "process.stopper_check.raised_y_px.camera_1"
@@ -79,3 +80,50 @@ class TestPause:
         dialog.findChild(PauseButton).click()
         dialog.update_frame(np.full((240, 320, 3), 200, np.uint8))
         assert dialog._last_frame[0, 0, 0] == 10
+
+
+class TestInspector:
+    """
+    En pausa, el diálogo muestra el frame que trae el inspector y sus renglones para la
+    altura marcada. Lo que se mide no es del diálogo: el inspector lo arma.
+    """
+
+    def _inspected(self, snapshot) -> LevelDialog:
+        return LevelDialog(_MockConfig(), "camera_1", _KEY, inspector=lambda: snapshot)
+
+    @staticmethod
+    def _snapshot():
+        return LevelSnapshot(np.full((40, 60, 3), 7, np.uint8),
+                             lambda y_px: [f"y={y_px}"])
+
+    def test_pausing_shows_the_inspected_frame_and_its_lines(self):
+        dialog = self._inspected(self._snapshot())
+        dialog.update_frame(np.zeros((40, 60, 3), np.uint8))
+        dialog._pause_button.setChecked(True)
+        assert np.all(dialog._last_frame == 7)
+        assert dialog._inspection_label.text() == "y=0"
+
+    def test_moving_the_line_rebuilds_the_lines(self):
+        dialog = self._inspected(self._snapshot())
+        dialog._pause_button.setChecked(True)
+        dialog._y_spin.setValue(25)
+        assert dialog._inspection_label.text() == "y=25"
+
+    def test_without_a_snapshot_it_says_there_is_nothing_to_measure(self):
+        dialog = self._inspected(None)
+        live = np.zeros((40, 60, 3), np.uint8)
+        dialog.update_frame(live)
+        dialog._pause_button.setChecked(True)
+        assert dialog._last_frame is live
+        assert dialog._inspection_label.text() == tr("level_no_snapshot")
+
+    def test_resuming_hides_the_lines(self):
+        dialog = self._inspected(self._snapshot())
+        dialog._pause_button.setChecked(True)
+        dialog._pause_button.setChecked(False)
+        assert dialog._inspection_label.isHidden()
+
+    def test_without_an_inspector_pausing_shows_no_lines(self):
+        dialog, _ = _dialog()
+        dialog._pause_button.setChecked(True)
+        assert dialog._inspection_label.isHidden()
