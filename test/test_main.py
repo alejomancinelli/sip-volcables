@@ -910,7 +910,8 @@ class TestPipelineWords:
         app._build_gpio_registers = lambda: {}
         published: dict = {}
         app._mapped_only = lambda values: published.update(values) or {}
-        app._modbus = types.SimpleNamespace(update_block=lambda registers: None)
+        app._modbus = types.SimpleNamespace(update_block=lambda registers: None,
+                                            get_register=lambda addr: 0)
         app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
         app._on_registers_tick()
         assert published["pipeline_1_state_bitfield"] == 0
