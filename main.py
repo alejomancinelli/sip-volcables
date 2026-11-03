@@ -99,6 +99,12 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from types import MappingProxyType
 
+# OpenBLAS de un solo hilo, y antes de importar numpy, que es cuando arma su pool. Con el
+# pool, sus hilos giran en vacío entre los productos chicos de matrices de la inferencia
+# —armar las máscaras, medir la distancia entre dos— y en lectura continua se comían tres
+# núcleos sin inferir más rápido. Lo que ya venga en el entorno manda.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import numpy as np
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget
