@@ -126,13 +126,13 @@ process:
     #     la rueda correcta con dos ejes a la vista, y una rueda sólo del otro lado deja el
     #     contacto en NOK.
     # Una cámara sin altura o sin distancia (o en null) tiene ese veredicto sin calibrar: el
-    # panel dice «--» y el borde queda en rojo.
+    # panel dice «--». No hay borde de estado: si la calza está bien puesta lo decide el PLC.
     raised_y_px:                # fila del frame, 0 = arriba
-      camera_1: 725
-      camera_2: 685
+      camera_1: 265
+      camera_2: 285
     min_raised_px:              # sin valor, 50
-      camera_1: 50
-      camera_2: 50
+      camera_1: 100
+      camera_2: 100
     max_gap_px:
       camera_1: 50
       camera_2: 50
@@ -193,8 +193,8 @@ inference:
     # frame y encima del borde de estado; la del motor tiene escala fija y en 2560 px queda
     # escondida dentro del borde.
     draw_timestamp: false
-    font_scale: 0.6
-    thickness: 4                # px de la línea de las cajas, en el frame que llega
+    font_scale: 0               # 0 = automático, según el ancho del frame
+    thickness: 0                # trazo de cajas y ROI; 0 = automático según el frame (2–6 px)
     class_colors_bgr: []        # [[B,G,R], ...] por índice de clase; [] = paleta del módulo
   pipelines:
     # Una entrada por pipeline, numeradas pipeline_1 … pipeline_N. La clave es el slot:
@@ -307,7 +307,7 @@ inference:
       type: stopper_check
       feature: stopper_check
       cameras: [camera_1, camera_2]
-      interval_s: 0.5
+      interval_s: 0.0           # continuo: cada frame que llega
       min_detections: 0
       min_result_confidence_pct: 0
       frames_per_cycle: 1
@@ -399,10 +399,10 @@ telemetry:
   influxdb:
     # Serie temporal para dashboards e históricos (InfluxDB 2.x).
     # El token NO va acá: se lee de la variable de entorno INFLUXDB_TOKEN.
-    enabled: false
+    enabled: true
     url: http://localhost:8086
-    org: ORG_NAME
-    bucket: BUCKET_NAME
+    org: iea
+    bucket: test_volcables
   mqtt:
     # Un mensaje por measurement, publicado en <topic_base>/<measurement>. Los tópicos,
     # la forma del JSON y el ritmo de las ráfagas están en docs/mqtt.md.
@@ -514,8 +514,8 @@ cameras:
       # recalibrar la nitidez. Medido en un Orin NX, NVDEC + VIC a 640x360 cuesta la cuarta parte de CPU
       # que decodificar y reducir por CPU; NVDEC sin reducir ahorra poco.
       backend: auto             # cpu | nvdec | auto; se aplica al reiniciar
-      width_px: 0               # 0 y 0 = tamaño del video
-      height_px: 0
+      width_px: 640             # 0 y 0 = tamaño del video
+      height_px: 384
     # Sin `roi`: la cámara no recorta, la región es de cada pipeline. El recorte de la propia
     # cámara se hace en su interfaz, fuera de la app (docs/jetson.md §4.4.1).
     illumination_min: 0         # brillo medio mínimo de la región de cada pipeline 0–100; 0 mientras se prueba con video
@@ -585,8 +585,8 @@ cameras:
       gain: 1.0
     decode:
       backend: auto
-      width_px: 0
-      height_px: 0
+      width_px: 640
+      height_px: 384
     illumination_min: 0
     lens_health:
       roi:
