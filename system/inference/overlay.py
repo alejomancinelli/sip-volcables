@@ -218,8 +218,8 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
     opts = options or OverlayOptions()
     height_px, width_px = frame_bgr.shape[:2]
 
-    # Relleno por clase, acumulado y teñido una sola vez al final: ver `_stack_fill`.
-    fill_by_color: dict = {}
+    # Relleno por clase, acumulado y teñido una sola vez al final: ver `_MaskFill`.
+    fill = _MaskFill((height_px, width_px))
 
     for detection in detections:
         color = get_class_color_bgr(detection.class_index, opts.class_colors_bgr)
@@ -237,8 +237,7 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
 
         if opts.draw_masks and detection.mask is not None:
             if opts.mask_style in (MASK_STYLE_FILL, MASK_STYLE_BOTH):
-                _stack_fill(fill_by_color, color, detection.mask, (x1, y1, x2, y2),
-                            (height_px, width_px))
+                fill.add(color, detection.mask, (x1, y1, x2, y2))
             if opts.mask_style in (MASK_STYLE_OUTLINE, MASK_STYLE_BOTH):
                 _outline_mask(frame_bgr, detection.mask, (x1, y1, x2, y2), color)
         if opts.draw_boxes:
@@ -247,8 +246,7 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
             label = f"{detection.class_name} {detection.confidence_pct:.0f}%"
             _draw_label(frame_bgr, label, (x1, y1), color, opts)
 
-    for color, fill in fill_by_color.items():
-        _blend_fill(frame_bgr, fill, color, opts.mask_alpha)
+    fill.blend_into(frame_bgr, opts.mask_alpha)
 
 
 def draw_result_roi(frame_bgr: np.ndarray, result: InferenceResult, options: OverlayOptions):
@@ -450,10 +448,9 @@ def draw_timestamp(frame_bgr: np.ndarray, timestamp_s: float, *,
                 _FONT, font_scale, _PANEL_TEXT_BGR, thickness, cv2.LINE_AA)
 
 
-def _stack_fill(fill_by_color: dict, color: tuple[int, int, int], mask: np.ndarray,
-                bbox_px: tuple[int, int, int, int], frame_shape: tuple[int, int]):
+class _MaskFill:
     """
-    Acumula la máscara sobre el lienzo de su color, en lugar de teñir el frame ya.
+    Acumula las máscaras por color y tiñe el frame una sola vez al final.
 
     **El relleno se pinta por UNIÓN y no por instancia.** Teñir cada máscara por separado
     mezcla el color tantas veces como instancias se superpongan, así que una zona con
@@ -464,35 +461,58 @@ def _stack_fill(fill_by_color: dict, color: tuple[int, int, int], mask: np.ndarr
 
     Un píxel que dos clases se disputan queda de la última que lo reclame, que es el mismo
     criterio con el que se cuenta.
+
+    La unión es un mapa de dueños —un número de color por píxel— y no un lienzo del frame
+    por color, y el teñido se hace sólo en el rectángulo que cubren las máscaras de cada
+    color: una calza y una rueda que ocupan medio frame de 1920 x 1088 costaban 134 ms
+    tiñendo el frame entero e indexando con booleanos, y así cuestan unos pocos.
     """
-    x1, y1, x2, y2 = bbox_px
-    if mask.shape[:2] != (y2 - y1, x2 - x1):
-        # La máscara es del bbox sin recortar: si el bbox se cortó contra el borde del
-        # frame, no se la puede indexar contra la región.
-        return
-    selected = mask > 0
-    if not selected.any():
-        return
-    for other_color, other_fill in fill_by_color.items():
-        if other_color != color:
-            other_fill[y1:y2, x1:x2][selected] = False
-    fill = fill_by_color.get(color)
-    if fill is None:
-        fill = np.zeros(frame_shape, dtype=bool)
-        fill_by_color[color] = fill
-    fill[y1:y2, x1:x2][selected] = True
 
+    def __init__(self, frame_shape: tuple[int, int]):
+        self._frame_shape = frame_shape
+        self._owner = None            # (alto, ancho) uint16; 0 = sin máscara, i = color i
+        self._colors = []             # color por número de dueño - 1
+        self._extents = []            # [x1, y1, x2, y2] que cubre cada color
 
-def _blend_fill(frame_bgr: np.ndarray, fill: np.ndarray, color: tuple[int, int, int],
-                alpha: float = _MASK_ALPHA):
-    """Tiñe in-place, de una sola pasada, todos los píxeles de una clase."""
-    if not fill.any():
-        return
-    tint = np.empty_like(frame_bgr)
-    tint[:] = color
-    alpha = min(1.0, max(0.0, float(alpha)))
-    blended = cv2.addWeighted(frame_bgr, 1.0 - alpha, tint, alpha, 0)
-    frame_bgr[fill] = blended[fill]
+    def add(self, color: tuple[int, int, int], mask: np.ndarray,
+            bbox_px: tuple[int, int, int, int]):
+        x1, y1, x2, y2 = bbox_px
+        if mask.shape[:2] != (y2 - y1, x2 - x1):
+            # La máscara es del bbox sin recortar: si el bbox se cortó contra el borde del
+            # frame, no se la puede indexar contra la región.
+            return
+        selected = mask > 0
+        if not selected.any():
+            return
+        if self._owner is None:
+            self._owner = np.zeros(self._frame_shape, np.uint16)
+        if color in self._colors:
+            index = self._colors.index(color)
+            extent = self._extents[index]
+            self._extents[index] = [min(extent[0], x1), min(extent[1], y1),
+                                    max(extent[2], x2), max(extent[3], y2)]
+        else:
+            self._colors.append(color)
+            self._extents.append([x1, y1, x2, y2])
+            index = len(self._colors) - 1
+        np.copyto(self._owner[y1:y2, x1:x2], index + 1, where=selected)
+
+    def blend_into(self, frame_bgr: np.ndarray, alpha: float = _MASK_ALPHA):
+        """Tiñe in-place, de una pasada por color, los píxeles que quedaron de cada uno."""
+        alpha = min(1.0, max(0.0, float(alpha)))
+        for index, (color, (x1, y1, x2, y2)) in enumerate(zip(self._colors, self._extents,
+                                                              strict=True)):
+            owned = (self._owner[y1:y2, x1:x2] == index + 1).view(np.uint8)
+            if not owned.any():
+                continue          # otra clase le ganó todos los píxeles
+            region = frame_bgr[y1:y2, x1:x2]
+            # Un plano por canal y `merge`: llenar un array BGR con una tupla es diez veces
+            # más lento, y `addWeighted` no acepta un color como escalar.
+            tint = cv2.merge([np.full(owned.shape, channel, np.uint8) for channel in color])
+            blended = cv2.addWeighted(region, 1.0 - alpha, tint, alpha, 0)
+            # `copyTo` con máscara uint8 escribe en la vista del frame: indexar con booleanos
+            # copia lo mismo cuarenta veces más lento.
+            cv2.copyTo(blended, owned, region)
 
 
 def _outline_mask(frame_bgr: np.ndarray, mask: np.ndarray,
