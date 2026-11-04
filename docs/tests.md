@@ -15,7 +15,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
 | [test/](#test) | 7 | 367 |
-| [test/build/](#testbuild) | 2 | 57 |
+| [test/build/](#testbuild) | 2 | 62 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -679,7 +679,7 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 33 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 38 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
@@ -689,6 +689,7 @@ Tests del armado del entregable: qué se copia y qué no.
 | `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 11 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
+| `TestWindowsService` | `Instalar servicio.cmd` y `Quitar servicio.cmd`: la app sin pantalla, con NSSM. | 7 |
 | `TestDesktopEntryId` |  | 2 |
 | `TestFindExecutable` |  | 2 |
 
@@ -727,6 +728,14 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_one_that_a_runtime_package_needs_travels`
   - `test_a_test_extra_does_not_keep_it`
   - `test_the_system_packages_travel_as_symlinks`
+- `TestWindowsService`
+  - `test_the_service_runs_the_executable_headless`
+  - `test_the_data_dir_still_lives_in_one_file`
+  - `test_no_quoted_argument_ends_in_a_backslash`
+  - `test_nssm_travels_next_to_the_executable`
+  - `test_without_nssm_the_scripts_are_written_anyway`
+  - `test_the_service_name_needs_no_quotes`
+  - `test_removing_does_not_need_nssm`
 - `TestDesktopEntryId`
   - `test_accents_and_spaces_become_a_plain_slug`
   - `test_a_name_without_ascii_letters_still_gets_one`

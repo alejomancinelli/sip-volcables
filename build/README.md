@@ -107,6 +107,60 @@ además un acceso en el escritorio, con la consola a la vista porque ahí deja s
 en la Jetson el `.desktop` es sólo el de la app. Cómo se arma uno está en
 `calibration/README.md`.
 
+## El servicio de Windows
+
+Para un equipo sin pantalla que tiene que quedar siempre andando, `make_release.py` deja
+`Instalar servicio.cmd` y `Quitar servicio.cmd`, y copia NSSM a `program
+ssm.exe`. **NSSM
+viaja en el entregable porque la planta no suele tener internet**: se baja una vez en la
+máquina que arma el entregable y se deja en `packages
+ssm.exe`, que —como el wheel de
+stapipy— no se versiona. Es el `win64
+ssm.exe` del build **2.24-101** de nssm.cc: el 2.24
+publicado tiene problemas conocidos para arrancar servicios desde Windows 10 1703. Sin el
+archivo el entregable se arma igual, avisa, y el `.cmd` de instalar lo dice en el equipo.
+
+Cómo queda el servicio, y por qué:
+
+- **Corre `program\main.exe --headless` y no el lanzador sin pantalla.** El lanzador larga
+  el `.exe` con `start` y termina en el acto, y NSSM daría el servicio por caído.
+- **`SIP_DATA_DIR` se lee de `_Entorno.cmd` al instalar** y se le fija al servicio, así que
+  sigue viviendo en un solo archivo y el servicio lee el mismo `installation\` que la app
+  con pantalla. Es una ruta absoluta: si se mueve la carpeta, se quita y se reinstala.
+- **Arranque demorado** (`SERVICE_DELAYED_AUTO_START`), para que la red esté arriba, y
+  reinicio a los 10 s si el proceso termina.
+- **Cierre por Ctrl+C con 30 s de margen.** Es el mismo handler que atiende Ctrl+C en la
+  consola; el default de NSSM, 1,5 s, mataría a `stop()` mientras espera a los hilos.
+- **`data\logs\service.log`** junta la salida de consola, que sólo sirve si el proceso
+  muere antes de abrir su log.
+- **`Quitar servicio.cmd` no usa NSSM**: `net stop` y `sc delete` alcanzan, y así anda
+  aunque `program\` se haya reemplazado por uno sin `nssm.exe`.
+
+El nombre interno del servicio es el de la app sin tildes ni espacios —el mismo id que el
+`.desktop` de la Jetson—, y el que se ve en Servicios es `system.app_name`. **Para cambiar
+el config con el servicio instalado** hay que detenerlo, porque la adquisición es
+excluyente y el puerto de los streams también:
+
+    net stop <servicio>
+    "<APP_NAME>.cmd"                  cambiar, guardar y cerrar la ventana
+    net start <servicio>
+
+Con el `.cmd` y no con `program\main.exe`: sin `SIP_DATA_DIR` la app editaría el config de
+`program\`, que el servicio no lee. Editado a mano alcanza con un `net stop` y un
+`net start`, porque el config se lee sólo al arrancar. Actualizar el programa es lo mismo:
+detener, reemplazar `program\`, arrancar.
+
+Corre como `SYSTEM`, y eso cambia dos cosas que con la app con pantalla no se ven:
+
+- **Las variables del SDK de la cámara tienen que ser del sistema**, no del usuario, y el
+  servicio las ve recién después de reiniciar el equipo. `Verificar camara.cmd` mira las
+  del usuario que lo corre, así que puede dar todo bien y el servicio no capturar.
+- **El firewall**: GigE recibe el video por UDP, y Windows pregunta una vez por programa si
+  lo deja pasar. Un servicio no puede contestar, así que la app con pantalla se abre una
+  vez antes y se acepta.
+
+En la Jetson el equivalente sería una unidad de systemd, que no está armada.
+
 ## En la Jetson
 
 El mismo par de scripts, corrido en una Jetson. `build.py` compila en la forma acelerada y
@@ -174,5 +228,9 @@ y Qt aborta al destruir el hilo todavía vivo. Vale para cualquier handler que s
   un lugar cómodo para llevar esa historia.
 - El entregable en una máquina limpia, sin Python y sin el SDK de cámara instalado:
   `Verificar camara.cmd` está para eso.
+- Con el servicio instalado: que el Ctrl+C de NSSM llegue al `.exe` compilado con
+  `--windows-console-mode=attach` —el log tiene que terminar en `[Main] Subsistemas
+  detenidos.` después de un `net stop`; si se corta antes, NSSM lo está matando—, y qué
+  hace el antivirus con `nssm.exe`, que es un ejecutable chico y sin firmar.
 - Si el equipo de build tiene antivirus corporativo, si compila con una exclusión para el
   directorio de salida, y si el `.exe` final sobrevive sin firma en el equipo de destino.

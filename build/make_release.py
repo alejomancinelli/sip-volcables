@@ -14,6 +14,8 @@ Deja una carpeta lista para copiar al equipo de la planta:
         Crear accesos directos.cmd   se corre una vez, ya instalado
         Verificar camara.cmd         que el equipo tenga lo que la cámara necesita
         <calibrador>.cmd             uno por cada fila de `calibration/registry.py`
+        Instalar servicio.cmd        sin pantalla y siempre andando, con NSSM
+        Quitar servicio.cmd
 
 **En Linux —la Jetson— la forma es la misma** y cambian los lanzadores: `.sh` en vez de
 `.cmd`, `_entorno.sh` en vez de `_Entorno.cmd`, el ejecutable es `main.bin`, y los accesos
@@ -387,6 +389,176 @@ def _check_body(program: str) -> str:
 
     return _CHECK_BODY.format(sentech="\n".join(sentech), basler=basler,
                               network=_CHECK_NETWORK)
+
+
+# El servicio de Windows, para un equipo sin pantalla que tiene que quedar siempre andando.
+# Lo envuelve NSSM, que viaja en `program\` porque la planta no suele tener internet: se lo
+# pone una vez en `packages\` de la máquina que arma el entregable y de ahí se copia. Sólo
+# Windows: en la Jetson el equivalente es una unidad de systemd, que no se armó.
+_NSSM_SOURCE = "packages/nssm.exe"
+_NSSM_TARGET = "nssm.exe"
+
+_SERVICE_INSTALL_NAME = "Instalar servicio.cmd"
+_SERVICE_REMOVE_NAME = "Quitar servicio.cmd"
+
+# Lo que espera NSSM a que la app cierre ordenada después del Ctrl+C, antes de pasar al
+# siguiente método. `stop()` espera a cada hilo, así que el default de 1,5 s la mataría con
+# las cámaras tomadas.
+_SERVICE_STOP_TIMEOUT_MS = 30000
+_SERVICE_RESTART_DELAY_MS = 10000
+
+_SERVICE_INSTALL_BODY = """@echo off
+rem Instala {app_name} como servicio de Windows, sin pantalla y siempre andando.
+rem
+rem Se corre una vez, como administrador, despues de copiar esta carpeta a donde va a
+rem quedar: el servicio apunta a rutas absolutas de aca, y si despues se mueve la carpeta
+rem hay que correr "{remove_name}" y volver a instalarlo.
+rem
+rem El servicio arranca solo con el equipo, despues de la red, y si el programa se cae
+rem NSSM lo vuelve a levantar a los {restart_delay_s} segundos.
+rem
+rem La adquisicion de las camaras es excluyente: con el servicio andando NO se puede abrir
+rem la app con pantalla. Para cambiar la configuracion desde la pantalla:
+rem
+rem     net stop {service}
+rem     "{app_name}.cmd"   ... cambiar, guardar y cerrar la ventana
+rem     net start {service}
+rem
+rem Editando installation\\config.yaml a mano alcanza con "net stop" y "net start" despues.
+setlocal
+rem El nombre que se ve en Servicios puede llevar tildes, y el .cmd esta en UTF-8.
+chcp 65001 >nul
+net session >nul 2>&1
+if errorlevel 1 (
+  echo   Hay que correrlo como administrador: clic derecho, Ejecutar como administrador.
+  echo.
+  pause
+  exit /b 1
+)
+call "%~dp0{env_name}"
+set "NSSM=%~dp0program\\{nssm}"
+set "SERVICE={service}"
+if not exist "%NSSM%" (
+  echo   FALTA program\\{nssm}: este entregable se armo sin NSSM y no se puede instalar
+  echo   como servicio. Se copia nssm.exe ^(win64^) a program\\ y se vuelve a correr esto.
+  echo.
+  pause
+  exit /b 1
+)
+sc query "%SERVICE%" >nul 2>&1
+if not errorlevel 1 (
+  echo   El servicio %SERVICE% ya esta instalado. Para reinstalarlo, primero
+  echo   "{remove_name}".
+  echo.
+  pause
+  exit /b 1
+)
+rem La salida de consola del programa: sirve solo si muere antes de abrir su propio log.
+if not exist "%SIP_DATA_DIR%\\data\\logs" mkdir "%SIP_DATA_DIR%\\data\\logs"
+set "CONSOLE_LOG=%SIP_DATA_DIR%\\data\\logs\\service.log"
+
+"%NSSM%" install "%SERVICE%" "%~dp0program\\main.exe" --headless
+if errorlevel 1 goto :failed
+rem El servicio no pasa por {env_name}: la ruta de datos se le fija aca, leida de ahi.
+"%NSSM%" set "%SERVICE%" AppEnvironmentExtra "SIP_DATA_DIR=%SIP_DATA_DIR%" >nul
+"%NSSM%" set "%SERVICE%" DisplayName "{app_name}" >nul
+rem Con SIP_DATA_DIR y no con %~dp0, que termina en \\ y antes de la comilla la escaparia.
+"%NSSM%" set "%SERVICE%" Description "{app_name} sin pantalla. Datos en %SIP_DATA_DIR%" >nul
+"%NSSM%" set "%SERVICE%" Start SERVICE_DELAYED_AUTO_START >nul
+"%NSSM%" set "%SERVICE%" AppStopMethodConsole {stop_timeout_ms} >nul
+"%NSSM%" set "%SERVICE%" AppStdout "%CONSOLE_LOG%" >nul
+"%NSSM%" set "%SERVICE%" AppStderr "%CONSOLE_LOG%" >nul
+"%NSSM%" set "%SERVICE%" AppExit Default Restart >nul
+"%NSSM%" set "%SERVICE%" AppRestartDelay {restart_delay_ms} >nul
+echo   Servicio %SERVICE% instalado.
+echo.
+"%NSSM%" start "%SERVICE%"
+echo.
+echo   Lo que hace queda en installation\\data\\logs. Ojo con dos cosas que con la app con
+echo   pantalla no se notan, porque el servicio corre como SYSTEM y no como este usuario:
+echo     - las variables del SentechSDK tienen que ser del sistema, no del usuario, y
+echo       despues de instalar el SDK hay que reiniciar el equipo;
+echo     - el firewall: un servicio no puede contestar el cartel de permitir acceso, asi
+echo       que la app con pantalla se abre una vez antes y se acepta.
+echo.
+pause
+exit /b 0
+
+:failed
+echo.
+echo   No se pudo instalar el servicio.
+echo.
+pause
+exit /b 1
+"""
+
+# Quitar no usa NSSM: `sc` borra el servicio igual, y así anda aunque `program\` se haya
+# reemplazado por uno sin `nssm.exe`.
+_SERVICE_REMOVE_BODY = """@echo off
+rem Detiene y desinstala el servicio de {app_name}. No borra nada de esta carpeta.
+rem
+rem Se corre como administrador. Para dejar de usarlo sin desinstalarlo alcanza con
+rem "net stop {service}", y para que no arranque con el equipo:
+rem "sc config {service} start= disabled".
+setlocal
+net session >nul 2>&1
+if errorlevel 1 (
+  echo   Hay que correrlo como administrador: clic derecho, Ejecutar como administrador.
+  echo.
+  pause
+  exit /b 1
+)
+set "SERVICE={service}"
+sc query "%SERVICE%" >nul 2>&1
+if errorlevel 1 (
+  echo   No hay ningun servicio %SERVICE% instalado.
+  echo.
+  pause
+  exit /b 0
+)
+rem `net stop` espera a que cierre: la app suelta las camaras y el Modbus antes de irse.
+net stop "%SERVICE%" >nul 2>&1
+sc delete "%SERVICE%"
+if errorlevel 1 (
+  echo.
+  echo   No se pudo quitar el servicio.
+) else (
+  echo   Servicio %SERVICE% quitado.
+)
+echo.
+pause
+"""
+
+
+def _service_name(app_name: str) -> str:
+    """
+    El nombre interno del servicio: el de la app, sin tildes ni espacios.
+
+    Es el que se escribe en `net stop` y `sc`, así que va sin nada que haya que entrecomillar.
+    El que ve la gente en Servicios es `app_name`, como en la ventana.
+    """
+    return _desktop_entry_id(app_name)
+
+
+def _write_service_scripts(release: str, program: str, app_name: str) -> bool:
+    """
+    Los dos `.cmd` del servicio y NSSM al lado del ejecutable. True si NSSM viajó.
+
+    Sin NSSM los `.cmd` se escriben igual: el de instalar lo dice en el equipo, y alcanza
+    con copiar `nssm.exe` a `program\\` para que ande.
+    """
+    shipped = _copy_into(os.path.join(_REPO_ROOT, _NSSM_SOURCE),
+                         os.path.join(program, _NSSM_TARGET))
+    values = dict(app_name=app_name, service=_service_name(app_name), env_name=_ENV_NAME,
+                  nssm=_NSSM_TARGET, remove_name=_SERVICE_REMOVE_NAME,
+                  stop_timeout_ms=_SERVICE_STOP_TIMEOUT_MS,
+                  restart_delay_ms=_SERVICE_RESTART_DELAY_MS,
+                  restart_delay_s=_SERVICE_RESTART_DELAY_MS // 1000)
+    _write_text(os.path.join(release, _SERVICE_INSTALL_NAME),
+                _SERVICE_INSTALL_BODY.format(**values))
+    _write_text(os.path.join(release, _SERVICE_REMOVE_NAME),
+                _SERVICE_REMOVE_BODY.format(**values))
+    return shipped
 
 
 _STABLE_ABI_DLL = "python3.dll"
@@ -784,6 +956,13 @@ def _write_windows_scripts(release: str, program: str, app_name: str):
     _write_text(os.path.join(release, _CHECK_NAME), _check_body(program))
     external = _external_dlls(program, "stapipy")
     print(f"    {_CHECK_NAME}         busca {len(external)} DLL del SDK en el equipo")
+
+    if _write_service_scripts(release, program, app_name):
+        print(f"    {_SERVICE_INSTALL_NAME}      servicio sin pantalla, con program/{_NSSM_TARGET}")
+    else:
+        print(f"    {_SERVICE_INSTALL_NAME}      FALTA {_NSSM_SOURCE}: el entregable sale "
+              f"sin NSSM y no se instala como servicio")
+    print(f"    {_SERVICE_REMOVE_NAME}")
 
 
 def _write_script(path: str, text: str):
