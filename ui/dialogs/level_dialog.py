@@ -12,7 +12,18 @@ Guarda la fila como un entero en la clave que se le dé, y persiste el archivo a
 diálogo no sabe qué se mide contra él.
 
 El video se puede pausar (`PauseButton`) para marcar sobre un frame quieto.
+
+**Lo que se mide contra la altura lo pone quien la pide, no el diálogo.** Con un `inspector`
+—una función sin argumentos que devuelve un `LevelSnapshot` o None—, al pausar el diálogo
+muestra el frame que trae la foto en vez del último en vivo, y debajo los renglones que su
+`describe(y_px)` arma para la altura marcada, que se rearman al mover la línea. Lo usa una
+pestaña que quiere mostrar qué daría la altura sobre un frame ya inferido; el diálogo no
+sabe qué es ese número. Sin inspector, o si devuelve None, pausar congela el frame en vivo
+como siempre.
 """
+
+from collections.abc import Callable
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -38,6 +49,18 @@ _DIALOG_WIDTH_PX = 760
 _DIALOG_HEIGHT_PX = 560
 
 
+class LevelSnapshot(NamedTuple):
+    """
+    El frame que muestra el diálogo en pausa y cómo describir una altura sobre él.
+
+    `describe(y_px)` devuelve los renglones de texto para esa fila del frame. Se llama cada
+    vez que la altura cambia, así que tiene que ser barata: el frame ya viene inferido.
+    """
+
+    frame_bgr: np.ndarray
+    describe: Callable[[int], list[str]]
+
+
 class LevelDialog(QDialog):
     """
     Diálogo para marcar una altura de referencia de una cámara.
@@ -45,14 +68,18 @@ class LevelDialog(QDialog):
     Se abre con `exec()`. Guardar escribe la fila en `config_key` y persiste; cancelar no
     deja nada. Los frames entran por `update_frame()`, que es el slot que hay que conectar
     a la señal de frames de esa cámara. `title_key` es la clave de idiomas del título, para
-    que la ventana diga qué altura se está marcando.
+    que la ventana diga qué altura se está marcando. `inspector` es opcional: ver el
+    docstring del módulo.
     """
 
     def __init__(self, config_manager: ConfigManager, camera_slot: str, config_key: str,
-                 parent=None, *, title_key: str = "level_title"):
+                 parent=None, *, title_key: str = "level_title",
+                 inspector: Callable[[], LevelSnapshot | None] | None = None):
         super().__init__(parent)
         self._config = config_manager
         self._config_key = config_key
+        self._inspector = inspector
+        self._snapshot: LevelSnapshot | None = None
         self._last_frame: np.ndarray | None = None
 
         camera_name = str(self._config.get(f"cameras.{camera_slot}.name", "") or camera_slot)
@@ -92,10 +119,15 @@ class LevelDialog(QDialog):
         self._y_spin.valueChanged.connect(self._on_spin_changed)
         form.addRow(QLabel(tr("level_y")), self._y_spin)
         add_hint_row(form, tr("level_hint"))
+        self._inspection_label = QLabel()
+        self._inspection_label.setWordWrap(True)
+        self._inspection_label.setVisible(False)
+        form.addRow(self._inspection_label)
         return box
 
     def _build_button_row(self) -> QHBoxLayout:
         self._pause_button = PauseButton()
+        self._pause_button.toggled.connect(self._on_pause_toggled)
 
         cancel_button = QPushButton(tr("dialog_cancel"))
         cancel_button.setObjectName("cancelButton")
@@ -118,12 +150,37 @@ class LevelDialog(QDialog):
         self._y_spin.blockSignals(True)
         self._y_spin.setValue(y_px)
         self._y_spin.blockSignals(False)
+        self._refresh_inspection()
 
     def _on_spin_changed(self):
         """Un valor tipeado a mano también mueve la línea."""
         self._canvas.set_y_px(self._y_spin.value())
         if self._last_frame is not None:
             self._canvas.set_frame(self._last_frame)
+        self._refresh_inspection()
+
+    def _on_pause_toggled(self, is_paused: bool):
+        """
+        Al pausar pide la foto al inspector y la muestra; al reanudar la suelta. Sin
+        inspector no hace nada: el frame en vivo ya quedó congelado.
+        """
+        if self._inspector is None:
+            return
+        self._snapshot = self._inspector() if is_paused else None
+        if self._snapshot is not None:
+            self._last_frame = self._snapshot.frame_bgr
+            self._canvas.set_frame(self._snapshot.frame_bgr)
+        self._inspection_label.setVisible(is_paused)
+        self._refresh_inspection()
+
+    def _refresh_inspection(self):
+        """Los renglones del inspector para la altura de ahora, o el aviso de que no hay foto."""
+        if self._inspector is None or not self._pause_button.is_paused:
+            return
+        if self._snapshot is None:
+            self._inspection_label.setText(tr("level_no_snapshot"))
+            return
+        self._inspection_label.setText("\n".join(self._snapshot.describe(self._y_spin.value())))
 
     def _on_save_clicked(self):
         self._config.set(self._config_key, self._y_spin.value())
