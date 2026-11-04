@@ -15,7 +15,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
 | [test/](#test) | 7 | 367 |
-| [test/build/](#testbuild) | 2 | 55 |
+| [test/build/](#testbuild) | 2 | 57 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -646,7 +646,7 @@ Tests de las opciones con las que se llama a Nuitka.
 <details><summary>Tests</summary>
 
 - `TestExtraFlags`
-  - `test_the_template_adds_none`
+  - `test_they_are_added_and_nothing_else`
   - `test_what_the_fork_declares_ends_up_in_the_command`
   - `test_they_come_before_the_exclusions`
   - `test_the_machinery_flags_are_still_there`
@@ -654,7 +654,7 @@ Tests de las opciones con las que se llama a Nuitka.
 - `TestOptionalPackages`
   - `test_an_installed_package_is_included`
   - `test_a_missing_one_is_left_out`
-  - `test_the_fork_block_stays_empty_either_way`
+  - `test_it_does_not_need_the_fork_block`
   - `test_the_accelerated_build_leaves_it_loose`
 - `TestCalibrators`
   - `test_the_standalone_build_includes_them`
@@ -662,7 +662,7 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
-  - `test_excluding_nothing_is_the_default`
+  - `test_excluding_nothing_adds_no_flag`
 - `TestPlatform`
   - `test_windows_gets_the_executable_properties`
   - `test_linux_does_not`
@@ -679,14 +679,14 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 33 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
-| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 11 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
 | `TestDesktopEntryId` |  | 2 |
@@ -703,6 +703,8 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_the_template_ships_only_the_app_launchers`
   - `test_each_tool_gets_a_launcher_that_waits`
   - `test_the_windows_launcher_keeps_the_console_open`
+  - `test_the_template_shortcuts_only_the_app`
+  - `test_each_tool_gets_a_shortcut_with_its_console_visible`
   - `test_the_linux_launcher_calls_the_same_binary`
   - `test_its_folders_are_created_empty_with_a_note`
   - `test_its_guide_travels_with_it`
