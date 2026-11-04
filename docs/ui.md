@@ -214,7 +214,8 @@ código del proyecto sabe qué veredicto es «bien» o «mal», así que el temp
 
 - **El nombre del pipeline sigue en su color propio** y lleva el veredicto en texto
   («grain OK», «grain NOK»): el color solo no alcanza para un operador daltónico ni en un
-  stream en blanco y negro. El `nok` además va con trazo más grueso.
+  stream en blanco y negro. El trazo es el mismo en los tres estados: uno más grueso para el
+  `nok` hacía saltar el recuadro cada vez que cambiaba el veredicto.
 - **Un resultado no confiable nunca se pinta de estado**: va gris, punteado y con el motivo
   («grain (dark_frame)»), aunque el pipeline haya dicho `ok`. Sus números no son una medición,
   y un recuadro verde sobre algo que no se midió es peor que ninguno.

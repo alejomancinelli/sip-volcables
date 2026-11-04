@@ -99,9 +99,17 @@ _LINE_PAD_RATIO = 0.4     # ídem, en fracción del alto del texto: crece con la
 _COLUMN_GAP = "  "        # aire entre la etiqueta y el valor, medido con la fuente del panel
 _TIMESTAMP_RATIO = 0.8    # el timestamp va más chico que el panel: es referencia, no dato
 _LABEL_SCALE = 0.55       # etiqueta de una referencia dibujada con draw_line()
-_ROI_THICKNESS_PX = 2
-_ROI_NOK_THICKNESS_PX = 4  # el rojo además engorda: es el que no se puede pasar por alto
+_ROI_THICKNESS_PX = 2     # mínimo del ROI; crece con el trazo de las cajas
 _DASH_LENGTH_PX = 10      # largo de un trazo y de su hueco en un ROI punteado
+
+# Grosor automático de las líneas (`thickness: 0`): una fracción del lado menor del frame,
+# con topes. Da 4 px en 1080, así que una cámara reducida por el decodificador se ve en
+# pantalla con casi el mismo trazo que una nativa. El mínimo es 2 y no 1: en 360 la cuenta da
+# 1 px, que se pierde en una cámara chica mirada en la grilla. El máximo evita que en 4K las
+# cajas tapen lo que encierran.
+_AUTO_THICKNESS_FRACTION = 0.004
+_AUTO_THICKNESS_MIN_PX = 2
+_AUTO_THICKNESS_MAX_PX = 6
 
 # Escala automática (`font_scale: 0`). El texto se calcula para que la línea más larga
 # ocupe esta fracción del ancho del frame, con topes para que no quede ilegible en un
@@ -143,6 +151,9 @@ class OverlayOptions:
     `font_scale` en 0 calcula el tamaño del texto a partir del ancho del frame. Es lo que
     hace falta cuando el lienzo cambia de tamaño —un recorte de 130 px y un frame de
     1920—: una escala fija que se lee bien en uno tapa al otro o desaparece.
+
+    `thickness` en 0 hace lo mismo con el trazo de las cajas y del ROI: ver
+    `get_line_thickness()`. Un valor positivo son píxeles fijos en cualquier frame.
     """
 
     draw_boxes: bool = True
@@ -153,7 +164,7 @@ class OverlayOptions:
     draw_roi: bool = True
     draw_timestamp: bool = True
     font_scale: float = 0.6   # 0 = automática, según el ancho del frame
-    thickness: int = 2
+    thickness: int = 0        # 0 = automático, según el lado menor del frame
     class_colors_bgr: tuple = field(default_factory=tuple)
     roi_color_bgr: tuple = _ROI_BGR
     roi_is_dashed: bool = False
@@ -176,6 +187,21 @@ def get_pipeline_style(index: int) -> PipelineStyle:
     """
     laps, color_index = divmod(max(0, int(index)), len(PIPELINE_COLORS_BGR))
     return PipelineStyle(PIPELINE_COLORS_BGR[color_index], laps % 2 == 1)
+
+
+def get_line_thickness(frame_bgr: np.ndarray, options: OverlayOptions | None = None) -> int:
+    """
+    Trazo de las cajas en este frame: el de `options.thickness`, o el automático si es 0.
+
+    El automático es una fracción del lado menor del frame entre `_AUTO_THICKNESS_MIN_PX` y
+    `_AUTO_THICKNESS_MAX_PX`, y es lo que también usan los annotators del proyecto para sus
+    referencias: así una caja y una línea dibujadas sobre el mismo frame tienen el mismo trazo.
+    """
+    opts = options or OverlayOptions()
+    if opts.thickness > 0:
+        return int(opts.thickness)
+    auto_px = int(round(min(frame_bgr.shape[:2]) * _AUTO_THICKNESS_FRACTION))
+    return max(_AUTO_THICKNESS_MIN_PX, min(_AUTO_THICKNESS_MAX_PX, auto_px))
 
 
 def annotate(result: InferenceResult, options: OverlayOptions | None = None, *,
@@ -217,6 +243,7 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
         return
     opts = options or OverlayOptions()
     height_px, width_px = frame_bgr.shape[:2]
+    thickness = get_line_thickness(frame_bgr, opts)
 
     # Relleno por clase, acumulado y teñido una sola vez al final: ver `_MaskFill`.
     fill = _MaskFill((height_px, width_px))
@@ -241,7 +268,7 @@ def draw_detections(frame_bgr: np.ndarray, detections: list[Detection], *,
             if opts.mask_style in (MASK_STYLE_OUTLINE, MASK_STYLE_BOTH):
                 _outline_mask(frame_bgr, detection.mask, (x1, y1, x2, y2), color)
         if opts.draw_boxes:
-            cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), color, opts.thickness)
+            cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), color, thickness)
         if opts.draw_labels:
             label = f"{detection.class_name} {detection.confidence_pct:.0f}%"
             _draw_label(frame_bgr, label, (x1, y1), color, opts)
@@ -270,9 +297,10 @@ def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int], *,
     Marca in-place el recorte que se analizó, para que se vea qué quedó afuera.
 
     El color, el trazo y el nombre salen de las opciones: cada pipeline dibuja el suyo y
-    en una cámara con varios se distinguen. Encima va el estado:
+    en una cámara con varios se distinguen. El trazo es la mitad del de las cajas, con
+    `_ROI_THICKNESS_PX` de mínimo: crece con el frame igual que ellas. Encima va el estado:
       - `state` (un `ROI_STATE_*`) pinta el borde del color del veredicto y lo escribe en
-        la etiqueta, y el `nok` además va más grueso;
+        la etiqueta, con el mismo trazo en los tres estados;
       - `invalid_reason` no vacío gana sobre `state`: el resultado no es una medición, así
         que el borde va gris y punteado con el motivo, nunca de un color de estado.
     La etiqueta conserva siempre el color del pipeline.
@@ -282,15 +310,13 @@ def draw_roi(frame_bgr: np.ndarray, roi_px: tuple[int, int, int, int], *,
     opts = options or OverlayOptions()
     color = opts.roi_color_bgr
     is_dashed = opts.roi_is_dashed
-    thickness = _ROI_THICKNESS_PX
+    thickness = max(_ROI_THICKNESS_PX, get_line_thickness(frame_bgr, opts) // 2)
     label = opts.roi_label
     if invalid_reason:
         color, is_dashed = _INVALID_ROI_BGR, True
         label = f"{label} ({invalid_reason})".strip()
     elif state in ROI_STATE_COLORS_BGR:
         color, is_dashed = ROI_STATE_COLORS_BGR[state], False
-        if state == ROI_STATE_NOK:
-            thickness = _ROI_NOK_THICKNESS_PX
         label = f"{label} {_ROI_STATE_TEXT[state]}".strip()
 
     x_px, y_px, width_px, height_px = (int(value) for value in roi_px)
@@ -362,7 +388,8 @@ def text_thickness(font_scale: float) -> int:
 def draw_text_panel(frame_bgr: np.ndarray, lines: list, *,
                     options: OverlayOptions | None = None,
                     text_bgr: tuple[int, int, int] = _PANEL_TEXT_BGR,
-                    line_colors_bgr: tuple = ()):
+                    line_colors_bgr: tuple = (),
+                    margin_px: int | None = None):
     """
     Dibuja in-place un panel de texto con fondo opaco, arriba a la izquierda.
 
@@ -379,10 +406,14 @@ def draw_text_panel(frame_bgr: np.ndarray, lines: list, *,
     falta o venga en `None` cae en `text_bgr`. Es lo que deja que un panel que enumera
     clases use el color con el que están dibujadas: dos referencias del mismo dato que no
     coinciden de color obligan a leer el nombre para saber qué es cuál.
+
+    `margin_px` es el aire entre el panel y el borde del frame; sin valor, `_MARGIN_PX`. En 0
+    el panel va pegado a la esquina.
     """
     if frame_bgr is None or frame_bgr.size == 0 or not lines:
         return
     opts = options or OverlayOptions()
+    margin_px = _MARGIN_PX if margin_px is None else max(0, int(margin_px))
     rows = [(str(line[0]), str(line[1])) if isinstance(line, tuple) else (str(line), None)
             for line in lines]
 
@@ -403,21 +434,21 @@ def draw_text_panel(frame_bgr: np.ndarray, lines: list, *,
                             + max(measure(value)[0] for _, value in pairs))
         widths_px.append(columns_width_px)
     text_width_px = max(widths_px)
-    value_right_px = _MARGIN_PX + _INNER_PAD_PX + columns_width_px
+    value_right_px = margin_px + _INNER_PAD_PX + columns_width_px
     line_height_px = max(measure(text)[1] for row in rows for text in row if text is not None)
     line_pad_px = max(_LINE_PAD_PX, int(round(line_height_px * _LINE_PAD_RATIO)))
 
     panel_width_px = text_width_px + 2 * _INNER_PAD_PX
     panel_height_px = (len(rows) * line_height_px + (len(rows) - 1) * line_pad_px
                        + 2 * _INNER_PAD_PX)
-    cv2.rectangle(frame_bgr, (_MARGIN_PX, _MARGIN_PX),
-                  (_MARGIN_PX + panel_width_px, _MARGIN_PX + panel_height_px),
+    cv2.rectangle(frame_bgr, (margin_px, margin_px),
+                  (margin_px + panel_width_px, margin_px + panel_height_px),
                   _PANEL_BG_BGR, cv2.FILLED)
 
     for i, (label, value) in enumerate(rows):
-        y_px = _MARGIN_PX + _INNER_PAD_PX + (i + 1) * line_height_px + i * line_pad_px
+        y_px = margin_px + _INNER_PAD_PX + (i + 1) * line_height_px + i * line_pad_px
         color = (line_colors_bgr[i] if i < len(line_colors_bgr) else None) or text_bgr
-        cv2.putText(frame_bgr, label, (_MARGIN_PX + _INNER_PAD_PX, y_px),
+        cv2.putText(frame_bgr, label, (margin_px + _INNER_PAD_PX, y_px),
                     _FONT, font_scale, color, thickness, cv2.LINE_AA)
         if value is not None:
             cv2.putText(frame_bgr, value, (value_right_px - measure(value)[0], y_px),

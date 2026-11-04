@@ -490,7 +490,7 @@ pantalla, al stream anotado y al dataset.
 | Clave | Qué hace en la imagen |
 |---|---|
 | `draw_boxes`, `draw_masks`, `draw_labels`, `draw_roi`, `draw_timestamp` | Qué se dibuja. Las máscaras sólo si el modelo las devuelve. `draw_roi` dibuja el recuadro de cada pipeline con su color y su nombre, y lo pinta de verde, rojo o amarillo si el pipeline declara un veredicto (`roi_state`); un resultado no confiable va gris y punteado. |
-| `font_scale`, `thickness` | Tamaño del texto y del trazo **en píxeles del frame**. Se calibran para el tamaño de cada cámara: al reducir con `decode`, el texto sale proporcionalmente más grande. |
+| `font_scale`, `thickness` | Tamaño del texto y del trazo. En 0 son automáticos y siguen al frame: el trazo es el 0,4 % del lado menor, entre 2 y 6 px, y el texto se ajusta al ancho. Un valor positivo es fijo **en píxeles del frame**, igual para todas las cámaras: al reducir con `decode`, sale proporcionalmente más grande. |
 | `class_colors_bgr` | Color por clase; `[]` = la paleta del módulo. |
 
 Si nadie mira el stream anotado ni la pantalla, no se dibuja.
@@ -548,7 +548,7 @@ ese tamaño. Sale de tres reglas:
 | `process:` — `scale_px_per_mm`, `max_load_y_px`, zonas, etc. | Son píxeles del frame: un valor viejo mide mal sin dar error |
 | La calibración de lente (`calibration`) | Sus mapas valen para un tamaño |
 | La referencia de nitidez (`lens_health.reference`) | Depende del tamaño y la pantalla no avisa |
-| `inference.overlay.font_scale`, `thickness` | Se calibran por tamaño de frame |
+| `inference.overlay.font_scale`, `thickness` | Si no están en 0 (automáticos), se calibran por tamaño de frame |
 | El engine (sección 6) | El aspecto del frame fija el del engine |
 | El dataset | Se junta a este tamaño; el que ya hay no se mezcla sin pensarlo |
 
@@ -660,7 +660,7 @@ imágenes sueltas: ve exactamente lo que ve la línea.
 | Detecciones que cambiaron un poco al pasar de `cpu` a `nvdec` | Los píxeles no son idénticos (sección 4.1); revisar `min_confidence_pct` e `illumination_min` |
 | Los tiempos de inferencia se disparan o varían mucho | Relojes sin fijar o modo de energía bajo (sección 3), o el módulo recortó relojes (`overcurrent_count`) |
 | El engine tarda en cargar o rinde peor de lo esperado, y TensorRT avisa de «different models of devices» | El engine se exportó en otro módulo: re-exportar en este |
-| El texto del anotado sale enorme | Se redujo `decode` y `font_scale` / `thickness` siguen calibrados para el tamaño anterior |
+| El texto del anotado sale enorme | Se redujo `decode` y `font_scale` / `thickness` siguen calibrados para el tamaño anterior: ponerlos en 0 |
 | La exportación se queda sin memoria | Bajar `workspace_gb`, cerrar el escritorio o exportar con `--headless-boot` |
 
 ---
