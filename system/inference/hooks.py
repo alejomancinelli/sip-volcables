@@ -35,8 +35,8 @@ PERSON_PIPELINE_TYPE = "person_safety"
 STOPPER_PIPELINE_TYPE = "stopper_check"
 
 # Las clases de `stopper_seg`.
-_STOPPER_CLASS = "stopper"
-_WHEEL_CLASS = "wheel"
+STOPPER_CLASS = "stopper"
+WHEEL_CLASS = "wheel"
 
 
 @dataclass(frozen=True)
@@ -98,8 +98,8 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
         section = "process.stopper_check"
         selected.append(annotations.stopper_status_annotator(
             stopper_pipelines=stopper_pipelines,
-            stopper_class=_STOPPER_CLASS,
-            wheel_class=_WHEEL_CLASS,
+            stopper_class=STOPPER_CLASS,
+            wheel_class=WHEEL_CLASS,
             raised_y_px_by_camera=_read_camera_map(config, f"{section}.raised_y_px"),
             min_raised_px_by_camera=_read_camera_map(config, f"{section}.min_raised_px"),
             max_gap_px_by_camera=_read_camera_map(config, f"{section}.max_gap_px"),

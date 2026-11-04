@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 539 grupos, 2778 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**91 archivos, 548 grupos, 2838 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,24 +14,24 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 373 |
-| [test/build/](#testbuild) | 2 | 55 |
+| [test/](#test) | 7 | 374 |
+| [test/build/](#testbuild) | 2 | 64 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 606 |
+| [test/inference/](#testinference) | 15 | 614 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 206 |
 | [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 6 | 217 |
+| [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 15 | 203 |
+| [test/ui/](#testui) | 15 | 217 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -228,7 +228,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 144 tests
+### [test_main.py](../test/test_main.py) — 145 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -247,7 +247,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestCycleTimeFields` | El período de la cámara se agrega sin contar el 0 del primer frame. | 2 |
 | `TestFrameViews` | Las vistas viajan con su frame hasta el motor, por los dos caminos. | 2 |
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
-| `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 6 |
+| `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 7 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
@@ -341,6 +341,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_an_unlicensed_feature_gets_no_engine`
   - `test_an_unlicensed_pipeline_is_remembered_for_its_status_word`
   - `test_each_result_records_whether_its_pair_was_valid`
+  - `test_the_last_result_of_each_pair_is_kept_without_its_drawings`
 - `TestMetricRegisters`
   - `test_two_pipelines_on_one_camera_keep_their_own_metrics`
   - `test_two_pairs_publishing_the_same_metric_are_warned_once`
@@ -654,7 +655,7 @@ Tests de las opciones con las que se llama a Nuitka.
 <details><summary>Tests</summary>
 
 - `TestExtraFlags`
-  - `test_the_template_adds_none`
+  - `test_they_are_added_and_nothing_else`
   - `test_what_the_fork_declares_ends_up_in_the_command`
   - `test_they_come_before_the_exclusions`
   - `test_the_machinery_flags_are_still_there`
@@ -662,7 +663,7 @@ Tests de las opciones con las que se llama a Nuitka.
 - `TestOptionalPackages`
   - `test_an_installed_package_is_included`
   - `test_a_missing_one_is_left_out`
-  - `test_the_fork_block_stays_empty_either_way`
+  - `test_it_does_not_need_the_fork_block`
   - `test_the_accelerated_build_leaves_it_loose`
 - `TestCalibrators`
   - `test_the_standalone_build_includes_them`
@@ -670,7 +671,7 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
-  - `test_excluding_nothing_is_the_default`
+  - `test_excluding_nothing_adds_no_flag`
 - `TestPlatform`
   - `test_windows_gets_the_executable_properties`
   - `test_linux_does_not`
@@ -687,16 +688,17 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 40 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
-| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 11 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
+| `TestWindowsService` | `Instalar servicio.cmd` y `Quitar servicio.cmd`: la app sin pantalla, con NSSM. | 7 |
 | `TestDesktopEntryId` |  | 2 |
 | `TestFindExecutable` |  | 2 |
 
@@ -711,6 +713,8 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_the_template_ships_only_the_app_launchers`
   - `test_each_tool_gets_a_launcher_that_waits`
   - `test_the_windows_launcher_keeps_the_console_open`
+  - `test_the_template_shortcuts_only_the_app`
+  - `test_each_tool_gets_a_shortcut_with_its_console_visible`
   - `test_the_linux_launcher_calls_the_same_binary`
   - `test_its_folders_are_created_empty_with_a_note`
   - `test_its_guide_travels_with_it`
@@ -733,6 +737,14 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_one_that_a_runtime_package_needs_travels`
   - `test_a_test_extra_does_not_keep_it`
   - `test_the_system_packages_travel_as_symlinks`
+- `TestWindowsService`
+  - `test_the_service_runs_the_executable_headless`
+  - `test_the_data_dir_still_lives_in_one_file`
+  - `test_no_quoted_argument_ends_in_a_backslash`
+  - `test_nssm_travels_next_to_the_executable`
+  - `test_without_nssm_the_scripts_are_written_anyway`
+  - `test_the_service_name_needs_no_quotes`
+  - `test_removing_does_not_need_nssm`
 - `TestDesktopEntryId`
   - `test_accents_and_spaces_become_a_plain_slug`
   - `test_a_name_without_ascii_letters_still_gets_one`
@@ -1530,7 +1542,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 62 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 63 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1541,7 +1553,7 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 | `TestLabelsPanel` | 2 |
 | `TestUnloadStatus` | 20 |
 | `TestTimestamp` | 4 |
-| `TestStopperStatus` | 21 |
+| `TestStopperStatus` | 22 |
 
 <details><summary>Tests</summary>
 
@@ -1592,24 +1604,25 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_it_is_taller_than_the_status_border`
   - `test_an_empty_frame_is_ignored`
 - `TestStopperStatus`
-  - `test_a_raised_stopper_against_the_wheel_is_green`
-  - `test_a_stopper_below_the_line_is_red`
-  - `test_too_few_pixels_above_the_line_is_red`
-  - `test_a_wheel_farther_than_the_maximum_is_red`
-  - `test_without_a_stopper_it_is_red`
-  - `test_without_a_wheel_it_is_red`
-  - `test_an_uncalibrated_camera_is_red`
-  - `test_an_uncalibrated_verdict_is_gray_in_the_panel`
+  - `test_a_raised_stopper_against_the_wheel_is_ok_in_both`
+  - `test_there_is_no_status_border`
+  - `test_the_height_line_stops_growing_where_the_boxes_do`
+  - `test_without_a_border_the_panel_sits_in_the_corner`
+  - `test_a_stopper_below_the_line_is_nok_and_the_contact_is_not_judged`
+  - `test_too_few_pixels_above_the_line_is_nok`
+  - `test_a_wheel_farther_than_the_maximum_is_no_contact`
+  - `test_without_a_stopper_it_is_nok`
+  - `test_without_a_wheel_it_is_no_contact`
+  - `test_an_uncalibrated_verdict_is_not_affirmed`
   - `test_the_gap_is_drawn_between_the_two_masks`
   - `test_before_the_stopper_is_raised_the_wheel_changes_nothing`
-  - `test_before_the_stopper_is_raised_the_contact_is_gray`
   - `test_without_a_calibrated_height_the_contact_is_not_judged`
   - `test_the_height_is_drawn_across_the_whole_width`
   - `test_another_pipeline_draws_nothing`
   - `test_an_invalid_result_draws_nothing`
   - `test_a_height_that_is_not_a_row_stops_the_build`
   - `test_a_wheel_on_the_configured_side_counts`
-  - `test_a_wheel_only_on_the_other_side_is_red`
+  - `test_a_wheel_only_on_the_other_side_is_no_contact`
   - `test_the_side_picks_the_wheel_among_two`
   - `test_an_unknown_side_stops_the_build`
   - `test_the_labels_follow_the_language`
@@ -1903,11 +1916,11 @@ Tests de la geometría sobre detecciones: una máscara contra una línea y la di
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
-| Grupo | Tests |
-|---|---:|
-| `TestTemplateHooks` | 9 |
-| `TestStopperHooks` | 5 |
-| `TestReadPipelines` | 3 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestTemplateHooks` |  | 9 |
+| `TestStopperHooks` | El annotator de calzas no lleva borde de estado —lo decide el PLC—, así que estos tests no leen un veredicto: comparan el dibujo con el de otro config, y un valor que se lee es uno que lo cambia. | 5 |
+| `TestReadPipelines` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -1982,7 +1995,7 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 
 </details>
 
-### [test_overlay.py](../test/inference/test_overlay.py) — 69 tests
+### [test_overlay.py](../test/inference/test_overlay.py) — 76 tests
 
 Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de cámara nunca se toque.
 
@@ -1994,9 +2007,10 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 | `TestMaskStyle` | Contorno y relleno son dueños de píxeles distintos. | 5 |
 | `TestFontScale` | `font_scale: 0` calcula el tamaño del texto a partir del ancho del frame. | 4 |
 | `TestTextPanelColours` | Un panel puede pintar cada línea de su color, y es lo que deja que el resumen de clases coincida con el color de las máscaras. Lo que no se declara cae en el del panel. | 4 |
-| `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 2 |
+| `TestTextPanelLayout` | Los pares `(etiqueta, valor)` van en dos columnas con los valores alineados a la derecha, y el aire entre líneas crece con el texto. | 4 |
+| `TestLineThickness` | `thickness: 0` sigue al lado menor del frame, con topes; un valor positivo es fijo. Así una cámara reducida por el decodificador se ve con el mismo trazo que una nativa. | 4 |
 | `TestTextThickness` | El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve pálido y roto, que es lo que pasaba después de escalarlo con el ancho del frame. | 3 |
-| `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 5 |
+| `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 6 |
 | `TestPipelineStyle` |  | 6 |
 | `TestDrawRoi` |  | 9 |
 | `TestRoiState` | El borde del ROI se pinta por el veredicto, y un resultado inválido nunca de estado. | 13 |
@@ -2043,6 +2057,13 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 - `TestTextPanelLayout`
   - `test_the_values_end_in_the_same_column`
   - `test_the_space_between_lines_grows_with_the_text`
+  - `test_by_default_it_leaves_a_margin_to_the_border`
+  - `test_with_no_margin_it_sits_in_the_corner`
+- `TestLineThickness`
+  - `test_the_automatic_one_follows_the_short_side_within_its_limits`
+  - `test_a_positive_value_is_kept_on_any_frame`
+  - `test_the_boxes_are_drawn_with_it`
+  - `test_the_roi_grows_with_the_frame`
 - `TestTextThickness`
   - `test_it_grows_with_the_scale`
   - `test_it_is_never_zero`
@@ -2052,6 +2073,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_where_two_classes_overlap_the_last_one_wins`
   - `test_the_tint_still_reaches_the_frame`
   - `test_two_classes_side_by_side_keep_their_own_colour`
+  - `test_between_two_instances_of_a_class_the_frame_is_untouched`
   - `test_an_outline_is_still_drawn_per_instance`
 - `TestPipelineStyle`
   - `test_no_color_is_green_red_or_yellow`
@@ -2076,7 +2098,7 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_without_a_state_the_border_is_the_pipeline_color`
   - `test_each_state_paints_its_color_and_not_the_pipeline_one`
   - `test_the_label_keeps_the_pipeline_color_and_says_the_verdict`
-  - `test_nok_is_thicker_than_ok`
+  - `test_every_state_has_the_same_width`
   - `test_an_invalid_result_is_never_painted_with_a_state`
   - `test_an_invalid_result_has_a_dashed_grey_border_and_its_reason`
   - `test_an_invalid_result_without_a_reason_still_says_it_is_invalid`
@@ -3640,6 +3662,56 @@ Tests del backend MQTT: armado del cliente para las dos APIs de paho, puerto y c
 
 ## test/tools/camera/
 
+### [test_basler_driver.py](../test/tools/camera/test_basler_driver.py) — 28 tests
+
+Tests del driver Basler: qué parámetros llegan a la cámara y cuándo se da por perdida.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestParameterNames` | Cada parámetro va al nodo que la cámara tiene: el de SFNC 2 o el `*Abs` de SFNC 1. | 6 |
+| `TestGain` | `gain` es siempre dB. Una cámara que sólo tiene `GainRaw` lo recibe convertido con la fórmula de su modelo, que se lee de la cámara: sin clave de config aparte. | 8 |
+| `TestPacketDelay` | `packet_delay_ns` llega a `GevSCPD` convertido a ticks del reloj de la cámara. | 3 |
+| `TestTemperature` |  | 2 |
+| `TestStalls` | Un frame que tarda no baja la sesión. Reconectar por cada vencimiento de medio segundo —un pico de CPU del equipo— reabría la cámara justo cuando no había CPU para hacerlo, y la cámara quedaba en loop de conexión. | 9 |
+
+<details><summary>Tests</summary>
+
+- `TestParameterNames`
+  - `test_a_classic_ace_gets_exposure_and_frame_rate_on_the_abs_nodes`
+  - `test_an_sfnc2_camera_gets_them_on_the_standard_nodes`
+  - `test_free_run_is_declared`
+  - `test_a_parameter_the_camera_lacks_is_warned`
+  - `test_the_warning_is_not_repeated_on_every_reconnect`
+  - `test_a_value_the_camera_rejects_is_warned`
+- `TestGain`
+  - `test_a_db_node_takes_the_value_as_is`
+  - `test_a_db_node_named_gain_abs_also_takes_it`
+  - `test_an_aca4024_gets_the_raw_value_of_its_formula`
+  - `test_the_raw_value_reads_back_as_the_declared_db`
+  - `test_zero_db_is_zero_raw`
+  - `test_a_gain_above_the_camera_range_is_clamped_and_said`
+  - `test_a_model_without_a_formula_is_not_guessed`
+  - `test_the_model_comes_from_the_camera_not_the_config`
+- `TestPacketDelay`
+  - `test_the_delay_is_converted_with_the_tick_frequency`
+  - `test_without_the_tick_frequency_it_is_not_written`
+  - `test_zero_leaves_the_camera_as_it_is`
+- `TestTemperature`
+  - `test_a_classic_ace_reads_temperature_abs`
+  - `test_without_any_temperature_node_it_reports_zero`
+- `TestStalls`
+  - `test_a_single_timeout_keeps_the_session`
+  - `test_a_frame_after_a_timeout_is_delivered`
+  - `test_a_removed_camera_is_dropped_at_the_first_timeout`
+  - `test_a_stall_past_the_limit_drops_the_session`
+  - `test_a_slow_frame_rate_stretches_the_limit`
+  - `test_a_long_gap_is_reported_when_frames_come_back`
+  - `test_a_failed_grab_keeps_the_session_and_says_why`
+  - `test_repeated_failed_grabs_are_throttled`
+  - `test_a_failed_grab_counts_as_the_camera_answering`
+
+</details>
+
 ### [test_camera_factory.py](../test/tools/camera/test_camera_factory.py) — 14 tests
 
 Tests de la fábrica de cámaras, el NullDriver y el contrato del driver.
@@ -4437,14 +4509,15 @@ Tests de la pestaña de óptica: la región donde se mide la nitidez de cada cá
 
 </details>
 
-### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 5 tests
+### [test_level_dialog.py](../test/ui/test_level_dialog.py) — 10 tests
 
 Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse llegue al campo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestLevelDialog` | 4 |
-| `TestPause` | 1 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestLevelDialog` |  | 4 |
+| `TestPause` |  | 1 |
+| `TestInspector` | En pausa, el diálogo muestra el frame que trae el inspector y sus renglones para la altura marcada. Lo que se mide no es del diálogo: el inspector lo arma. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -4455,6 +4528,12 @@ Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse 
   - `test_it_saves_one_row_under_its_key_and_persists`
 - `TestPause`
   - `test_a_paused_dialog_keeps_the_frame_it_had`
+- `TestInspector`
+  - `test_pausing_shows_the_inspected_frame_and_its_lines`
+  - `test_moving_the_line_rebuilds_the_lines`
+  - `test_without_a_snapshot_it_says_there_is_nothing_to_measure`
+  - `test_resuming_hides_the_lines`
+  - `test_without_an_inspector_pausing_shows_no_lines`
 
 </details>
 
@@ -4581,21 +4660,23 @@ Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y q
 
 </details>
 
-### [test_process_tab.py](../test/ui/test_process_tab.py) — 11 tests
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 20 tests
 
-Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
+Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestGroups` | 2 |
-| `TestRoundTrip` | 7 |
-| `TestLevel` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestCameraTabs` |  | 3 |
+| `TestRoundTrip` |  | 7 |
+| `TestLevel` |  | 2 |
+| `TestLevelInspector` | En pausa, el diálogo de la altura mide sobre el último frame inferido: los píxeles de la calza sobre la línea y la distancia a la rueda, con las reglas del annotator. | 8 |
 
 <details><summary>Tests</summary>
 
-- `TestGroups`
-  - `test_one_group_per_stopper_camera`
-  - `test_without_stopper_pipelines_there_are_no_groups`
+- `TestCameraTabs`
+  - `test_one_tab_per_stopper_camera`
+  - `test_each_tab_is_named_after_its_camera`
+  - `test_without_stopper_pipelines_there_are_no_tabs`
 - `TestRoundTrip`
   - `test_the_values_go_back_as_they_were`
   - `test_a_missing_minimum_shows_the_default`
@@ -4607,6 +4688,15 @@ Tests de la pestaña de proceso: un grupo de calza por cámara de `stopper_check
 - `TestLevel`
   - `test_reload_level_shows_what_the_dialog_wrote`
   - `test_the_mark_button_asks_for_its_camera_key`
+- `TestLevelInspector`
+  - `test_it_measures_the_last_valid_result_of_the_camera`
+  - `test_the_pixels_follow_the_line`
+  - `test_it_judges_with_the_values_on_screen_even_unsaved`
+  - `test_an_uncalibrated_gap_is_shown_without_a_verdict`
+  - `test_a_wheel_on_the_other_side_does_not_count`
+  - `test_without_a_stopper_it_says_so`
+  - `test_without_a_valid_result_there_is_nothing_to_show`
+  - `test_a_camera_without_stoppers_has_no_inspector`
 
 </details>
 

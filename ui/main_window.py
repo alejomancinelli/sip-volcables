@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._gpio_controller = None
         self._gpio_thread = None
         self._gpio_dialog = None
+        self._result_source = None
         self._config_view: ConfigView | None = None
         self._nav_buttons: list = []
         self._is_dark = True
@@ -137,6 +138,14 @@ class MainWindow(QMainWindow):
         self.set_status_message(tr("status_started"))
 
     # ── API pública ──────────────────────────────────────────────────────────
+
+    def set_result_source(self, result_source):
+        """
+        Inyecta `result_source(cámara, pipeline) -> InferenceResult | None`: el último
+        resultado de ese par, que lleva el cableado. Lo usa el diálogo de la altura para
+        medir sobre un frame inferido cuando se pausa; sin esto se abre sin medidas.
+        """
+        self._result_source = result_source
 
     def set_gpio(self, gpio_controller: object, gpio_thread: object = None):
         """
@@ -520,11 +529,17 @@ class MainWindow(QMainWindow):
         Abre el diálogo de nivel alimentado con el frame en vivo de esa cámara.
 
         Igual que el del ROI: dónde se guarda la altura y cómo se titula la ventana lo dice la
-        pestaña que la pide, así que esta ventana no conoce qué se mide contra ella.
+        pestaña que la pide, así que esta ventana no conoce qué se mide contra ella. Lo que se
+        muestra en pausa también lo arma esa pestaña, si sabe hacerlo.
         """
         from ui.dialogs.level_dialog import LevelDialog
 
-        dialog = LevelDialog(self._config, camera_slot, config_key, self, title_key=title_key)
+        inspector = None
+        if self._config_view is not None:
+            inspector = self._config_view.build_level_inspector(camera_slot,
+                                                                self._result_source)
+        dialog = LevelDialog(self._config, camera_slot, config_key, self, title_key=title_key,
+                             inspector=inspector)
         self._exec_on_live_frame(dialog, camera_slot)
         if self._config_view is not None:
             self._config_view.refresh_level_fields(camera_slot)

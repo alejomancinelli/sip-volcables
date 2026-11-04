@@ -71,7 +71,7 @@ _STOPPER_PIPELINES = {"pipeline_3": {"type": "stopper_check", "cameras": ["camer
 
 
 def _stopper_result() -> InferenceResult:
-    """Calza levantada sobre y = 30 y pegada a la rueda: verde si todo está calibrado."""
+    """Calza levantada sobre y = 30 y pegada a la rueda: OK en los dos si está calibrado."""
     stopper = Detection(class_index=0, class_name="stopper", confidence_pct=90.0,
                         bbox_px=(60, 20, 70, 50), mask=np.ones((30, 10), np.uint8))
     wheel = Detection(class_index=1, class_name="wheel", confidence_pct=90.0,
@@ -91,15 +91,21 @@ def _stopper_config(**overrides) -> _MockConfig:
     return _MockConfig(**values)
 
 
-def _border_of(hooks: EngineHooks) -> tuple[int, int, int]:
+def _drawn_by(hooks: EngineHooks) -> np.ndarray:
     frame = np.full((60, 80, 3), 128, np.uint8)
     hooks.annotator(frame, _stopper_result())
-    return tuple(int(value) for value in frame[40, 0])
+    return frame
 
 
 class TestStopperHooks:
+    """
+    El annotator de calzas no lleva borde de estado —lo decide el PLC—, así que estos tests
+    no leen un veredicto: comparan el dibujo con el de otro config, y un valor que se lee es
+    uno que lo cambia.
+    """
+
     def test_a_stopper_pipeline_draws_the_stopper_status(self):
-        assert _border_of(build_hooks(_stopper_config())) == (40, 200, 40)
+        assert np.any(_drawn_by(build_hooks(_stopper_config())) != 128)
 
     def test_without_a_stopper_pipeline_there_is_no_annotator(self):
         assert build_hooks(_stopper_config(**{"inference.pipelines": {}})).annotator is None
@@ -107,19 +113,21 @@ class TestStopperHooks:
     def test_the_process_values_are_the_ones_measured(self):
         hooks = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px":
                                                {"camera_1": 1}}))
-        assert _border_of(hooks) == (40, 40, 230)
+        assert not np.array_equal(_drawn_by(hooks), _drawn_by(build_hooks(_stopper_config())))
 
     def test_the_wheel_side_is_read(self):
-        """La rueda está a la izquierda de la calza: pedirla a la derecha da rojo."""
+        """La rueda está a la izquierda de la calza: pedirla a la derecha cambia el contacto."""
         hooks = build_hooks(_stopper_config(**{"process.stopper_check.wheel_side":
                                                {"camera_1": "right"}}))
-        assert _border_of(hooks) == (40, 40, 230)
+        assert not np.array_equal(_drawn_by(hooks), _drawn_by(build_hooks(_stopper_config())))
 
     def test_a_null_distance_is_uncalibrated(self):
-        """La pestaña guarda «sin calibrar» como null: no puede dar verde."""
-        hooks = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px":
-                                               {"camera_1": None}}))
-        assert _border_of(hooks) == (40, 40, 230)
+        """La pestaña guarda «sin calibrar» como null: se dibuja igual que sin la clave."""
+        null = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px":
+                                              {"camera_1": None}}))
+        missing = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px": {}}))
+        assert np.array_equal(_drawn_by(null), _drawn_by(missing))
+        assert not np.array_equal(_drawn_by(null), _drawn_by(build_hooks(_stopper_config())))
 
 
 class TestReadPipelines:

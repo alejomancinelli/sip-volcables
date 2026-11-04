@@ -8,6 +8,7 @@ aspecto no es afirmable, la mutación sí.
 import colorsys
 
 import numpy as np
+import pytest
 
 from system.inference import overlay
 from system.inference.result import (
@@ -301,6 +302,60 @@ class TestTextPanelLayout:
         assert gap_px(2.0) > gap_px(0.5)
         assert gap_px(2.0) > overlay._LINE_PAD_PX
 
+    def test_by_default_it_leaves_a_margin_to_the_border(self):
+        frame = np.full((200, 600, 3), 128, np.uint8)
+        overlay.draw_text_panel(frame, ["AB"])
+        assert np.all(frame[0, 0] == 128) and np.all(frame[12, 12] == 0)
+
+    def test_with_no_margin_it_sits_in_the_corner(self):
+        frame = np.full((200, 600, 3), 128, np.uint8)
+        overlay.draw_text_panel(frame, [("A:", "1.0%")], margin_px=0)
+        assert np.all(frame[0, 0] == 0)
+
+
+class TestLineThickness:
+    """
+    `thickness: 0` sigue al lado menor del frame, con topes; un valor positivo es fijo. Así
+    una cámara reducida por el decodificador se ve con el mismo trazo que una nativa.
+    """
+
+    @staticmethod
+    def _sized(height_px: int, width_px: int) -> np.ndarray:
+        return np.full((height_px, width_px, 3), 128, np.uint8)
+
+    @pytest.mark.parametrize(("height_px", "width_px", "expected_px"),
+                             [(1080, 1920, 4), (720, 1280, 3), (360, 640, 2), (120, 200, 2),
+                              (2160, 3840, 6)])
+    def test_the_automatic_one_follows_the_short_side_within_its_limits(
+            self, height_px, width_px, expected_px):
+        frame = self._sized(height_px, width_px)
+        assert overlay.get_line_thickness(frame, overlay.OverlayOptions()) == expected_px
+
+    def test_a_positive_value_is_kept_on_any_frame(self):
+        options = overlay.OverlayOptions(thickness=3)
+        for frame in (self._sized(360, 640), self._sized(2160, 3840)):
+            assert overlay.get_line_thickness(frame, options) == 3
+
+    def test_the_boxes_are_drawn_with_it(self):
+        def boxed(thickness: int) -> np.ndarray:
+            frame = self._sized(1080, 1920)
+            overlay.draw_detections(frame, [_detection(bbox_px=(400, 300, 900, 800))],
+                                    options=overlay.OverlayOptions(
+                                        thickness=thickness, draw_labels=False))
+            return frame
+
+        assert np.array_equal(boxed(0), boxed(4))
+
+    def test_the_roi_grows_with_the_frame(self):
+        def roi_rows(height_px: int, width_px: int, state: str = "") -> int:
+            frame = self._sized(height_px, width_px)
+            overlay.draw_roi(frame, (20, 20, 100, 60), state=state,
+                             options=overlay.OverlayOptions(roi_color_bgr=(255, 0, 0)))
+            return int(np.count_nonzero(np.any(frame[:60, 70] != 128, axis=1)))
+
+        assert roi_rows(2160, 3840) > roi_rows(360, 640)
+        assert roi_rows(2160, 3840, ROI_STATE_NOK) == roi_rows(2160, 3840)
+
 
 class TestTextThickness:
     """El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve
@@ -363,6 +418,16 @@ class TestOverlappingFill:
         frame = self._painted([left, right])
         assert frame[20, 20, 2] > frame[20, 20, 1]    # rojo a la izquierda
         assert frame[20, 70, 1] > frame[20, 70, 2]    # verde a la derecha
+
+    def test_between_two_instances_of_a_class_the_frame_is_untouched(self):
+        """Se tiñe el rectángulo que cubre las dos, pero sólo lo que es de alguna máscara."""
+        left = _detection(class_index=0, mask=np.ones((20, 20), np.uint8),
+                          bbox_px=(10, 10, 30, 30))
+        right = _detection(class_index=0, mask=np.ones((20, 20), np.uint8),
+                           bbox_px=(60, 60, 80, 80))
+        frame = self._painted([left, right])
+        assert np.array_equal(frame[30:60, 30:60], _frame()[30:60, 30:60])
+        assert _changed_pixels(_frame()[10:30, 10:30], frame[10:30, 10:30]) > 0
 
     def test_an_outline_is_still_drawn_per_instance(self):
         """El contorno es lo que deja ver cada instancia por separado."""
@@ -528,12 +593,14 @@ class TestRoiState:
         assert not np.array_equal(painted[label_area], plain[label_area])
         assert np.any(np.all(painted[label_area] == self._BLUE, axis=2))
 
-    def test_nok_is_thicker_than_ok(self):
-        nok = self._annotate(roi_state=ROI_STATE_NOK)
-        ok = self._annotate(roi_state=ROI_STATE_OK)
-        count_nok = np.count_nonzero(np.all(nok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK], axis=1))
-        count_ok = np.count_nonzero(np.all(ok[80:100, 100] == overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK], axis=1))
-        assert count_nok > count_ok
+    def test_every_state_has_the_same_width(self):
+        """Un trazo que cambia con el veredicto hace saltar el recuadro entre un frame y otro."""
+        def width_px(state: str) -> int:
+            painted = self._annotate(roi_state=state)
+            color = overlay.ROI_STATE_COLORS_BGR[state]
+            return int(np.count_nonzero(np.all(painted[80:100, 100] == color, axis=1)))
+
+        assert width_px(ROI_STATE_NOK) == width_px(ROI_STATE_OK) == width_px(ROI_STATE_WARNING)
 
     def test_an_invalid_result_is_never_painted_with_a_state(self):
         for state in overlay.ROI_STATE_COLORS_BGR:

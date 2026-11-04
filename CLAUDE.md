@@ -447,7 +447,8 @@ Lo que no se deduce leyendo un archivo suelto:
   los usara de identidad se confundiría con un veredicto, y por eso pueden pintar el borde: el
   pipeline declara `roi_state` (`ok`/`nok`/`warning`, de `result.py`) junto a sus `labels`, porque
   sólo su código sabe qué es «bien» o «mal», y el overlay lo pinta con el texto del veredicto en
-  la etiqueta —el color solo no alcanza— y el `nok` más grueso. Un resultado no confiable nunca
+  la etiqueta —el color solo no alcanza—, con el mismo trazo en los tres estados: un `nok` más
+  grueso hacía saltar el recuadro cada vez que el veredicto cambiaba. Un resultado no confiable nunca
   se pinta de estado: va gris y punteado con el motivo. Una región propia guarda el tamaño
   del frame sobre el que se dibujó, para avisar cuando el que llega es otro. El recorte de
   la interfaz de la cámara no es de la app: lo hace quien instala con la herramienta del
@@ -739,6 +740,13 @@ Lo que no se deduce leyendo un archivo suelto:
   defecto, porque necesita el puerto serie libre.
 - Un módulo al que le falta su librería de sistema degrada a no-op adentro y expone
   la misma API. El llamador no pregunta si está disponible.
+- **OpenBLAS corre de un solo hilo** (`OPENBLAS_NUM_THREADS=1`, fijado en `main.py` antes
+  de importar numpy). Los productos de matrices de la inferencia son chicos —armar una
+  máscara, la distancia entre dos— y los llaman varios hilos de inferencia a la vez: con
+  el pool, sus cinco hilos giraban en vacío entre llamada y llamada. Medido en la Jetson con
+  tres pipelines en lectura continua, el equipo pasó de 87 % a 52 % de CPU y los pipelines
+  infirieron más rápido, no más lento. Lo que venga en el entorno manda, para medir con otro
+  valor sin tocar el código.
 - **Una métrica llega al PLC si tiene una fila con su mismo nombre en el mapa.** El
   cableado publica los registros de salud y, del dict del analyzer, las claves que existen
   como registro; una que no existe no se publica y se avisa una vez. Así el nombre de la

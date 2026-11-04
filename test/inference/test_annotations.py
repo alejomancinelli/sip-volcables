@@ -343,15 +343,24 @@ class TestTimestamp:
 
 
 _STOPPER_PIPELINE = "pipeline_3"
-_RAISED_Y = 120
+# Las calzas se prueban en un frame grande, donde el texto del panel sale con el color justo
+# en el centro del trazo, y lejos del panel: las coordenadas de las cajas se corren hasta acá.
+_STOPPER_ORIGIN_X = 800
+_STOPPER_ORIGIN_Y = 400
+_RAISED_Y = _STOPPER_ORIGIN_Y + 120
 
 
 def _stopper_frame() -> np.ndarray:
-    return np.full((240, 320, 3), 128, np.uint8)
+    return np.full((720, 1280, 3), 128, np.uint8)
 
 
 def _box(class_name: str, x1: int, y1: int, x2: int, y2: int) -> Detection:
-    """Una detección rectangular con su máscara llena, de (x1, y1) a (x2, y2) incluidos."""
+    """
+    Una detección rectangular con su máscara llena, de (x1, y1) a (x2, y2) incluidos,
+    corrida al origen de las calzas.
+    """
+    x1, x2 = x1 + _STOPPER_ORIGIN_X, x2 + _STOPPER_ORIGIN_X
+    y1, y2 = y1 + _STOPPER_ORIGIN_Y, y2 + _STOPPER_ORIGIN_Y
     return Detection(class_index=0, class_name=class_name, confidence_pct=90.0,
                      bbox_px=(x1, y1, x2 + 1, y2 + 1),
                      mask=np.ones((y2 - y1 + 1, x2 - x1 + 1), np.uint8))
@@ -385,61 +394,82 @@ def _stopper_status(*, levels: dict | None = None, min_raised: dict | None = Non
         language=language)
 
 
-def _stopper_border(frame_bgr: np.ndarray) -> tuple[int, int, int]:
-    return tuple(int(value) for value in frame_bgr[180, 0])
+def _panel_states(frame_bgr: np.ndarray) -> set[str]:
+    """Los colores de veredicto que aparecen en el panel, arriba a la izquierda."""
+    panel = frame_bgr[:300, :700]
+    return {state for state, color in (("ok", _GREEN), ("nok", _RED), ("unknown", _GRAY))
+            if np.any(np.all(panel == color, axis=2))}
 
 
 class TestStopperStatus:
-    def test_a_raised_stopper_against_the_wheel_is_green(self):
+    def test_a_raised_stopper_against_the_wheel_is_ok_in_both(self):
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _GREEN
+        assert _panel_states(frame) == {"ok"}
 
-    def test_a_stopper_below_the_line_is_red(self):
+    def test_there_is_no_status_border(self):
+        """Si la calza está bien puesta lo decide el PLC: el frame no lleva borde."""
+        frame = _stopper_frame()
+        _stopper_status()(frame, _stoppers(_raised_stopper(), _wheel()))
+        for row, column in ((0, 1279), (719, 0), (650, 0), (650, 1279)):
+            assert tuple(int(value) for value in frame[row, column]) == (128, 128, 128)
+
+    def test_the_height_line_stops_growing_where_the_boxes_do(self):
+        """En 1440 y en 2160 el trazo automático ya está en su máximo: la línea es la misma."""
+        def line_rows(height_px: int, width_px: int) -> int:
+            frame = np.full((height_px, width_px, 3), 128, np.uint8)
+            _stopper_status()(frame, _stoppers())
+            return int(np.count_nonzero(np.any(frame[:, width_px - 40] != 128, axis=1)))
+
+        assert line_rows(1440, 2560) == line_rows(2160, 3840)
+
+    def test_without_a_border_the_panel_sits_in_the_corner(self):
+        """El margen era para que el borde lo enmarcara: sin borde, iría con video alrededor."""
+        frame = _stopper_frame()
+        _stopper_status()(frame, _stoppers(_raised_stopper(), _wheel()))
+        assert np.all(frame[0, 0] == 0) and np.all(frame[0, 40] == 0)
+
+    def test_a_stopper_below_the_line_is_nok_and_the_contact_is_not_judged(self):
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_box("stopper", 200, 130, 219, 160), _wheel()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"nok", "unknown"}
 
-    def test_too_few_pixels_above_the_line_is_red(self):
+    def test_too_few_pixels_above_the_line_is_nok(self):
         frame = _stopper_frame()
         _stopper_status(min_raised={_SLOT: 401})(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"nok", "unknown"}
 
-    def test_a_wheel_farther_than_the_maximum_is_red(self):
+    def test_a_wheel_farther_than_the_maximum_is_no_contact(self):
         frame = _stopper_frame()
         _stopper_status(max_gaps={_SLOT: 10})(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"ok", "nok"}
 
-    def test_without_a_stopper_it_is_red(self):
+    def test_without_a_stopper_it_is_nok(self):
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_wheel()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"nok", "unknown"}
 
-    def test_without_a_wheel_it_is_red(self):
+    def test_without_a_wheel_it_is_no_contact(self):
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_raised_stopper()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"ok", "nok"}
 
-    @pytest.mark.parametrize("missing", ["levels", "max_gaps"])
-    def test_an_uncalibrated_camera_is_red(self, missing):
+    @pytest.mark.parametrize(("missing", "states"), [("levels", {"unknown"}),
+                                                     ("max_gaps", {"ok", "unknown"})])
+    def test_an_uncalibrated_verdict_is_not_affirmed(self, missing, states):
         """Lo que nadie calibró no se afirma, aunque la calza y la rueda estén bien."""
         frame = _stopper_frame()
         _stopper_status(**{missing: {}})(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _RED
-
-    def test_an_uncalibrated_verdict_is_gray_in_the_panel(self):
-        """En un frame grande: el trazo es grueso y su centro sale sin antialiasing."""
-        frame = np.full((720, 1280, 3), 128, np.uint8)
-        _stopper_status(levels={})(frame, _stoppers())
-        assert np.any(np.all(frame == _GRAY, axis=2))
+        assert _panel_states(frame) == states
 
     def test_the_gap_is_drawn_between_the_two_masks(self):
         """Entre la rueda (x = 189) y la calza (x = 200): sólo la rueda cambia esa franja."""
         with_wheel, without_wheel = _stopper_frame(), _stopper_frame()
         _stopper_status()(with_wheel, _stoppers(_raised_stopper(), _wheel()))
         _stopper_status()(without_wheel, _stoppers(_raised_stopper()))
-        assert not np.array_equal(with_wheel[95:166, 191:198],
-                                  without_wheel[95:166, 191:198])
+        rows = slice(_STOPPER_ORIGIN_Y + 95, _STOPPER_ORIGIN_Y + 166)
+        columns = slice(_STOPPER_ORIGIN_X + 191, _STOPPER_ORIGIN_X + 198)
+        assert not np.array_equal(with_wheel[rows, columns], without_wheel[rows, columns])
 
     def test_before_the_stopper_is_raised_the_wheel_changes_nothing(self):
         """La distancia sólo importa con la calza en posición: antes ni se mide ni se dibuja."""
@@ -449,11 +479,6 @@ class TestStopperStatus:
         _stopper_status()(without_wheel, _stoppers(lowered))
         assert np.array_equal(with_wheel, without_wheel)
 
-    def test_before_the_stopper_is_raised_the_contact_is_gray(self):
-        """En un frame grande: el trazo es grueso y su centro sale sin antialiasing."""
-        frame = np.full((720, 1280, 3), 128, np.uint8)
-        _stopper_status()(frame, _stoppers(_box("stopper", 200, 130, 219, 160), _wheel()))
-        assert np.any(np.all(frame == _GRAY, axis=2))
 
     def test_without_a_calibrated_height_the_contact_is_not_judged(self):
         """Sin altura no se sabe si está levantada, así que tampoco se juzga el contacto."""
@@ -465,10 +490,10 @@ class TestStopperStatus:
     def test_the_height_is_drawn_across_the_whole_width(self):
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers())
-        assert np.all(frame[_RAISED_Y, 40] != 128) and np.all(frame[_RAISED_Y, 280] != 128)
+        assert np.all(frame[_RAISED_Y, 40] != 128) and np.all(frame[_RAISED_Y, 1240] != 128)
 
     def test_another_pipeline_draws_nothing(self):
-        """El annotator es uno para todos los motores: el grano no lleva el borde de calzas."""
+        """El annotator es uno para todos los motores: el grano no lleva el panel de calzas."""
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_raised_stopper(), _wheel(),
                                            pipeline_slot="pipeline_1"))
@@ -488,13 +513,13 @@ class TestStopperStatus:
     def test_a_wheel_on_the_configured_side_counts(self, side):
         frame = _stopper_frame()
         _stopper_status(sides={_SLOT: side})(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _GREEN
+        assert _panel_states(frame) == {"ok"}
 
-    def test_a_wheel_only_on_the_other_side_is_red(self):
+    def test_a_wheel_only_on_the_other_side_is_no_contact(self):
         """La rueda está a la izquierda de la calza: con `right` la calza está mal puesta."""
         frame = _stopper_frame()
         _stopper_status(sides={_SLOT: "right"})(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"ok", "nok"}
 
     def test_the_side_picks_the_wheel_among_two(self):
         """Dos ejes a la vista: la rueda pegada del lado equivocado no cuenta."""
@@ -503,7 +528,7 @@ class TestStopperStatus:
         frame = _stopper_frame()
         _stopper_status(sides={_SLOT: "right"})(
             frame, _stoppers(_raised_stopper(), touching_left, far_right))
-        assert _stopper_border(frame) == _RED
+        assert _panel_states(frame) == {"ok", "nok"}
 
     def test_an_unknown_side_stops_the_build(self):
         with pytest.raises(ValueError, match=_SLOT):

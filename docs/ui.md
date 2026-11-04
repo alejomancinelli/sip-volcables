@@ -150,7 +150,9 @@ ui/
                         por pipeline, con vista previa y avisos; se abre sólo desde la pestaña
                         Inferencia con `open_regions_requested`
     level_dialog.py     marcar una altura —una línea horizontal— sobre el frame en vivo; la
-                        pide una pestaña con `open_level_requested`, igual que el ROI
+                        pide una pestaña con `open_level_requested`, igual que el ROI. En
+                        pausa puede medir sobre el último frame inferido si esa pestaña
+                        arma un inspector (`build_level_inspector()`)
     gpio_dialog.py      entradas y salidas digitales
   styles/               dark.qss y light.qss
   icons/                logos y el .ico de la ventana
@@ -214,7 +216,8 @@ código del proyecto sabe qué veredicto es «bien» o «mal», así que el temp
 
 - **El nombre del pipeline sigue en su color propio** y lleva el veredicto en texto
   («grain OK», «grain NOK»): el color solo no alcanza para un operador daltónico ni en un
-  stream en blanco y negro. El `nok` además va con trazo más grueso.
+  stream en blanco y negro. El trazo es el mismo en los tres estados: uno más grueso para el
+  `nok` hacía saltar el recuadro cada vez que cambiaba el veredicto.
 - **Un resultado no confiable nunca se pinta de estado**: va gris, punteado y con el motivo
   («grain (dark_frame)»), aunque el pipeline haya dicho `ok`. Sus números no son una medición,
   y un recuadro verde sobre algo que no se midió es peor que ninguno.
