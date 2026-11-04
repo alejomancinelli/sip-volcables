@@ -102,7 +102,10 @@ en el equipo y no viajan adentro del paquete, y qué hace `Verificar camara.cmd`
 **Los calibradores viajan sin tocar estos scripts.** Cada fila de `calibration/registry.py`
 es un subcomando del mismo ejecutable (`--calibrate <nombre>`): `build.py` compila el
 paquete `calibration` y `make_release.py` agrega su lanzador y sus carpetas vacías en
-`installation/calibration/<nombre>/`. Cómo se arma uno está en `calibration/README.md`.
+`installation/calibration/<nombre>/`. En Windows, `Crear accesos directos.cmd` le hace
+además un acceso en el escritorio, con la consola a la vista porque ahí deja su resultado;
+en la Jetson el `.desktop` es sólo el de la app. Cómo se arma uno está en
+`calibration/README.md`.
 
 ## El servicio de Windows
 

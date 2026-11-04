@@ -270,8 +270,15 @@ def _shortcuts_command(app_name: str) -> str:
     Sin comillas dobles porque va adentro de las del `cmd`, y `cmd` no tiene una forma
     prolija de anidarlas: todo lo de PowerShell va entre comillas simples, que además no
     interpretan la barra invertida de las rutas de Windows.
+
+    Un acceso para la app y uno por cada calibrador de `calibration/registry.py`: el que
+    recalibra en la planta los busca en el escritorio, no adentro de la carpeta. En Linux
+    el `.desktop` es sólo el de la app.
     """
-    shortcuts = ((app_name, f"{app_name}.cmd", 7),)   # 7 = minimizado: tapa el parpadeo
+    # 7 = minimizado, tapa el parpadeo. Un calibrador va en 1 = normal: su consola tiene
+    # que verse, porque ahí deja su resultado.
+    shortcuts = ((app_name, f"{app_name}.cmd", 7),
+                 *((tool.launcher, f"{tool.launcher}.cmd", 1) for tool in registry.TOOLS))
     entries = ", ".join(
         f"@('{name}','{target}',{style})" for name, target, style in shortcuts)
     return "; ".join((

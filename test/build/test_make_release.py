@@ -115,6 +115,19 @@ class TestCalibrationTools:
         app = (tmp_path / "release" / "App.cmd").read_text(encoding="utf-8")
         assert "pause" not in app
 
+    def test_the_template_shortcuts_only_the_app(self, make_release, monkeypatch):
+        monkeypatch.setattr(registry, "TOOLS", ())
+        command = make_release._shortcuts_command("App")
+        assert "@('App','App.cmd',7)" in command
+        assert command.count("@('") == 1
+
+    def test_each_tool_gets_a_shortcut_with_its_console_visible(self, make_release,
+                                                                 monkeypatch):
+        """Minimizado como el de la app, el resultado del calibrador no se vería."""
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+        command = make_release._shortcuts_command("App")
+        assert "@('Calibrar mallas','Calibrar mallas.cmd',1)" in command
+
     def test_the_linux_launcher_calls_the_same_binary(self, make_release, monkeypatch,
                                                       tmp_path):
         monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
