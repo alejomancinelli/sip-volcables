@@ -15,7 +15,7 @@ from system.modbus.server import DEFAULT_REGISTER_COUNT
 
 # Geometría del bloque de cámaras, tal como la documenta el mapa.
 _CAMERA_BLOCK_START = 51
-_CAMERA_BLOCK_STRIDE = 4
+_CAMERA_BLOCK_STRIDE = 3
 
 
 class TestMapLoads:
@@ -131,7 +131,7 @@ class TestLookupsUsedByTheApp:
     def test_per_camera_block_keeps_a_fixed_stride(self):
         """
         Las cámaras van en bloques de paso fijo: `camera_N` arranca en
-        51 + 4*(N-1). El fork copia el bloque y corre las direcciones, y el
+        51 + 3*(N-1). El fork copia el bloque y corre las direcciones, y el
         integrador calcula la dirección de una cámara sin abrir el mapa.
         """
         # Sólo el bloque de salud: un fork puede prefijar con el slot las filas de

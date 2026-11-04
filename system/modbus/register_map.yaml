@@ -41,55 +41,271 @@
   producer: health
 
 # ── Resultados de inferencia (3-50) ──────────────────────────────────────────
-# Rango reservado, sin filas: el motor de inferencia ya corre, pero qué publica es lo
-# más específico de cada proyecto y sale de `metrics.compute_metrics`, que se escribe
-# en cada fork. El fork agrega acá sus filas con `producer: inference`.
+# Las filas no llevan la cámara sino la POSICIÓN: `grain_2_flow_ok` es el grano de la
+# segunda posición de grano, sea cual sea la cámara que la ocupa. Qué cámara ocupa cada
+# posición lo dice el config de cada planta (`inference.pipelines.<slot>.plc_prefix`), así
+# que este mapa y el programa del PLC son los mismos en todas las plantas.
 #
-# Al hacerlo, mantener INMUTABLE el mapeo posición → registro: si el resultado son
-# fracciones por clase, el registro reporta siempre el mismo slot, y renombrar una
-# clase o mover un umbral no cambia qué registro la transporta. El PLC no se
-# reprograma porque en el equipo se haya editado un nombre.
+# El nombre es `<posición>_<métrica>`: la métrica es la clave que devuelve el analyzer
+# (`metrics.py`) y es también el campo en InfluxDB, sin la posición —ahí la cámara va como
+# tag—. Ninguna métrica se llama `confidence_pct` ni `detection_count`: son campos que el
+# motor ya escribe en el mismo punto, y uno pisaría al otro. Lo que sirve para mirar y no
+# para decidir —la confianza del grano, si se vio la calza o la rueda— va a InfluxDB y no
+# tiene fila.
+#
+# PENDIENTE: la búsqueda por prefijo en `_build_metric_registers()` de main.py y el
+# analyzer que da estas métricas. Hasta que estén, estas filas quedan en 0.
+#
+# Un bloque por función, con paso fijo y dimensionado para el peor caso; una posición que
+# la planta no ocupa queda en 0. Los huecos son para crecer sin mover nada:
+#
+#   libres                     3-9    candidatos para las palabras de los pipelines
+#   grano      grain_1..3     10-12   paso 1: cae grano
+#   personas   person_1..5    20-29   paso 2: en el frame, en la zona
+#   calzas     stopper_1..2   30-33   paso 2: levantada OK, contacto OK
+#   libres                    34-50
+#
+# Mantener INMUTABLE el mapeo posición → registro: el PLC no se reprograma porque en el
+# equipo se haya editado un nombre, una clase o un umbral.
 #
 # Acá van también los umbrales que el equipo publica para que el HMI los muestre: un
 # valor del config, copiado y escalado en cada tick. El PLC los lee y no los escribe —una
 # escritura da 0x02—; se cambian desde la interfaz o el archivo, y el registro lo sigue en
 # el tick siguiente.
 #
-# - addr: 10
+# - addr: 48
 #   name: max_load_y_px_camera_1
 #   desc: Altura del límite de carga en la cámara 1
 #   producer: config
 #   config_key: process.max_load_y_px.camera_1
 #   unit: px
 
+# Grano y calzas: 1 es OK y 0 es cualquier otra cosa —NOK, sin dato, sin calibrar, nada a
+# la vista, o el contacto mientras la calza no está levantada—. El 0 es el estado seguro:
+# un equipo que todavía no publicó, o una cámara sin calibrar, nunca da por bueno lo que
+# no midió.
+- addr: 10
+  name: grain_1_flow_ok
+  desc: Grano, posición 1 — 1 cae, 0 no cae o sin dato
+  producer: inference
+  is_bool: true
+
+- addr: 11
+  name: grain_2_flow_ok
+  desc: Grano, posición 2 — 1 cae, 0 no cae o sin dato
+  producer: inference
+  is_bool: true
+
+- addr: 12
+  name: grain_3_flow_ok
+  desc: Grano, posición 3 — 1 cae, 0 no cae o sin dato
+  producer: inference
+  is_bool: true
+
+- addr: 20
+  name: person_1_in_frame_count
+  desc: Personas en el frame, posición 1
+  producer: inference
+
+- addr: 21
+  name: person_1_in_zone_count
+  desc: Personas dentro de la zona de exclusión, posición 1
+  producer: inference
+
+- addr: 22
+  name: person_2_in_frame_count
+  desc: Personas en el frame, posición 2
+  producer: inference
+
+- addr: 23
+  name: person_2_in_zone_count
+  desc: Personas dentro de la zona de exclusión, posición 2
+  producer: inference
+
+- addr: 24
+  name: person_3_in_frame_count
+  desc: Personas en el frame, posición 3
+  producer: inference
+
+- addr: 25
+  name: person_3_in_zone_count
+  desc: Personas dentro de la zona de exclusión, posición 3
+  producer: inference
+
+- addr: 26
+  name: person_4_in_frame_count
+  desc: Personas en el frame, posición 4
+  producer: inference
+
+- addr: 27
+  name: person_4_in_zone_count
+  desc: Personas dentro de la zona de exclusión, posición 4
+  producer: inference
+
+- addr: 28
+  name: person_5_in_frame_count
+  desc: Personas en el frame, posición 5
+  producer: inference
+
+- addr: 29
+  name: person_5_in_zone_count
+  desc: Personas dentro de la zona de exclusión, posición 5
+  producer: inference
+
+- addr: 30
+  name: stopper_1_raised_ok
+  desc: Calza levantada, posición 1 — 1 OK, 0 NOK
+  producer: inference
+  is_bool: true
+
+- addr: 31
+  name: stopper_1_contact_ok
+  desc: Contacto calza-rueda, posición 1 — 1 OK, 0 NOK
+  producer: inference
+  is_bool: true
+
+- addr: 32
+  name: stopper_2_raised_ok
+  desc: Calza levantada, posición 2 — 1 OK, 0 NOK
+  producer: inference
+  is_bool: true
+
+- addr: 33
+  name: stopper_2_contact_ok
+  desc: Contacto calza-rueda, posición 2 — 1 OK, 0 NOK
+  producer: inference
+  is_bool: true
+
 # ── Cámaras (51-80) ──────────────────────────────────────────────────────────
-# Bloque de 4 registros por cámara, con paso fijo: `camera_N` arranca en
-# 51 + 4*(N-1) — camera_1 en 51, camera_2 en 55, camera_3 en 59, y así hasta
-# camera_7 en 75. Abajo va sólo camera_1 como ejemplo: el fork copia el bloque y
-# corre las direcciones para las cámaras que tenga declaradas en `cameras` del
-# config.yaml.
+# Bloque de 3 registros por cámara, con paso fijo: `camera_N` arranca en 51 + 3*(N-1)
+# —camera_1 en 51, camera_2 en 54, y así hasta camera_7 en 69—; 72-80 quedan para
+# camera_8 a camera_10. A diferencia de los resultados, va por slot: describe el equipo,
+# no lo que mide. Una cámara que la planta no tiene queda en 0. Sin temperatura: por RTSP
+# la cámara no la da (`rtsp_driver.py`) y el registro valdría 0 siempre.
+
 - addr: 51
   name: camera_1_state_bitfield
   desc: Estado de la cámara 1 (bitfield)
   producer: health
 
 - addr: 52
-  name: camera_1_temperature_c
-  desc: Temperatura de la cámara 1
-  producer: health
-  unit: °C
-  scale: 10
-
-- addr: 53
   name: camera_1_fps
   desc: Frames por segundo medidos de la cámara 1
   producer: health
   unit: fps
   scale: 10
 
-- addr: 54
+- addr: 53
   name: camera_1_illumination_pct
-  desc: Brillo medio del ROI de la cámara 1
+  desc: Brillo medio de la última imagen inferida en la cámara 1 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 54
+  name: camera_2_state_bitfield
+  desc: Estado de la cámara 2 (bitfield)
+  producer: health
+
+- addr: 55
+  name: camera_2_fps
+  desc: Frames por segundo medidos de la cámara 2
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 56
+  name: camera_2_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 2 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 57
+  name: camera_3_state_bitfield
+  desc: Estado de la cámara 3 (bitfield)
+  producer: health
+
+- addr: 58
+  name: camera_3_fps
+  desc: Frames por segundo medidos de la cámara 3
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 59
+  name: camera_3_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 3 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 60
+  name: camera_4_state_bitfield
+  desc: Estado de la cámara 4 (bitfield)
+  producer: health
+
+- addr: 61
+  name: camera_4_fps
+  desc: Frames por segundo medidos de la cámara 4
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 62
+  name: camera_4_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 4 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 63
+  name: camera_5_state_bitfield
+  desc: Estado de la cámara 5 (bitfield)
+  producer: health
+
+- addr: 64
+  name: camera_5_fps
+  desc: Frames por segundo medidos de la cámara 5
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 65
+  name: camera_5_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 5 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 66
+  name: camera_6_state_bitfield
+  desc: Estado de la cámara 6 (bitfield)
+  producer: health
+
+- addr: 67
+  name: camera_6_fps
+  desc: Frames por segundo medidos de la cámara 6
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 68
+  name: camera_6_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 6 (región del pipeline o frame entero)
+  producer: inference
+  unit: '%'
+
+- addr: 69
+  name: camera_7_state_bitfield
+  desc: Estado de la cámara 7 (bitfield)
+  producer: health
+
+- addr: 70
+  name: camera_7_fps
+  desc: Frames por segundo medidos de la cámara 7
+  producer: health
+  unit: fps
+  scale: 10
+
+- addr: 71
+  name: camera_7_illumination_pct
+  desc: Brillo medio de la última imagen inferida en la cámara 7 (región del pipeline o frame entero)
   producer: inference
   unit: '%'
 
