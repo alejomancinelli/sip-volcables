@@ -8,11 +8,10 @@
 # Las rutas relativas (`path` de un modelo) se anclan a la raíz del repo, no a esta carpeta.
 
 cameras:
-  # La cámara decide el ROI, el mínimo de iluminación y el preprocessor de la imagen. Las
-  # imágenes sueltas de `images/` son de la primera cámara o de la que diga `--camera`, y
-  # las de `images/camera_2/` son de camera_2.
+  # La cámara decide el preprocessor de la imagen, y qué región y qué mínimo de iluminación
+  # le tocan de cada pipeline. Las imágenes sueltas de `images/` son de la primera cámara o
+  # de la que diga `--camera`, y las de `images/camera_2/` son de camera_2.
   camera_1:
-    illumination_min: 5         # brillo medio mínimo del ROI 0–100; por debajo, `dark_frame`
     calibration:
       camera_matrix: []         # 3x3; [] = sin corrección de lente
       dist_coeffs: []
@@ -39,6 +38,10 @@ inference:
     pipeline_1:
       enabled: true
       cameras: []               # [] = todas
+      roi:
+        # Sin región: ve el frame entero. El mínimo de brillo, 0–100, vale igual; por debajo,
+        # `dark_frame`.
+        camera_1: {illumination_min: 5}
       min_detections: 0
       min_result_confidence_pct: 0
   models:

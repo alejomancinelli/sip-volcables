@@ -1,5 +1,5 @@
 """
-Migración del config: el ROI de cámara y `crop_to_roi` ya no existen.
+Migración del config: el ROI de cámara, su mínimo de iluminación y `crop_to_roi` ya no existen.
 
 Maquinaria genérica: reutilizable entre proyectos. Un config de antes de que el recorte
 fuera de cada pipeline trae `cameras.<slot>.roi`, que el motor aplicaba a todo pipeline sin
@@ -17,7 +17,11 @@ el recorte pasaría a inferir el frame completo. Por eso se **migra y no se borr
   - `full_resolution` de un ROI de pipeline se borra: el corte del video nativo ya no se
     elige, lo decide la cámara. Uno en `false` ya no se respeta, y se avisa;
   - `output_short_side_px` también: la vista sale siempre a la entrada del modelo. Uno mayor
-    que 0 ya no se respeta, y se avisa.
+    que 0 ya no se respeta, y se avisa;
+  - `cameras.<slot>.illumination_min` mayor que 0 se copia a la sección de cada pipeline que
+    mira esa cámara y no declara el suyo: el mínimo es ahora de la región, porque se compara
+    con su brillo. Uno en 0 no exigía nada y sólo se borra. Sin copiarlo, el pipeline pasaría
+    a inferir en la oscuridad sin ningún error.
 
 `migrate_roi_config()` es idempotente: sin claves viejas no hace nada, así que corre en cada
 arranque. Con `save=True` persiste el archivo —que deja su copia `.bak`—; con `save=False`
@@ -28,7 +32,7 @@ debería reescribir el config de quien la usa, pero sí medir como mediría la l
 from system.config_manager import ConfigManager
 from system.logger import logger
 
-from .regions import select_pipeline_roi
+from .regions import ILLUMINATION_MIN_KEY, select_pipeline_roi
 
 _GEOMETRY_KEYS = ("x_px", "y_px", "width_px", "height_px")
 
@@ -54,6 +58,14 @@ def migrate_roi_config(config: ConfigManager, *, save: bool = True) -> int:
         changes += 1
 
     changes += _drop_view_keys(config, pipelines)
+
+    # Se relee: las copias de arriba no tienen los ROI que esta misma corrida acaba de crear,
+    # y escribir sobre la sección vieja los borraría.
+    pipelines = config.get("inference.pipelines", {}) or {}
+    for camera_slot, camera in cameras.items():
+        if isinstance(camera, dict) and ILLUMINATION_MIN_KEY in camera:
+            changes += _move_illumination_min(config, pipelines, camera_slot,
+                                              int(camera[ILLUMINATION_MIN_KEY] or 0))
 
     if "crop_to_roi" in (config.get("inference.overlay", {}) or {}):
         if config.get("inference.overlay.crop_to_roi", False):
@@ -120,6 +132,38 @@ def _copy_to_pipelines(config: ConfigManager, pipelines: dict, camera_slot: str,
             f"cámara: {geometry}. El ROI de cámara ya no existe.")
         copies += 1
     return copies
+
+
+def _move_illumination_min(config: ConfigManager, pipelines: dict, camera_slot: str,
+                           illumination_min: int) -> int:
+    """
+    Pasa el mínimo de iluminación de la cámara a la sección de cada pipeline que la mira y no
+    declara el suyo, y lo borra de la cámara.
+    """
+    moves = 0
+    if illumination_min > 0:
+        for pipeline_slot, section in pipelines.items():
+            if not isinstance(section, dict):
+                continue
+            cameras = section.get("cameras") or []
+            if cameras and camera_slot not in cameras:
+                continue
+            roi = select_pipeline_roi(section, camera_slot)
+            if roi is not None and ILLUMINATION_MIN_KEY in roi:
+                continue
+            key = f"inference.pipelines.{pipeline_slot}.roi.{camera_slot}"
+            if roi is None:
+                # Sin `enabled` la sección no recorta nada: el pipeline sigue viendo el frame
+                # completo, como antes.
+                config.set(key, {ILLUMINATION_MIN_KEY: illumination_min})
+            else:
+                config.set(f"{key}.{ILLUMINATION_MIN_KEY}", illumination_min)
+            logger.warning(
+                f"[Config] El mínimo de iluminación de {camera_slot} ({illumination_min}) pasó "
+                f"a ser el de {pipeline_slot} en esa cámara: ahora es de la región.")
+            moves += 1
+    config.delete(f"cameras.{camera_slot}.{ILLUMINATION_MIN_KEY}")
+    return moves + 1
 
 
 def _copy_to_lens_health(config: ConfigManager, camera: dict, camera_slot: str,

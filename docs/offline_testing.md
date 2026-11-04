@@ -50,9 +50,9 @@ pesan y se versionan afuera, igual que los pesos del modelo.
 
 ### Cómo se declara la cámara
 
-En la sección de la cámara del `config.yaml`, el driver y la ruta. El resto de la sección
-—ROI, calibración, `image_adjust`, `illumination_min`, `process:`— queda como el de la
-cámara real, que es justamente lo que se quiere probar.
+En la sección de la cámara del `config.yaml`, el driver y la ruta. El resto de lo que es de
+esa cámara —calibración, `image_adjust`, la región y el `illumination_min` de cada pipeline,
+`process:`— queda como el de la cámara real, que es justamente lo que se quiere probar.
 
 ```yaml
 cameras:
@@ -125,8 +125,8 @@ config de la app**, que es la prueba que importa:
 
 ### De qué cámara es cada imagen
 
-Importa, porque la cámara decide el ROI, el mínimo de iluminación, el preprocessor,
-`process:` y qué pipelines la reciben. Las imágenes sueltas en `images/` son de la cámara
+Importa, porque la cámara decide la región y el mínimo de iluminación de cada pipeline, el
+preprocessor, `process:` y qué pipelines la reciben. Las imágenes sueltas en `images/` son de la cámara
 de `--camera`; las de una subcarpeta con el nombre de una cámara son de esa cámara.
 
     images/
@@ -154,8 +154,8 @@ Dos imágenes con el mismo nombre que caen en la misma carpeta de salida —`a.p
 
 - **`no_model`** en todo un pipeline: un modelo no cargó. La consola lo dice antes de la
   primera imagen, con el motivo; casi siempre es el `path` de los pesos.
-- **`dark_frame`**: el brillo del ROI quedó por debajo de `illumination_min` de la cámara
-  y el modelo ni corrió, igual que en la línea. Con el config de la app el mínimo es el de
+- **`dark_frame`**: el brillo de la región quedó por debajo del `illumination_min` de ese
+  pipeline en esa cámara y el modelo ni corrió, igual que en la línea. Con el config de la app el mínimo es el de
   la instalación, que puede ser más alto que el de la prueba.
 - **`low_confidence` / `few_detections`**: el modelo corrió, pero el resultado no pasa los
   umbrales del pipeline (`min_result_confidence_pct`, `min_detections`). Las cajas están

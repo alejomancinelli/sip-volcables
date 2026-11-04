@@ -259,9 +259,14 @@ anotado también el veredicto escrito— y deja el recuadro.
   de todos encima. El de la pestaña activa va grueso y se edita —arrastrarlo desde adentro lo
   mueve, desde un borde o una esquina lo estira, desde afuera dibuja uno nuevo—; los otros
   van finos, para ver cuánto se pisan, y el diálogo dice el porcentaje.
-- **Vista previa**: el recorte, que es lo que recibe el modelo. En una cámara que decodifica
-  video sale del frame reducido —la de verdad sale del nativo—, y la etiqueta lo marca como
-  aproximado.
+- **Vista previa**: el recorte, que es lo que recibe el modelo, con su brillo en vivo. En una
+  cámara que decodifica video sale del frame reducido —la de verdad sale del nativo—, y la
+  etiqueta lo marca como aproximado.
+- **Iluminación mínima**: un campo por pestaña, que se guarda en la sección de ese pipeline en
+  esa cámara (`…roi.<cámara>.illumination_min`). Se compara con el brillo de la vista previa
+  —la región, o el frame entero si el pipeline no tiene una—, así que se fija mirando ese
+  número. Vale en los dos modos y se aplica en el acto. La pestaña Cámaras no lo tiene: el
+  mínimo es de la región, no de la cámara.
 - **Corte del video nativo y salida del VIC: no se eligen.** En una cámara que decodifica video
   (`rtsp`, `video_file`) la región se corta siempre del video a su resolución original, *antes*
   de reducirlo al tamaño de la cámara (`decode`), y el **VIC** —el escalador por hardware de la

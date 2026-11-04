@@ -54,7 +54,7 @@ Lo que hay que tener en la cabeza para leerlo:
     - misconfigured (integer, 0/1 — el driver no se pudo construir)
     - fps_estimated (float, fps medidos sobre los frames entregados)
     - temperature_c (float, °C; 0 si el driver no la da)
-    - illumination_pct (integer, brillo medio del ROI 0–100)
+    - illumination_pct (integer, brillo medio del frame entero 0–100)
     - lens_state (integer: 0 limpio, 1 alarma de lente sucio, 2 no disponible)
     - lens_sharpness_pct (integer, nitidez máxima de la ventana contra la referencia)
 

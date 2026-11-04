@@ -27,7 +27,8 @@ De qué se ocupa, en este orden, por cada frame:
      del frame: es la vista que el decodificador cortó del video nativo y llegó con el
      frame (ver «Vistas» más abajo).
   3. Descarta lo que no vale una pasada del modelo: sin modelo cargado, sin la vista que
-     el pipeline pide, o iluminación por debajo de `cameras.<slot>.illumination_min`.
+     el pipeline pide, o iluminación por debajo del `illumination_min` de su región
+     (`inference.pipelines.<pipeline>.roi.<cámara>.illumination_min`).
   4. Corre el pipeline y devuelve las detecciones al espacio del frame de referencia.
   5. Le pasa las detecciones al `classifier`, si hay uno: ya están en el espacio del frame
      de referencia, así que es donde se filtra y se etiqueta por posición absoluta —una
@@ -86,19 +87,20 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 
-import cv2
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
 from system.config_manager import ConfigManager
 from system.logger import logger
 from tools.camera.abstract_driver import FrameView
+from tools.image.illumination import compute_illumination_pct
 
 from . import analysis, overlay
 from .abstract_pipeline import AbstractPipeline
 from .preprocessing import list_view_cameras
 from .regions import (PROBLEM_FRAME_SIZE_CHANGED, clip_roi_px, find_region_problems,
-                      get_pipeline_index, get_pipeline_name, resolve_pipeline_roi)
+                      get_illumination_min, get_pipeline_index, get_pipeline_name,
+                      resolve_pipeline_roi)
 from .result import (REASON_DARK_FRAME, REASON_ERROR, REASON_FEW_DETECTIONS,
                      REASON_LOW_CONFIDENCE, REASON_NO_MODEL, REASON_NO_VIEW,
                      InferenceResult, offset_detections, scale_detections)
@@ -466,7 +468,7 @@ class InferenceThread(QThread):
             source_bgr=frame_bgr,
             region_bgr=None if is_view_missing else region_bgr,
             roi_px=roi_px,
-            illumination_pct=_compute_illumination_pct(region_bgr),
+            illumination_pct=compute_illumination_pct(region_bgr),
             is_synthetic=self._pipeline.is_synthetic,
             # Una copia propia: el resultado viaja a otros hilos y al dataset.
             signals=dict(signals or {}),
@@ -545,7 +547,8 @@ class InferenceThread(QThread):
         Motivo por el que este frame no merece una pasada del modelo, o '' si la merece.
 
         La iluminación se mide sobre el ROI y no sobre el frame entero: es la zona que se
-        analiza, y es la que se apaga cuando la luz falla.
+        analiza, y es la que se apaga cuando la luz falla. Por eso el mínimo es el de la
+        región de este pipeline en esa cámara, y no uno de la cámara.
         """
         if not self._pipeline.is_loaded:
             self._warn_throttled(
@@ -555,7 +558,7 @@ class InferenceThread(QThread):
             )
             return REASON_NO_MODEL
 
-        illumination_min = int(self._setting(f"cameras.{camera_slot}.illumination_min", 0) or 0)
+        illumination_min = get_illumination_min(self._read_roi(camera_slot))
         if result.illumination_pct < illumination_min:
             # A nivel DEBUG a propósito: con la luz apagada esto pasa en cada frame.
             logger.debug(
@@ -850,11 +853,3 @@ class InferenceThread(QThread):
                 return
             self._last_warn_s[key] = now_s
         logger.warning(f"[Inference/{self.pipeline_slot}] {message}")
-
-
-def _compute_illumination_pct(frame_bgr: np.ndarray) -> int:
-    """Brillo medio del frame, 0–100. Es lo que dice si la luz de la escena está encendida."""
-    if frame_bgr is None or frame_bgr.size == 0:
-        return 0
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY) if frame_bgr.ndim == 3 else frame_bgr
-    return min(100, int(float(np.mean(gray)) * 100 / 255))

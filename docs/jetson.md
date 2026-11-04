@@ -272,19 +272,25 @@ inference:
           y_px: 0
           width_px: 0     # 0 = hasta el borde
           height_px: 0
-illumination_min: 0       # en `cameras.<slot>`; 0–100
+          illumination_min: 0   # 0–100; 0 = sin mínimo
 ```
 
 | Clave | Qué hace |
 |---|---|
 | `roi.<cámara>.*` | Recorta el frame de referencia **antes** de pasarlo al modelo: sólo lo de adentro se infiere. Sin la sección, con ella en null o con `enabled: false`, el pipeline ve el frame completo. Las coordenadas son **píxeles del frame decodificado y rotado** y no se reescalan. Las detecciones vuelven al espacio del frame completo antes de salir. |
-| `illumination_min` | Brillo medio mínimo de la región que ve cada pipeline (0–100). Por debajo, **no se infiere** y el resultado sale inválido con el motivo. Se mide después del ajuste de medición, así que cambiar `image_adjust` o el backend obliga a revisarlo. |
+| `roi.<cámara>.illumination_min` | Brillo medio mínimo de lo que ve ese pipeline en esa cámara (0–100): la región, o el frame entero si la región está apagada, que sigue valiendo. Por debajo, **no se infiere** y el resultado sale inválido con el motivo. Va por pipeline y por cámara porque se compara con el brillo de esa región: una tolva oscura y el patio iluminado de la misma cámara piden umbrales distintos. Se fija en el diálogo de regiones, que muestra en vivo el brillo con el que se compara, y se aplica en el acto. Se mide después del ajuste de medición, así que cambiar `image_adjust` o el backend obliga a revisarlo. |
 
 Una región chica es el caso donde el tamaño de decodificación más duele: ver sección 5.
 
+El brillo que se publica por cámara —el registro de la cámara, la serie `camera` de la
+telemetría y el chip del monitor— es otro número: el del **frame entero**, medido una vez por
+segundo sobre el último frame crudo. Dice si la escena tiene luz, y no salta según qué pipeline
+infirió último.
+
 **Un config de antes de este cambio se migra solo al arrancar.** Un `cameras.<slot>.roi`
 prendido se copia como ROI propio a cada pipeline que mira esa cámara y no declara el suyo, y
-a `cameras.<slot>.lens_health.roi`; la clave vieja se borra, junto con
+a `cameras.<slot>.lens_health.roi`; un `cameras.<slot>.illumination_min` mayor que 0 se copia
+a la sección de cada pipeline que mira esa cámara. Las claves viejas se borran, junto con
 `inference.overlay.crop_to_roi`, y el log dice cada copia. Lo hace
 `system/inference/roi_migration.py` y es idempotente.
 

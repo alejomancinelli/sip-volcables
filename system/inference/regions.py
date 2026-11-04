@@ -18,6 +18,12 @@ Un ROI propio puede traer `frame_width_px` y `frame_height_px`: el tamaño del f
 el que se dibujó. No cambian el recorte; sólo permiten avisar que el frame que llega ya no
 es ese —un recorte de cámara que se perdió, un `decode` distinto— y que el rectángulo
 quedó corrido sin ningún error.
+
+La sección del par trae también `illumination_min`, el brillo mínimo de la imagen que ve ese
+pipeline en esa cámara (`get_illumination_min()`). Va con la región y no con la cámara porque
+se compara con el brillo de la región: dos pipelines sobre la misma cámara ven zonas con
+distinta luz, y un solo número por cámara se comparaba contra dos brillos distintos. Vale
+también con la región apagada, y entonces se compara con el frame completo.
 """
 
 from typing import NamedTuple
@@ -36,6 +42,9 @@ MIN_NATIVE_SIDE_PX = 16
 # Claves del ROI propio donde queda el tamaño del frame sobre el que se dibujó.
 FRAME_WIDTH_KEY = "frame_width_px"
 FRAME_HEIGHT_KEY = "frame_height_px"
+
+# Clave de la sección del par con el brillo mínimo, 0–100.
+ILLUMINATION_MIN_KEY = "illumination_min"
 
 
 class PipelineRegion(NamedTuple):
@@ -74,6 +83,14 @@ def select_pipeline_roi(pipeline_section: object, camera_slot: str) -> dict | No
 def resolve_pipeline_roi(pipeline_section: object, camera_slot: str) -> dict:
     """El ROI de ese pipeline en esa cámara, o {} —el frame completo— si no declara uno."""
     return select_pipeline_roi(pipeline_section, camera_slot) or {}
+
+
+def get_illumination_min(roi: dict) -> int:
+    """
+    El brillo mínimo, 0–100, que el pipeline exige en esa cámara; 0 es sin mínimo. Recibe
+    la sección del par tal como la da `resolve_pipeline_roi()`.
+    """
+    return max(0, min(100, int(roi.get(ILLUMINATION_MIN_KEY, 0) or 0)))
 
 
 def list_camera_regions(pipelines: object, camera_slot: str, *,

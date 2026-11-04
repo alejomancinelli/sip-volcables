@@ -39,7 +39,8 @@ Qué mirar:
     - **Carga**: si un modelo no carga, la consola lo dice antes de la primera imagen y
       todos los resultados de ese pipeline salen inválidos con `no_model`.
     - **Brillo**: una imagen oscura sale inválida con `dark_frame` sin pasar por el
-      modelo, igual que en la línea: el mínimo es `illumination_min` de la cámara.
+      modelo, igual que en la línea: el mínimo es el `illumination_min` de la región de
+      ese pipeline en esa cámara.
     - **Dataset**: correr una imagen del dataset SIN `--preprocessed` con una cámara que
       declara `image_adjust` muestra el brillo multiplicado dos veces.
 """

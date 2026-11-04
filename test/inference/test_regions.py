@@ -205,3 +205,20 @@ class TestRegionName:
     def test_the_slot_stays_as_the_identity(self):
         listed = regions.list_camera_regions({"pipeline_1": {"name": "X"}}, _CAMERA)
         assert listed[0].pipeline_slot == "pipeline_1"
+
+
+class TestIlluminationMin:
+    def test_it_is_read_from_the_section_of_the_pair(self):
+        assert regions.get_illumination_min({**_OWN, "illumination_min": 30}) == 30
+
+    def test_it_counts_with_the_region_turned_off(self):
+        """Con la región apagada se compara con el frame completo, pero sigue valiendo."""
+        assert regions.get_illumination_min({"enabled": False, "illumination_min": 30}) == 30
+
+    @pytest.mark.parametrize("roi", [{}, _OWN, {"illumination_min": None}])
+    def test_without_one_there_is_no_minimum(self, roi):
+        assert regions.get_illumination_min(roi) == 0
+
+    @pytest.mark.parametrize("value, expected", [(-5, 0), (150, 100)])
+    def test_it_is_kept_inside_0_to_100(self, value, expected):
+        assert regions.get_illumination_min({"illumination_min": value}) == expected

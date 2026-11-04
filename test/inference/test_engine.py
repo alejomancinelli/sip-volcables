@@ -383,7 +383,7 @@ class TestRoiAndIllumination:
 
     def test_a_dark_frame_never_reaches_the_model(self):
         """Una imagen negra no vale una pasada del modelo, y su resultado no mide nada."""
-        config = _MockConfig(**{f"cameras.{_SLOT}.illumination_min": 50})
+        config = _MockConfig(**_pipeline_roi(illumination_min=50))
         pipeline = _FakePipeline([(0, 90.0, (0, 0, 10, 10))])
         result = _process_one(_engine(pipeline, config), _frame(level=5))
         assert pipeline.frames == []
@@ -1252,7 +1252,7 @@ class TestRoiState:
         assert _process_one(_engine(_FakePipeline(), config), _frame()).roi_state == ""
 
     def test_an_invalid_result_is_grey_whatever_the_pipeline_said(self):
-        config = _MockConfig(**_pipeline_roi(), **{f"cameras.{_SLOT}.illumination_min": 99})
+        config = _MockConfig(**_pipeline_roi(illumination_min=99))
         result = _process_one(_engine(_StatePipeline("ok"), config), _frame(level=10))
         assert not result.is_valid
         assert not self._has_color_near(result.annotated_bgr, self._GREEN)
@@ -1349,3 +1349,31 @@ class TestWhereTheRegionIsNative:
         """Un `full_resolution: false` que quedó en un config viejo no apaga el corte nativo."""
         result, _ = self._run({"driver": "rtsp"}, full_resolution=False)
         assert result.invalid_reason == REASON_NO_VIEW
+
+
+class TestIlluminationMin:
+    """El mínimo de iluminación es de la región de un pipeline en una cámara."""
+
+    def test_it_is_compared_with_the_region_and_not_the_frame(self):
+        """Una tolva oscura en un patio iluminado: el frame tiene luz y la región no."""
+        config = _MockConfig(**_pipeline_roi(illumination_min=50))
+        frame = _frame(level=255)
+        frame[20:70, 40:140] = 5
+        result = _process_one(_engine(_FakePipeline(), config), frame)
+        assert result.invalid_reason == REASON_DARK_FRAME
+
+    def test_it_counts_with_the_region_turned_off(self):
+        config = _MockConfig(**_pipeline_roi(enabled=False, illumination_min=50))
+        result = _process_one(_engine(_FakePipeline(), config), _frame(level=5))
+        assert result.invalid_reason == REASON_DARK_FRAME
+
+    def test_the_minimum_of_another_camera_does_not_apply(self):
+        config = _MockConfig(**_pipeline_roi(illumination_min=50))
+        result = _process_one(_engine(_FakePipeline(), config), _frame(level=5), _OTHER_SLOT)
+        assert result.invalid_reason != REASON_DARK_FRAME
+
+    def test_a_minimum_left_on_the_camera_no_longer_applies(self):
+        """La clave vieja la borra la migración al arrancar; si quedara, no cortaría nada."""
+        config = _MockConfig(**{f"cameras.{_SLOT}.illumination_min": 50})
+        result = _process_one(_engine(_FakePipeline(), config), _frame(level=5))
+        assert result.invalid_reason != REASON_DARK_FRAME

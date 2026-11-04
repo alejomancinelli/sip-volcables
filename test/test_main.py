@@ -1883,3 +1883,62 @@ class TestHeadlessUi:
         window_methods = {name for name in vars(main._QtUi)
                           if callable(getattr(main._QtUi, name)) and not name.startswith("_")}
         assert window_methods <= set(dir(main._HeadlessUi))
+
+
+class _IlluminationContent:
+    """El widget del monitor, sólo con el chip de brillo de cada cámara."""
+
+    def __init__(self):
+        self.shown: dict[str, int] = {}
+
+    def set_illumination_pct(self, camera_slot: str, illumination_pct: int):
+        self.shown[camera_slot] = illumination_pct
+
+
+def _build_illumination_application(frame: np.ndarray | None, *, connected: bool = True):
+    import types
+    app = main.Application.__new__(main.Application)
+    app._config = _MockConfig(cameras={"camera_1": {}})
+    app._camera_status = {"camera_1": {"connected": connected}}
+    app._last_raw_frame = {} if frame is None else {"camera_1": frame}
+    app._camera_illumination = {}
+    app._ui = types.SimpleNamespace(monitor_content=_IlluminationContent(),
+                                    update_inference_times=lambda *args: None)
+    return app
+
+
+class TestCameraIllumination:
+    """El brillo que se publica por cámara es el del frame entero, no el de un pipeline."""
+
+    def test_it_is_the_brightness_of_the_whole_frame(self):
+        frame = np.full((40, 40, 3), 255, np.uint8)
+        frame[:, :20] = 0
+        app = _build_illumination_application(frame)
+        app._on_illumination_tick()
+        assert app._camera_illumination["camera_1"] == 50
+
+    def test_the_result_of_a_pipeline_no_longer_moves_it(self):
+        """Antes la pisaba el último resultado: una región oscura hacía saltar a la cámara."""
+        app = _build_illumination_application(np.full((8, 8, 3), 255, np.uint8))
+        app._last_valid_by_pair = {}
+        app._last_result_by_pair = {}
+        app._on_illumination_tick()
+        app._on_result_ready(InferenceResult(camera_slot="camera_1",
+                                             pipeline_slot="pipeline_1", illumination_pct=3))
+        assert app._camera_illumination["camera_1"] == 100
+
+    def test_a_disconnected_camera_reads_zero(self):
+        app = _build_illumination_application(np.full((8, 8, 3), 255, np.uint8),
+                                              connected=False)
+        app._on_illumination_tick()
+        assert app._camera_illumination["camera_1"] == 0
+
+    def test_a_camera_without_frames_reads_zero(self):
+        app = _build_illumination_application(None)
+        app._on_illumination_tick()
+        assert app._camera_illumination["camera_1"] == 0
+
+    def test_the_monitor_shows_the_same_number(self):
+        app = _build_illumination_application(np.full((8, 8, 3), 255, np.uint8))
+        app._on_illumination_tick()
+        assert app._ui.monitor_content.shown == {"camera_1": 100}

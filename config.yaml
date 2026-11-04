@@ -175,8 +175,8 @@ inference:
   #
   # La cámara no tiene ROI: la región es de cada pipeline (`roi:` en su sección, abajo),
   # porque dos modelos sobre la misma cámara miran partes distintas. Se recorta y se mide
-  # el brillo antes de gastar una pasada del modelo; el mínimo de iluminación sí es de la
-  # cámara (`cameras.<slot>.illumination_min`).
+  # el brillo antes de gastar una pasada del modelo; el mínimo de iluminación también es
+  # de cada región (`roi.<cámara>.illumination_min`, 0 = sin mínimo).
   overlay:
     # Dibujado del resultado sobre el frame. Sale una sola vez y el mismo array viaja a
     # la UI, al stream `annotated` y al dataset. La sección entera se edita sólo acá: la
@@ -521,7 +521,6 @@ cameras:
       height_px: 384
     # Sin `roi`: la cámara no recorta, la región es de cada pipeline. El recorte de la propia
     # cámara se hace en su interfaz, fuera de la app (docs/jetson.md §4.4.1).
-    illumination_min: 0         # brillo medio mínimo de la región de cada pipeline 0–100; 0 mientras se prueba con video
     lens_health:
       # Dónde se mide la nitidez: una zona con textura fija y nítida, que no tiene que ver
       # con lo que mira cada modelo. Se dibuja en la pestaña de óptica; apagada = el frame
@@ -566,8 +565,8 @@ cameras:
       # Entra por el mismo preprocessor que la corrección de lente, después de ella, así que
       # no es un ajuste de pantalla —eso es `video.display`—: cambia el frame de referencia.
       #   - el dataset guarda la imagen ajustada, así que se reentrena con eso;
-      #   - `illumination_min` y el brillo de la región que sale al PLC se miden después del
-      #     ajuste: cambiar el factor obliga a revisar ese umbral;
+      #   - el `illumination_min` de cada región se compara después del ajuste: cambiar el
+      #     factor obliga a revisar ese umbral;
       #   - la vista cruda sigue mostrando lo que entrega el sensor, y la anotada el frame
       #     ajustado.
       # La nitidez de la óptica no se ve afectada: se mide sobre el frame de la cámara. Se
@@ -590,7 +589,6 @@ cameras:
       backend: auto
       width_px: 640
       height_px: 384
-    illumination_min: 0
     lens_health:
       roi:
         enabled: false
@@ -627,7 +625,6 @@ cameras:
       backend: auto
       width_px: 640
       height_px: 360
-    illumination_min: 0
     lens_health:
       roi:
         enabled: false
@@ -664,7 +661,6 @@ cameras:
       backend: auto
       width_px: 640
       height_px: 360
-    illumination_min: 0
     lens_health:
       roi:
         enabled: false

@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**117 archivos, 663 grupos, 3292 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**118 archivos, 669 grupos, 3323 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,14 +14,14 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 382 |
+| [test/](#test) | 7 | 387 |
 | [test/build/](#testbuild) | 2 | 64 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 6 | 98 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 19 | 661 |
+| [test/inference/](#testinference) | 19 | 678 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 230 |
@@ -30,9 +30,9 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
 | [test/tools/](#testtools) | 1 | 5 |
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
-| [test/tools/image/](#testtoolsimage) | 2 | 43 |
+| [test/tools/image/](#testtoolsimage) | 3 | 47 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 35 | 575 |
+| [test/ui/](#testui) | 35 | 580 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -229,7 +229,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 153 tests
+### [test_main.py](../test/test_main.py) — 158 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -268,6 +268,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestSignalsChanged` | El aviso al fork: una vez por cambio, con la foto de antes y la de ahora. | 8 |
 | `TestGpioShutdown` |  | 1 |
 | `TestHeadlessUi` |  | 1 |
+| `TestCameraIllumination` | El brillo que se publica por cámara es el del frame entero, no el de un pipeline. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -457,6 +458,12 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_the_polling_stops_before_the_lines_are_released`
 - `TestHeadlessUi`
   - `test_it_answers_everything_the_window_answers`
+- `TestCameraIllumination`
+  - `test_it_is_the_brightness_of_the_whole_frame`
+  - `test_the_result_of_a_pipeline_no_longer_moves_it`
+  - `test_a_disconnected_camera_reads_zero`
+  - `test_a_camera_without_frames_reads_zero`
+  - `test_the_monitor_shows_the_same_number`
 
 </details>
 
@@ -1706,7 +1713,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 149 tests
+### [test_engine.py](../test/inference/test_engine.py) — 153 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1734,6 +1741,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestRoiState` |  | 6 |
 | `TestNoCameraRoi` | `cameras.<slot>.roi` ya no lo lee nadie: sin región propia el pipeline ve todo el frame. | 5 |
 | `TestWhereTheRegionIsNative` | La región se corta del nativo sólo donde hay un decodificador que lo haga, y se decide por config. | 7 |
+| `TestIlluminationMin` | El mínimo de iluminación es de la región de un pipeline en una cámara. | 4 |
 
 <details><summary>Tests</summary>
 
@@ -1908,6 +1916,11 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_a_video_camera_with_an_image_adjustment_crops_the_frame`
   - `test_a_whole_frame_pipeline_expects_no_view`
   - `test_the_decision_does_not_depend_on_a_full_resolution_key`
+- `TestIlluminationMin`
+  - `test_it_is_compared_with_the_region_and_not_the_frame`
+  - `test_it_counts_with_the_region_turned_off`
+  - `test_the_minimum_of_another_camera_does_not_apply`
+  - `test_a_minimum_left_on_the_camera_no_longer_applies`
 
 </details>
 
@@ -2382,7 +2395,7 @@ Tests del filtro de presencia: confirma por cantidad de frames y libera por tiem
 
 </details>
 
-### [test_regions.py](../test/inference/test_regions.py) — 42 tests
+### [test_regions.py](../test/inference/test_regions.py) — 46 tests
 
 Tests de las regiones: qué rectángulo rige para un pipeline, cómo se acota y qué se le avisa.
 
@@ -2395,6 +2408,7 @@ Tests de las regiones: qué rectángulo rige para un pipeline, cómo se acota y 
 | `TestOverlap` |  | 5 |
 | `TestWithoutCameraRoi` | La cámara no tiene ROI: un pipeline sin región propia ve el frame completo. | 9 |
 | `TestRegionName` |  | 6 |
+| `TestIlluminationMin` |  | 4 |
 
 <details><summary>Tests</summary>
 
@@ -2447,6 +2461,11 @@ Tests de las regiones: qué rectángulo rige para un pipeline, cómo se acota y 
   - `test_the_name_is_read_from_the_pipeline_section`
   - `test_a_section_without_a_name_gives_the_slot`
   - `test_the_slot_stays_as_the_identity`
+- `TestIlluminationMin`
+  - `test_it_is_read_from_the_section_of_the_pair`
+  - `test_it_counts_with_the_region_turned_off`
+  - `test_without_one_there_is_no_minimum`
+  - `test_it_is_kept_inside_0_to_100`
 
 </details>
 
@@ -2503,7 +2522,7 @@ Tests de la forma del resultado: completado del área y el centroide, traslado a
 
 </details>
 
-### [test_roi_migration.py](../test/inference/test_roi_migration.py) — 38 tests
+### [test_roi_migration.py](../test/inference/test_roi_migration.py) — 47 tests
 
 Tests de la migración del config: el ROI de cámara pasa a los pipelines y a la óptica, y `crop_to_roi` se va. Lo que se prueba es que un equipo con el config viejo mida lo mismo que medía, y que no se reescriba el archivo si no había nada que migrar.
 
@@ -2515,6 +2534,7 @@ Tests de la migración del config: el ROI de cámara pasa a los pipelines y a la
 | `TestWhenItRuns` |  | 7 |
 | `TestFullResolution` | El corte del video nativo ya no se elige: la clave se borra del ROI de cada pipeline. | 8 |
 | `TestOutputShortSide` | La vista sale siempre a la entrada del modelo: el lado corto se borra del ROI. | 4 |
+| `TestIlluminationMin` | El mínimo de iluminación deja la cámara y pasa a la región de cada pipeline. | 9 |
 
 <details><summary>Tests</summary>
 
@@ -2562,6 +2582,16 @@ Tests de la migración del config: el ROI de cámara pasa a los pipelines y a la
   - `test_a_side_that_was_set_warns_it_no_longer_counts`
   - `test_a_zero_side_does_not_warn`
   - `test_it_counts_as_a_change_and_saves`
+- `TestIlluminationMin`
+  - `test_each_pipeline_that_looks_at_the_camera_gets_it`
+  - `test_it_lands_next_to_the_roi_the_same_run_copied_from_the_camera`
+  - `test_a_pipeline_without_a_region_keeps_seeing_the_whole_frame`
+  - `test_a_pipeline_of_another_camera_is_left_alone`
+  - `test_a_pipeline_with_its_own_minimum_keeps_it`
+  - `test_a_zero_minimum_asked_for_nothing_and_copies_nothing`
+  - `test_the_camera_key_is_deleted`
+  - `test_each_move_is_in_the_log`
+  - `test_it_is_idempotent`
 
 </details>
 
@@ -4368,6 +4398,24 @@ Tests del ajuste de imagen: qué aclara, qué no toca, cuándo no hay nada que a
 
 </details>
 
+### [test_illumination.py](../test/tools/image/test_illumination.py) — 4 tests
+
+Tests del brillo medio: la escala 0–100 y los casos sin imagen.
+
+| Grupo | Tests |
+|---|---:|
+| `TestIllumination` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestIllumination`
+  - `test_a_flat_image_reads_its_level_on_a_0_to_100_scale`
+  - `test_a_grayscale_image_reads_the_same_as_its_color_copy`
+  - `test_no_image_reads_zero`
+  - `test_a_strided_view_reads_like_the_whole_image`
+
+</details>
+
 ### [test_undistort.py](../test/tools/image/test_undistort.py) — 13 tests
 
 Tests de la corrección de lente: qué cámara se corrige, qué pasa con una calibración que no sirve, y que los mapas se calculen una sola vez.
@@ -5313,7 +5361,7 @@ Tests del botón de pausa de los diálogos de dibujo: su estado y el texto que l
 
 </details>
 
-### [test_pipeline_regions_dialog.py](../test/ui/test_pipeline_regions_dialog.py) — 56 tests
+### [test_pipeline_regions_dialog.py](../test/ui/test_pipeline_regions_dialog.py) — 61 tests
 
 Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y qué avisa.
 
@@ -5327,6 +5375,7 @@ Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y q
 | `TestWithoutCameraRoi` | La cámara no tiene región: un pipeline sin sección empieza viendo el frame completo. | 5 |
 | `TestNames` | El diálogo muestra los nombres del operador; el slot sigue siendo la identidad. | 7 |
 | `TestPause` | Con el video en pausa se dibuja sobre el frame quieto: los que llegan se descartan. | 3 |
+| `TestIlluminationMin` | El mínimo de iluminación de cada pipeline en esta cámara, junto al brillo con que se compara. | 5 |
 
 <details><summary>Tests</summary>
 
@@ -5394,6 +5443,12 @@ Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y q
   - `test_a_paused_dialog_keeps_the_frame_it_had`
   - `test_resuming_takes_the_next_frame`
   - `test_the_region_is_still_editable_while_paused`
+- `TestIlluminationMin`
+  - `test_it_loads_from_the_section_of_the_pair`
+  - `test_without_one_it_starts_at_zero`
+  - `test_a_typed_minimum_is_written_in_the_section_of_the_pair`
+  - `test_a_pipeline_on_the_whole_frame_can_have_one`
+  - `test_the_preview_shows_the_brightness_of_what_the_model_gets`
 
 </details>
 

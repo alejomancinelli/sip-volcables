@@ -136,7 +136,6 @@ cameras:
       gain: 1.0
     roi:
       enabled: false
-    illumination_min: 0
   camera_2:
     name: Báscula
     enabled: true
@@ -151,4 +150,3 @@ cameras:
       gain: 1.0
     roi:
       enabled: false
-    illumination_min: 0

@@ -347,9 +347,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     "cam_fps_limit":          {"es": "Límite de FPS",  "en": "FPS limit",     "pt": "Limite de FPS"},
     "cam_exposure":           {"es": "Exposición", "en": "Exposure", "pt": "Exposição"},
     "cam_gain":               {"es": "Ganancia",       "en": "Gain",          "pt": "Ganho"},
-    "cam_illumination_min":   {"es": "Iluminación mínima",
-                               "en": "Minimum illumination",
-                               "pt": "Iluminação mínima"},
     "cam_decode_backend":     {"es": "Decodificación", "en": "Decoding",      "pt": "Decodificação"},
     "cam_decode_backend_hint": {"es": "Quién decodifica el video; la imagen no cambia",
                                 "en": "Who decodes the video; the image stays the same",
@@ -386,9 +383,6 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "stores. On a new installation, x1.0.",
                                "pt": "Muda a imagem que o modelo mede e o dataset guarda. Em "
                                      "uma instalação nova, x1.0."},
-    "cam_illumination_hint":  {"es": "En % de brillo",
-                               "en": "In % of brightness",
-                               "pt": "Em % de brilho"},
     "cam_brightness_hint":    {"es": "Multiplicador; x1.0 = sin cambio",
                                "en": "Multiplier; x1.0 = no change",
                                "pt": "Multiplicador; x1.0 = sem alteração"},
@@ -749,6 +743,21 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "native view the model gets more detail.",
                                "pt": "Aproximada: sai do frame reduzido; com a vista nativa o "
                                      "modelo tem mais detalhe."},
+    "regions_preview_illumination": {"es": "Brillo: {pct} %", "en": "Brightness: {pct} %",
+                                     "pt": "Brilho: {pct} %"},
+    "regions_illumination_min": {"es": "Iluminación mínima (%):",
+                                 "en": "Minimum illumination (%):",
+                                 "pt": "Iluminação mínima (%):"},
+    "regions_illumination_note": {
+        "es": "Por debajo de este brillo el pipeline no infiere el frame y el resultado sale "
+              "inválido, por falta de luz. Se compara con el brillo de lo que recibe el modelo, "
+              "el que se ve debajo de la vista previa. 0 = sin mínimo. Se aplica en el acto.",
+        "en": "Below this brightness the pipeline skips the frame and the result is invalid, "
+              "for lack of light. It is compared with the brightness of what the model gets, "
+              "shown under the preview. 0 = no minimum. It applies right away.",
+        "pt": "Abaixo deste brilho o pipeline não infere o frame e o resultado sai inválido, "
+              "por falta de luz. É comparado com o brilho do que o modelo recebe, o que aparece "
+              "embaixo da prévia. 0 = sem mínimo. Aplica-se na hora."},
     "regions_overlap":        {"es": "Se pisa con {pipeline}: {pct} %",
                                "en": "Overlaps {pipeline}: {pct} %",
                                "pt": "Sobrepõe {pipeline}: {pct} %"},

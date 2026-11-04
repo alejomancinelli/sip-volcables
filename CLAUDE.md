@@ -574,13 +574,20 @@ Lo que no se deduce leyendo un archivo suelto:
   `inference.pipelines.<slot>.roi.<cámara>`; sin él, o con `enabled: false`, ve el frame
   entero: un clasificador del chorro de grano quiere un recorte justo y el detector de
   personas de la misma cámara, la escena entera, y un recorte compartido por cámara obligaba a
-  uno a ver lo que no le toca. El mínimo de iluminación sigue siendo de la cámara, y se mide
-  sobre la región que ve cada pipeline. **El recorte de la propia cámara es de su interfaz**
-  —pylon, StCamera— y no de la app. Un config viejo, con `cameras.<slot>.roi`, se migra solo
-  al arrancar (`roi_migration.py`): se copia a los pipelines que lo heredaban y a la óptica, y
-  la clave se borra; migrar y no borrar, porque si no el pipeline que heredaba el recorte
-  pasaría a medir el frame entero sin ningún error. Tampoco existe `crop_to_roi`: el monitor
-  muestra siempre el frame completo.
+  uno a ver lo que no le toca. **El mínimo de iluminación también es del par**
+  (`…roi.<cámara>.illumination_min`, en el diálogo de regiones junto al brillo de lo que ve el
+  modelo): se compara con el brillo de esa región —o del frame entero, con la región apagada—,
+  y uno por cámara se comparaba con dos brillos distintos, una tolva oscura y un patio
+  iluminado. El brillo que se **publica** por cámara —PLC, telemetría, monitor— es otro
+  número: el del frame entero, porque dice si la escena tiene luz y no salta según qué
+  pipeline infirió último. **El recorte de la propia cámara es de su interfaz** —pylon,
+  StCamera— y no de la app. Un config viejo, con `cameras.<slot>.roi` o
+  `cameras.<slot>.illumination_min`, se migra solo al arrancar (`roi_migration.py`): el ROI
+  se copia a los pipelines que lo heredaban y a la óptica, el mínimo a la sección de cada
+  pipeline que mira la cámara, y las claves se borran; migrar y no borrar, porque si no el
+  pipeline que heredaba el recorte pasaría a medir el frame entero, o a inferir a oscuras,
+  sin ningún error. Tampoco existe `crop_to_roi`: el monitor muestra siempre el frame
+  completo.
 - **El dataset de un pipeline con ROI propio es la región que vio, aparte del de la
   cámara.** Se guarda en `<cámara>-<pipeline>/`, con su tope, su historial de duplicados y
   su último frame del modo interval: es la imagen con la que se reentrena ese modelo, y el
@@ -600,9 +607,9 @@ Lo que no se deduce leyendo un archivo suelto:
   cámara; `cameras.<slot>.image_adjust` lo mete en el `preprocessor`, después de la
   corrección de lente, y ahí sí cambia lo que se mide. Va por cámara porque la luz es de
   cada montaje, y es una decisión del proceso y no un slider, por tres consecuencias: el
-  dataset pasa a guardar la imagen ajustada —y se reentrena con eso—; el brillo del ROI que
-  se compara con `illumination_min` y que sale al PLC se mide después del ajuste, así que
-  ese umbral se revisa al cambiarlo; y la vista cruda sigue mostrando lo que entrega el
+  dataset pasa a guardar la imagen ajustada —y se reentrena con eso—; el brillo de la región
+  que se compara con `illumination_min` se mide después del ajuste, así que ese umbral se
+  revisa al cambiarlo —el que sale al PLC no, porque es el del frame crudo—; y la vista cruda sigue mostrando lo que entrega el
   sensor mientras la anotada muestra el frame ajustado. La nitidez de la óptica no se
   entera —se mide sobre el frame de la cámara—, y por eso `image_adjust` no está entre las
   condiciones de su referencia.

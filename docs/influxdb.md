@@ -195,7 +195,7 @@ Una por cámara por muestra, tags `device` y `camera`. Campos de
 | `capture_enabled` | 0/1 — se le están pidiendo frames |
 | `fps_estimated` | fps medidos sobre los frames entregados |
 | `temperature_c` | °C, 0 si el driver no la da |
-| `illumination_pct` | brillo medio del ROI, 0–100 |
+| `illumination_pct` | brillo medio del frame entero, 0–100; 0 con la cámara desconectada |
 | `misconfigured` | 0/1 — el driver no se pudo construir |
 | `lens_state` | 0 limpio, 1 lente sucio, 2 no disponible — `STATE_*` de `lens_health.py` |
 | `lens_sharpness_pct` | nitidez máxima de la ventana contra la referencia calibrada |
@@ -245,8 +245,9 @@ por frame dan un ciclo de unos 200 ms por cámara. Cuenta todo frame que el moto
 también el descartado por poca luz. La primera muestra de una cámara no tiene frame
 anterior y no entra: sin ningún período en la muestra, el campo no sale.
 
-**La iluminación no está acá**: sale por cámara en la serie `camera`, que ya es el brillo
-del ROI que mide la inferencia.
+**La iluminación no está acá**: sale por cámara en la serie `camera`, como el brillo del
+frame entero. El de la región de cada pipeline decide si se infiere, y un frame descartado
+por eso cuenta en `invalid_count` con `invalid_reason` en `dark_frame`.
 
 **Los descartes se publican**: no como puntos propios, sino en `invalid_count` y
 `invalid_reason`, que es lo que permite preguntar cuántas mediciones se cayeron y por qué.

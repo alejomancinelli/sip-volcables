@@ -79,7 +79,9 @@ inference:
       cameras: [camera_1, camera_2]
       interval_s: 0.5           # una inferencia cada medio segundo por cámara
       roi:
-        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500}
+        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500,
+                   illumination_min: 10}
+        camera_2: {illumination_min: 10}   # sin región: el mínimo se compara con el frame entero
       min_detections: 0
       min_result_confidence_pct: 0
       frames_per_cycle: 1
@@ -88,6 +90,8 @@ inference:
       # muestre dos pipelines y se vea cómo se ve uno deshabilitado.
       enabled: false
       cameras: [camera_3]
+      roi:
+        camera_3: {illumination_min: 10}
       interval_s: 0.0
       min_detections: 0
       min_result_confidence_pct: 0
@@ -100,7 +104,8 @@ inference:
       type: demo_person
       cameras: [camera_1]
       roi:
-        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500}
+        camera_1: {enabled: true, x_px: 700, y_px: 300, width_px: 600, height_px: 500,
+                   illumination_min: 10}
       interval_s: 0.1           # cinco veces más seguido que pipeline_1
       min_detections: 0
       min_result_confidence_pct: 0
@@ -207,7 +212,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    illumination_min: 10
     calibration:
       camera_matrix: []
       dist_coeffs: []
@@ -223,7 +227,6 @@ cameras:
       fps_limit: 6
       exposure_time_us: 25000
       gain: 1.0
-    illumination_min: 10
     calibration:
       camera_matrix: []
       dist_coeffs: []
@@ -241,7 +244,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    illumination_min: 10
     calibration:
       camera_matrix: []
       dist_coeffs: []
@@ -265,7 +267,6 @@ cameras:
       fps_limit: 10
       exposure_time_us: 25000
       gain: 1.0
-    illumination_min: 10
     calibration:
       camera_matrix: []
       dist_coeffs: []

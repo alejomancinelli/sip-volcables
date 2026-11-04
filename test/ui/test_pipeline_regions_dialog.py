@@ -481,3 +481,44 @@ class TestPause:
         dialog.findChild(PauseButton).click()
         _page(dialog, "pipeline_1").spins["width_px"].setValue(60)
         assert "60×50" in _page(dialog, "pipeline_1").preview_note.text()
+
+
+class TestIlluminationMin:
+    """El mínimo de iluminación de cada pipeline en esta cámara, junto al brillo con que se compara."""
+
+    def _written(self, config, pipeline_slot: str = "pipeline_1") -> dict:
+        return config.tree["inference"]["pipelines"][pipeline_slot]["roi"][_CAMERA]
+
+    def test_it_loads_from_the_section_of_the_pair(self):
+        tree = _tree()
+        tree["inference"]["pipelines"]["pipeline_1"]["roi"][_CAMERA]["illumination_min"] = 25
+        dialog, _ = _dialog(tree)
+        assert _page(dialog, "pipeline_1").illumination_spin.value() == 25
+
+    def test_without_one_it_starts_at_zero(self):
+        dialog, _ = _dialog()
+        assert _page(dialog, "pipeline_2").illumination_spin.value() == 0
+
+    def test_a_typed_minimum_is_written_in_the_section_of_the_pair(self):
+        dialog, config = _dialog()
+        _page(dialog, "pipeline_1").illumination_spin.setValue(30)
+        dialog._on_save_clicked()
+        assert self._written(config)["illumination_min"] == 30
+
+    def test_a_pipeline_on_the_whole_frame_can_have_one(self):
+        """Con la región apagada se compara con el frame completo, pero sigue valiendo."""
+        dialog, config = _dialog()
+        page = _page(dialog, "pipeline_2")
+        assert page.illumination_spin.isEnabled()
+        page.illumination_spin.setValue(30)
+        dialog._on_save_clicked()
+        roi = self._written(config, "pipeline_2")
+        assert roi["illumination_min"] == 30 and roi["enabled"] is False
+
+    def test_the_preview_shows_the_brightness_of_what_the_model_gets(self):
+        """La región es oscura y el resto del frame no: el número es el de la región."""
+        dialog, _ = _dialog(with_frame=False)
+        frame = np.full((_FRAME_SIZE[1], _FRAME_SIZE[0], 3), 255, np.uint8)
+        frame[20:70, 10:110] = 0
+        dialog.update_frame(frame)
+        assert "0 %" in _page(dialog, "pipeline_1").preview_note.text()

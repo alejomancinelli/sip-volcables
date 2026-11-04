@@ -286,9 +286,6 @@ class _CameraForm(QWidget):
         self._acquisition = section
         self._fps_spin = section.add_field(tr("cam_fps_limit"), build_spin_box(1, _MAX_FPS, 15),
                                            hint=tr("unit_fps"))
-        self._illumination_spin = section.add_field(
-            tr("cam_illumination_min"), build_spin_box(0, 100, 50),
-            hint=tr("cam_illumination_hint"))
         self._exposure_spin = section.add_field(
             tr("cam_exposure"), build_spin_box(1, _MAX_EXPOSURE_US, 25000),
             hint=tr("unit_microseconds"))
@@ -354,8 +351,8 @@ class _CameraForm(QWidget):
     def _get_camera_fields(self) -> list:
         """Lo que apaga «Cámara habilitada». La casilla de la región va última: ver `wire_enable_toggle`."""
         fields = [self._name_edit, self._brand_combo, self._model_combo, self._address_edit,
-                  self._rotation_combo, self._fps_spin, self._illumination_spin,
-                  self._exposure_spin, self._gain_spin, self._decode_combo]
+                  self._rotation_combo, self._fps_spin, self._exposure_spin, self._gain_spin,
+                  self._decode_combo]
         if self._has_image_adjust:
             fields += [self._brightness_spin, self._clahe_spin]
         return fields + [self._variance_spin, self._calibrate_button, self._roi_check]
@@ -378,8 +375,6 @@ class _CameraForm(QWidget):
         self._fps_spin.setValue(int(acquisition.get("fps_limit", 15)))
         self._exposure_spin.setValue(int(acquisition.get("exposure_time_us", 25000)))
         self._gain_spin.setValue(float(acquisition.get("gain", 1.0)))
-        self._illumination_spin.setValue(
-            int(self._config.get(f"{self._prefix}.illumination_min", 50)))
         decode = self._config.get(f"{self._prefix}.decode", {}) or {}
         set_combo_data(self._decode_combo, decode.get("backend") or _DEFAULT_DECODE_BACKEND)
         self._decode_size_field.setText(_build_decode_size_text(decode))
@@ -460,7 +455,6 @@ class _CameraForm(QWidget):
             self._config.set(f"{self._prefix}.acquisition.exposure_time_us",
                              self._exposure_spin.value())
             self._config.set(f"{self._prefix}.acquisition.gain", self._gain_spin.value())
-        self._config.set(f"{self._prefix}.illumination_min", self._illumination_spin.value())
         # Como la exposición: con un driver que no decodifica no se escribe ni se crea.
         if self._decodes():
             self._config.set(f"{self._prefix}.decode.backend", self._decode_combo.currentData())

@@ -303,3 +303,58 @@ class TestOutputShortSide:
     def test_it_counts_as_a_change_and_saves(self):
         config = self._tree_with(output_short_side_px=0)
         assert migrate_roi_config(config) > 0 and config.saves == 1
+
+
+class TestIlluminationMin:
+    """El mínimo de iluminación deja la cámara y pasa a la región de cada pipeline."""
+
+    _TWO_PIPELINES = {"pipeline_1": {"cameras": ["camera_1"]},
+                      "pipeline_2": {"cameras": ["camera_1"]}}
+
+    def _migrate(self, camera: dict, pipelines: dict | None = None) -> _MockConfig:
+        config = _MockConfig(_tree(camera=camera, pipelines=pipelines))
+        migrate_roi_config(config)
+        return config
+
+    def test_each_pipeline_that_looks_at_the_camera_gets_it(self):
+        config = self._migrate({"illumination_min": 30}, self._TWO_PIPELINES)
+        assert _roi(config, "pipeline_1")["illumination_min"] == 30
+        assert _roi(config, "pipeline_2")["illumination_min"] == 30
+
+    def test_it_lands_next_to_the_roi_the_same_run_copied_from_the_camera(self):
+        """Las dos migraciones en una corrida: la segunda no puede pisar lo que dejó la primera."""
+        config = self._migrate({"illumination_min": 30})
+        assert _roi(config) == {**_CAMERA_ROI, "illumination_min": 30}
+
+    def test_a_pipeline_without_a_region_keeps_seeing_the_whole_frame(self):
+        config = self._migrate({"roi": None, "illumination_min": 30})
+        assert _roi(config) == {"illumination_min": 30}
+
+    def test_a_pipeline_of_another_camera_is_left_alone(self):
+        config = self._migrate({"illumination_min": 30})
+        assert _roi(config, "pipeline_2", "camera_2") is None
+
+    def test_a_pipeline_with_its_own_minimum_keeps_it(self):
+        pipelines = {"pipeline_1": {"cameras": ["camera_1"],
+                                    "roi": {"camera_1": {"illumination_min": 5}}}}
+        config = self._migrate({"roi": None, "illumination_min": 30}, pipelines)
+        assert _roi(config) == {"illumination_min": 5}
+
+    def test_a_zero_minimum_asked_for_nothing_and_copies_nothing(self):
+        config = self._migrate({"roi": None, "illumination_min": 0})
+        assert _roi(config) is None
+
+    @pytest.mark.parametrize("illumination_min", [0, 30])
+    def test_the_camera_key_is_deleted(self, illumination_min):
+        config = self._migrate({"illumination_min": illumination_min})
+        assert "illumination_min" not in config.tree["cameras"]["camera_1"]
+
+    def test_each_move_is_in_the_log(self, caplog):
+        self._migrate({"illumination_min": 30})
+        assert "iluminación" in caplog.text and "pipeline_1" in caplog.text
+
+    def test_it_is_idempotent(self):
+        config = self._migrate({"illumination_min": 30})
+        before = copy.deepcopy(config.tree)
+        assert migrate_roi_config(config) == 0
+        assert config.tree == before

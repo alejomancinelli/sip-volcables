@@ -151,6 +151,7 @@ from system.video.abstract_video_server import MODE_ANNOTATED
 from system.video.http_server import HttpVideoServer
 from system.video.rtsp_server import RtspVideoServer
 from tools.image.enhance import build_display_adjust
+from tools.image.illumination import compute_illumination_pct
 
 from ui import service_status
 # `MainWindow` y `CameraGrid` se importan dentro de `_QtUi`: en headless no se construye
@@ -159,12 +160,14 @@ from ui import service_status
 _METRICS_INTERVAL_S = 1.0         # cada cuánto se pide una métrica de hardware
 _REGISTERS_INTERVAL_MS = 1000     # cada cuánto se escriben los registros
 _STATUS_INTERVAL_MS = 1000        # cada cuánto se releen los `status` de los subsistemas
+_ILLUMINATION_INTERVAL_MS = 1000  # cada cuánto se mide el brillo de cada cámara
 _THREAD_STOP_TIMEOUT_MS = 5000    # espera a cada QThread al cerrar
 _SERVER_STOP_TIMEOUT_S = 5.0      # espera al hilo del servidor Modbus al cerrar
 
 _HEARTBEAT_MAX = 65535            # el registro es uint16: el contador da la vuelta ahí
 _LENS_DEFAULT_INTERVAL_S = 10.0   # cada cuánto se mide la nitidez, si el config no lo dice
 _LENS_MIN_INTERVAL_S = 1.0        # medir más seguido que esto no llena antes una ventana de horas
+_ILLUMINATION_STEP_PX = 4         # el brillo de la cámara mide un píxel de cada 4 por eje
 _SIGNAL_POLL_INTERVAL_MS = 200     # timer al vacío para que Qt atienda Ctrl+C y SIGTERM
 
 # Status de una cámara declarada que la licencia deja afuera. Las claves son las estables
@@ -741,6 +744,7 @@ class Application(QObject):
         self._timers = [
             self._start_timer(_REGISTERS_INTERVAL_MS, self._on_registers_tick),
             self._start_timer(_STATUS_INTERVAL_MS, self._on_status_tick),
+            self._start_timer(_ILLUMINATION_INTERVAL_MS, self._on_illumination_tick),
             self._start_timer(_SAMPLE_INTERVAL_MS, self._on_telemetry_tick),
             self._start_timer(RECHECK_INTERVAL_MS, self._on_license_tick),
             self._start_timer(self._read_lens_interval_ms(), self._on_lens_tick),
@@ -1100,24 +1104,18 @@ class Application(QObject):
     @Slot(object)
     def _on_result_ready(self, result: InferenceResult):
         """
-        Un resultado del motor, uno por frame: la iluminación de la cámara, si el par
-        (cámara, pipeline) dio un resultado confiable y sus tiempos, para la página de inicio.
+        Un resultado del motor, uno por frame: si el par (cámara, pipeline) dio un resultado
+        confiable, el último de cada par y sus tiempos, para la página de inicio.
 
         El frame anotado NO sale de acá. Lo publica `_on_cycle_complete`, con el
         representativo del ciclo: es el único que se corresponde con los números que
         salieron al PLC, y es el que tiene que quedar hasta la medición siguiente.
         """
-        self._camera_illumination[result.camera_slot] = result.illumination_pct
         self._last_valid_by_pair[(result.camera_slot, result.pipeline_slot)] = result.is_valid
         self._last_result_by_pair[(result.camera_slot, result.pipeline_slot)] = (
             dataclasses.replace(result, annotated_bgr=None, region_bgr=None))
         self._ui.update_inference_times(result.camera_slot, result.pipeline_slot,
                                         result.cycle_time_ms, result.inference_time_ms)
-        content = self._ui.monitor_content
-        if content is not None:
-            setter = getattr(content, "set_illumination_pct", None)
-            if setter is not None:
-                setter(result.camera_slot, result.illumination_pct)
 
     def _get_last_result(self, camera_slot: str,
                          pipeline_slot: str) -> InferenceResult | None:
@@ -1928,6 +1926,29 @@ class Application(QObject):
         if days is not None:
             return days
         return PERPETUAL_DAYS_SENTINEL if self._license.is_valid else 0
+
+    def _on_illumination_tick(self):
+        """
+        Mide el brillo del frame entero de cada cámara, para el PLC, la telemetría y el monitor.
+
+        Es del frame entero y no de la región de un pipeline: dice si la escena tiene luz,
+        que es una pregunta de la cámara, y no salta según qué pipeline infirió último. El
+        mínimo que corta la inferencia es otro número, el de cada región. Se mide una vez por
+        tick sobre el último frame crudo, salteando píxeles: el promedio casi no cambia y
+        cuesta una fracción. Una cámara desconectada da 0, porque su último frame diría que
+        hay luz en una escena que nadie está viendo.
+        """
+        content = self._ui.monitor_content
+        setter = getattr(content, "set_illumination_pct", None) if content is not None else None
+        for camera_slot in (self._config.get("cameras", {}) or {}):
+            status = self._camera_status.get(camera_slot) or {}
+            frame_bgr = self._last_raw_frame.get(camera_slot) if status.get("connected") else None
+            sample = None if frame_bgr is None else \
+                frame_bgr[::_ILLUMINATION_STEP_PX, ::_ILLUMINATION_STEP_PX]
+            illumination_pct = compute_illumination_pct(sample)
+            self._camera_illumination[camera_slot] = illumination_pct
+            if setter is not None:
+                setter(camera_slot, illumination_pct)
 
     def _build_camera_registers(self) -> dict:
         """

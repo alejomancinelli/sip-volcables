@@ -19,6 +19,11 @@ Al aceptar escribe sólo las regiones que se tocaron, en
 `inference.pipelines.<pipeline>.roi.<cámara>`, y persiste el archivo. Cancelar no deja nada.
 Las regiones propias llevan además el tamaño del frame sobre el que se dibujaron.
 
+Cada pestaña lleva también el **mínimo de iluminación** de ese pipeline en esa cámara, que
+va en la misma sección: se compara con el brillo de lo que recibe el modelo —la región, o el
+frame completo—, y ese brillo se muestra debajo de la vista previa, en vivo. Así el operador
+fija el umbral mirando el mismo número contra el que el motor lo va a comparar.
+
 **Los nombres que se muestran son los del operador**: el de la cámara
 (`cameras.<slot>.name`) en el título y el de cada pipeline (`inference.pipelines.<slot>.name`)
 en su pestaña, en su rectángulo y en los avisos. Sin nombre se muestra el slot, que sigue
@@ -47,11 +52,12 @@ from system.config_manager import ConfigManager
 from system.inference import overlay
 from system.inference.preprocessing import can_cut_native, loses_native_cut
 from system.inference.regions import (
-    FRAME_HEIGHT_KEY, FRAME_WIDTH_KEY, PROBLEM_FRAME_SIZE_CHANGED, PROBLEM_NATIVE_PREPROCESSED,
-    PROBLEM_OUTSIDE_FRAME, PROBLEM_TOO_SMALL, PipelineRegion, clip_roi_px,
-    find_region_problems,
-    get_overlap_pct, list_camera_regions,
+    FRAME_HEIGHT_KEY, FRAME_WIDTH_KEY, ILLUMINATION_MIN_KEY, PROBLEM_FRAME_SIZE_CHANGED,
+    PROBLEM_NATIVE_PREPROCESSED, PROBLEM_OUTSIDE_FRAME, PROBLEM_TOO_SMALL, PipelineRegion,
+    clip_roi_px, find_region_problems, get_illumination_min, get_overlap_pct,
+    list_camera_regions,
 )
+from tools.image.illumination import compute_illumination_pct
 
 from ui.strings import tr
 from ui.widgets.form import (
@@ -89,6 +95,7 @@ class _RegionPage:
         self.page: QWidget
         self.mode: QComboBox
         self.spins: dict[str, QSpinBox]
+        self.illumination_spin: QSpinBox
         self.preview: QLabel
         self.preview_note: QLabel
         self.overlap: QLabel
@@ -214,10 +221,14 @@ class PipelineRegionsDialog(QDialog):
                                         build_spin_box(0, _MAX_FRAME_SIDE_PX, 0))
                       for key, label_key in _GEOMETRY_FIELDS}
         add_hint_row(form, tr("inf_roi_note"))
+        page.illumination_spin = add_form_row(form, tr("regions_illumination_min"),
+                                              build_spin_box(0, 100, 0))
+        add_hint_row(form, tr("regions_illumination_note"))
 
         roi = region.roi
         for key, spin in page.spins.items():
             spin.setValue(int(roi.get(key, 0) or 0))
+        page.illumination_spin.setValue(get_illumination_min(roi))
         self._apply_page_state(page)
 
         page.preview = QLabel()
@@ -242,7 +253,7 @@ class PipelineRegionsDialog(QDialog):
         row.addWidget(form_page, stretch=1)
         row.addLayout(preview_column)
 
-        for spin in page.spins.values():
+        for spin in (*page.spins.values(), page.illumination_spin):
             spin.valueChanged.connect(lambda _value, page=page: self._on_page_changed(page))
         page.mode.currentIndexChanged.connect(
             lambda _index, page=page: self._on_page_changed(page))
@@ -262,6 +273,7 @@ class PipelineRegionsDialog(QDialog):
             else page.stored_frame_size_px
         roi = {"enabled": page.mode.currentData() == _MODE_OWN}
         roi.update({key: spin.value() for key, spin in page.spins.items()})
+        roi[ILLUMINATION_MIN_KEY] = page.illumination_spin.value()
         if all(drawn_size_px):
             roi[FRAME_WIDTH_KEY], roi[FRAME_HEIGHT_KEY] = drawn_size_px
         return roi
@@ -338,7 +350,7 @@ class PipelineRegionsDialog(QDialog):
         return problem
 
     def _refresh_preview(self):
-        """Muestra, en la pestaña activa, lo que recibe el modelo."""
+        """Muestra, en la pestaña activa, lo que recibe el modelo y su brillo."""
         page = self._get_current_page()
         if page is None:
             return
@@ -356,6 +368,8 @@ class PipelineRegionsDialog(QDialog):
             note = f"{tr('regions_preview_whole')} {note}"
         elif is_view:
             note = f"{note}\n{tr('regions_preview_approx')}"
+        illumination_pct = compute_illumination_pct(crop)
+        note = f"{note}\n{tr('regions_preview_illumination').format(pct=illumination_pct)}"
         page.preview_note.setText(note)
 
     def _refresh_overlap(self):
