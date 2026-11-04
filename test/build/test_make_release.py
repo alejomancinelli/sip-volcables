@@ -115,6 +115,19 @@ class TestCalibrationTools:
         app = (tmp_path / "release" / "App.cmd").read_text(encoding="utf-8")
         assert "pause" not in app
 
+    def test_the_template_shortcuts_only_the_app(self, make_release, monkeypatch):
+        monkeypatch.setattr(registry, "TOOLS", ())
+        command = make_release._shortcuts_command("App")
+        assert "@('App','App.cmd',7)" in command
+        assert command.count("@('") == 1
+
+    def test_each_tool_gets_a_shortcut_with_its_console_visible(self, make_release,
+                                                                 monkeypatch):
+        """Minimizado como el de la app, el resultado del calibrador no se vería."""
+        monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
+        command = make_release._shortcuts_command("App")
+        assert "@('Calibrar mallas','Calibrar mallas.cmd',1)" in command
+
     def test_the_linux_launcher_calls_the_same_binary(self, make_release, monkeypatch,
                                                       tmp_path):
         monkeypatch.setattr(registry, "TOOLS", (_mesh_tool(),))
@@ -331,6 +344,77 @@ class TestSitePackages:
         make_release._copy_site_packages(str(site), str(target))
         assert (target / "gi").is_symlink()
         assert os.readlink(target / "gi") == str(system_gi)
+
+
+class TestWindowsService:
+    """
+    `Instalar servicio.cmd` y `Quitar servicio.cmd`: la app sin pantalla, con NSSM.
+
+    Lo que importa no es el NSSM sino a qué apunta: el `.exe` y no el lanzador, y la misma
+    ruta de datos que la app con pantalla, para que las dos lean el mismo config.
+    """
+
+    def _write(self, make_release, tmp_path, monkeypatch, *, with_nssm: bool = True):
+        repo = tmp_path / "repo"
+        (repo / "packages").mkdir(parents=True)
+        if with_nssm:
+            (repo / "packages" / "nssm.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(make_release, "_REPO_ROOT", str(repo))
+        release, program = tmp_path / "release", tmp_path / "release" / "program"
+        program.mkdir(parents=True)
+        make_release._write_windows_scripts(str(release), str(program), "Inspección de piezas")
+        return release
+
+    def _install_script(self, release) -> str:
+        return (release / "Instalar servicio.cmd").read_text(encoding="utf-8")
+
+    def test_the_service_runs_the_executable_headless(self, make_release, tmp_path,
+                                                      monkeypatch):
+        """
+        El lanzador sin pantalla larga el `.exe` con `start` y termina en el acto: NSSM lo
+        daría por caído y lo reiniciaría sin fin.
+        """
+        script = self._install_script(self._write(make_release, tmp_path, monkeypatch))
+        assert ('install "%SERVICE%" "%~dp0program\\main.exe" --headless' in script)
+        assert "sin pantalla.cmd" not in script
+
+    def test_the_data_dir_still_lives_in_one_file(self, make_release, tmp_path, monkeypatch):
+        release = self._write(make_release, tmp_path, monkeypatch)
+        scripts = {path.name: path.read_text(encoding="utf-8") for path in release.iterdir()
+                   if path.is_file()}
+        assert [name for name, text in scripts.items()
+                if "%~dp0installation" in text] == ["_Entorno.cmd"]
+        assert 'call "%~dp0_Entorno.cmd"' in scripts["Instalar servicio.cmd"]
+        assert "SIP_DATA_DIR=%SIP_DATA_DIR%" in scripts["Instalar servicio.cmd"]
+
+    def test_no_quoted_argument_ends_in_a_backslash(self, make_release, tmp_path, monkeypatch):
+        """`%~dp0` termina en `\\`, y `\\"` escapa la comilla en los argumentos de NSSM."""
+        script = self._install_script(self._write(make_release, tmp_path, monkeypatch))
+        assert '%~dp0"' not in script
+
+    def test_nssm_travels_next_to_the_executable(self, make_release, tmp_path, monkeypatch):
+        release = self._write(make_release, tmp_path, monkeypatch)
+        assert (release / "program" / "nssm.exe").read_bytes() == b"MZ"
+
+    def test_without_nssm_the_scripts_are_written_anyway(self, make_release, tmp_path,
+                                                         monkeypatch):
+        """La planta puede copiar `nssm.exe` a mano; el de instalar lo dice si falta."""
+        release = self._write(make_release, tmp_path, monkeypatch, with_nssm=False)
+        assert not (release / "program" / "nssm.exe").exists()
+        assert 'if not exist "%NSSM%"' in self._install_script(release)
+        assert (release / "Quitar servicio.cmd").is_file()
+
+    def test_the_service_name_needs_no_quotes(self, make_release, tmp_path, monkeypatch):
+        release = self._write(make_release, tmp_path, monkeypatch)
+        assert 'set "SERVICE=inspeccion-de-piezas"' in self._install_script(release)
+        assert 'DisplayName "Inspección de piezas"' in self._install_script(release)
+
+    def test_removing_does_not_need_nssm(self, make_release, tmp_path, monkeypatch):
+        """Así anda aunque se haya reemplazado `program\\` por uno sin `nssm.exe`."""
+        release = self._write(make_release, tmp_path, monkeypatch)
+        script = (release / "Quitar servicio.cmd").read_text(encoding="utf-8")
+        assert "nssm" not in script.lower()
+        assert 'sc delete "%SERVICE%"' in script
 
 
 class TestDesktopEntryId:

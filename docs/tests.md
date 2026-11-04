@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 542 grupos, 2801 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**91 archivos, 548 grupos, 2838 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -15,7 +15,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
 | [test/](#test) | 7 | 374 |
-| [test/build/](#testbuild) | 2 | 55 |
+| [test/build/](#testbuild) | 2 | 64 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
@@ -28,7 +28,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
-| [test/tools/camera/](#testtoolscamera) | 6 | 217 |
+| [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 15 | 217 |
@@ -655,7 +655,7 @@ Tests de las opciones con las que se llama a Nuitka.
 <details><summary>Tests</summary>
 
 - `TestExtraFlags`
-  - `test_the_template_adds_none`
+  - `test_they_are_added_and_nothing_else`
   - `test_what_the_fork_declares_ends_up_in_the_command`
   - `test_they_come_before_the_exclusions`
   - `test_the_machinery_flags_are_still_there`
@@ -663,7 +663,7 @@ Tests de las opciones con las que se llama a Nuitka.
 - `TestOptionalPackages`
   - `test_an_installed_package_is_included`
   - `test_a_missing_one_is_left_out`
-  - `test_the_fork_block_stays_empty_either_way`
+  - `test_it_does_not_need_the_fork_block`
   - `test_the_accelerated_build_leaves_it_loose`
 - `TestCalibrators`
   - `test_the_standalone_build_includes_them`
@@ -671,7 +671,7 @@ Tests de las opciones con las que se llama a Nuitka.
   - `test_the_package_is_the_folder_the_repo_ships`
 - `TestExclusions`
   - `test_each_excluded_package_gets_its_own_flag`
-  - `test_excluding_nothing_is_the_default`
+  - `test_excluding_nothing_adds_no_flag`
 - `TestPlatform`
   - `test_windows_gets_the_executable_properties`
   - `test_linux_does_not`
@@ -688,16 +688,17 @@ Tests de las opciones con las que se llama a Nuitka.
 
 </details>
 
-### [test_make_release.py](../test/build/test_make_release.py) — 31 tests
+### [test_make_release.py](../test/build/test_make_release.py) — 40 tests
 
 Tests del armado del entregable: qué se copia y qué no.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestModelsDirectory` | La carpeta de los pesos viaja entera, porque su contenido lo decide cada fork. | 4 |
-| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 9 |
+| `TestCalibrationTools` | Cada fila de `calibration/registry.py` es un lanzador más y unas carpetas vacías en `installation/`. El fork no edita este script para tenerlos. | 11 |
 | `TestLinuxRelease` | El entregable de la Jetson: lanzadores en bash, accesos `.desktop` y verificador. | 10 |
 | `TestSitePackages` | Lo de terceros del build acelerado: el venv probado, sin lo de compilar y testear. | 4 |
+| `TestWindowsService` | `Instalar servicio.cmd` y `Quitar servicio.cmd`: la app sin pantalla, con NSSM. | 7 |
 | `TestDesktopEntryId` |  | 2 |
 | `TestFindExecutable` |  | 2 |
 
@@ -712,6 +713,8 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_the_template_ships_only_the_app_launchers`
   - `test_each_tool_gets_a_launcher_that_waits`
   - `test_the_windows_launcher_keeps_the_console_open`
+  - `test_the_template_shortcuts_only_the_app`
+  - `test_each_tool_gets_a_shortcut_with_its_console_visible`
   - `test_the_linux_launcher_calls_the_same_binary`
   - `test_its_folders_are_created_empty_with_a_note`
   - `test_its_guide_travels_with_it`
@@ -734,6 +737,14 @@ Tests del armado del entregable: qué se copia y qué no.
   - `test_one_that_a_runtime_package_needs_travels`
   - `test_a_test_extra_does_not_keep_it`
   - `test_the_system_packages_travel_as_symlinks`
+- `TestWindowsService`
+  - `test_the_service_runs_the_executable_headless`
+  - `test_the_data_dir_still_lives_in_one_file`
+  - `test_no_quoted_argument_ends_in_a_backslash`
+  - `test_nssm_travels_next_to_the_executable`
+  - `test_without_nssm_the_scripts_are_written_anyway`
+  - `test_the_service_name_needs_no_quotes`
+  - `test_removing_does_not_need_nssm`
 - `TestDesktopEntryId`
   - `test_accents_and_spaces_become_a_plain_slug`
   - `test_a_name_without_ascii_letters_still_gets_one`
@@ -3650,6 +3661,56 @@ Tests del backend MQTT: armado del cliente para las dos APIs de paho, puerto y c
 </details>
 
 ## test/tools/camera/
+
+### [test_basler_driver.py](../test/tools/camera/test_basler_driver.py) — 28 tests
+
+Tests del driver Basler: qué parámetros llegan a la cámara y cuándo se da por perdida.
+
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestParameterNames` | Cada parámetro va al nodo que la cámara tiene: el de SFNC 2 o el `*Abs` de SFNC 1. | 6 |
+| `TestGain` | `gain` es siempre dB. Una cámara que sólo tiene `GainRaw` lo recibe convertido con la fórmula de su modelo, que se lee de la cámara: sin clave de config aparte. | 8 |
+| `TestPacketDelay` | `packet_delay_ns` llega a `GevSCPD` convertido a ticks del reloj de la cámara. | 3 |
+| `TestTemperature` |  | 2 |
+| `TestStalls` | Un frame que tarda no baja la sesión. Reconectar por cada vencimiento de medio segundo —un pico de CPU del equipo— reabría la cámara justo cuando no había CPU para hacerlo, y la cámara quedaba en loop de conexión. | 9 |
+
+<details><summary>Tests</summary>
+
+- `TestParameterNames`
+  - `test_a_classic_ace_gets_exposure_and_frame_rate_on_the_abs_nodes`
+  - `test_an_sfnc2_camera_gets_them_on_the_standard_nodes`
+  - `test_free_run_is_declared`
+  - `test_a_parameter_the_camera_lacks_is_warned`
+  - `test_the_warning_is_not_repeated_on_every_reconnect`
+  - `test_a_value_the_camera_rejects_is_warned`
+- `TestGain`
+  - `test_a_db_node_takes_the_value_as_is`
+  - `test_a_db_node_named_gain_abs_also_takes_it`
+  - `test_an_aca4024_gets_the_raw_value_of_its_formula`
+  - `test_the_raw_value_reads_back_as_the_declared_db`
+  - `test_zero_db_is_zero_raw`
+  - `test_a_gain_above_the_camera_range_is_clamped_and_said`
+  - `test_a_model_without_a_formula_is_not_guessed`
+  - `test_the_model_comes_from_the_camera_not_the_config`
+- `TestPacketDelay`
+  - `test_the_delay_is_converted_with_the_tick_frequency`
+  - `test_without_the_tick_frequency_it_is_not_written`
+  - `test_zero_leaves_the_camera_as_it_is`
+- `TestTemperature`
+  - `test_a_classic_ace_reads_temperature_abs`
+  - `test_without_any_temperature_node_it_reports_zero`
+- `TestStalls`
+  - `test_a_single_timeout_keeps_the_session`
+  - `test_a_frame_after_a_timeout_is_delivered`
+  - `test_a_removed_camera_is_dropped_at_the_first_timeout`
+  - `test_a_stall_past_the_limit_drops_the_session`
+  - `test_a_slow_frame_rate_stretches_the_limit`
+  - `test_a_long_gap_is_reported_when_frames_come_back`
+  - `test_a_failed_grab_keeps_the_session_and_says_why`
+  - `test_repeated_failed_grabs_are_throttled`
+  - `test_a_failed_grab_counts_as_the_camera_answering`
+
+</details>
 
 ### [test_camera_factory.py](../test/tools/camera/test_camera_factory.py) — 14 tests
 

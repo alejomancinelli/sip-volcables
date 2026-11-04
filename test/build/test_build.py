@@ -51,8 +51,15 @@ class TestExtraFlags:
     cross-portea.
     """
 
-    def test_the_template_adds_none(self, build_script):
-        assert build_script._EXTRA_FLAGS == ()
+    def test_they_are_added_and_nothing_else(self, build_script, monkeypatch):
+        """
+        Se prueba por comportamiento y no por el valor: el bloque es del fork, y un test que
+        afirma que está vacío falla en cada fork que lo usa.
+        """
+        monkeypatch.setattr(build_script, "_EXTRA_FLAGS", ())
+        without = build_script._flags("build/out")
+        monkeypatch.setattr(build_script, "_EXTRA_FLAGS", ("--una-opcion",))
+        assert sorted(build_script._flags("build/out")) == sorted(without + ["--una-opcion"])
 
     def test_what_the_fork_declares_ends_up_in_the_command(self, build_script, monkeypatch):
         monkeypatch.setattr(build_script, "_EXTRA_FLAGS",
@@ -96,9 +103,11 @@ class TestOptionalPackages:
         monkeypatch.setattr(standalone, "_is_installed", lambda package: False)
         assert "--include-package=gpiod" not in standalone._flags("build/out")
 
-    def test_the_fork_block_stays_empty_either_way(self, build_script, monkeypatch):
-        monkeypatch.setattr(build_script, "_is_installed", lambda package: True)
-        assert build_script._EXTRA_FLAGS == ()
+    def test_it_does_not_need_the_fork_block(self, standalone, monkeypatch):
+        """Con el bloque del fork vacío el paquete entra igual: no es del fork."""
+        monkeypatch.setattr(standalone, "_is_installed", lambda package: True)
+        monkeypatch.setattr(standalone, "_EXTRA_FLAGS", ())
+        assert "--include-package=gpiod" in standalone._flags("build/out")
 
     def test_the_accelerated_build_leaves_it_loose(self, accelerated, monkeypatch):
         """Acelerado, `gpiod` viaja en `site-packages` con el resto de lo de terceros."""
@@ -134,8 +143,9 @@ class TestExclusions:
         assert "--nofollow-import-to=tensorflow" in flags
         assert "--nofollow-import-to=keras" in flags
 
-    def test_excluding_nothing_is_the_default(self, build_script):
-        assert build_script._EXCLUDED == ()
+    def test_excluding_nothing_adds_no_flag(self, build_script, monkeypatch):
+        """Por comportamiento: la tupla es del fork, y la de cada uno es distinta."""
+        monkeypatch.setattr(build_script, "_EXCLUDED", ())
         assert not [f for f in build_script._flags("build/out")
                     if f.startswith("--nofollow-import-to=")]
 
