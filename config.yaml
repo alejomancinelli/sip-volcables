@@ -112,6 +112,12 @@ process:
     # Una persona cuenta si los pies —el centro del borde inferior de su caja— caen
     # adentro. Una cámara sin zona cuenta a cualquier persona del frame.
     exclusion_zone_px: {}       # {camera_3: [[x, y], [x, y], [x, y], ...]}
+    # Filtro del veredicto: alguien en la zona se confirma con `confirm_hits` frames entre
+    # los últimos `confirm_window`, no necesariamente seguidos, y se libera tras `release_s`
+    # sin verlo. Se edita en la pestaña Proceso.
+    confirm_hits: 4
+    confirm_window: 6
+    release_s: 5.0              # s
   stopper_check:
     # Calzas, por cámara: cada cámara de un pipeline `stopper_check` tiene su grupo en la
     # pestaña Proceso, y la altura se marca ahí sobre el frame en vivo. Todo en píxeles del

@@ -12,7 +12,9 @@ from system.inference.annotations import (
     chain, labels_panel_annotator, max_load_line_annotator, stopper_status_annotator,
     timestamp_annotator, unload_status_annotator,
 )
+from system.inference.person_safety import SAFETY_METRIC, parse_zones
 from system.inference.result import Detection, InferenceResult
+from system.inference.stopper_check import StopperRule
 
 _SLOT = "camera_1"
 _OTHER_SLOT = "camera_2"
@@ -148,16 +150,24 @@ class TestLabelsPanel:
 
 _GRAIN_PIPELINE = "pipeline_1"
 _PERSON_PIPELINE = "pipeline_2"
+# El `safety_ok` del analyzer de personas.
+STATE_OK = 1
+STATE_NOK = 0
 _GREEN = (40, 200, 40)
 _RED = (40, 40, 230)
 _GRAY = (170, 170, 170)
 
 
 def _status(*, person_cameras: set[str] | None = None, zones: dict | None = None):
-    return unload_status_annotator(flow_class="flow", person_pipelines={_PERSON_PIPELINE},
+    return unload_status_annotator(flow_class="flow",
                                    person_cameras=person_cameras if person_cameras is not None
                                    else {_SLOT},
-                                   exclusion_zone_px_by_camera=zones)
+                                   zone_by_camera=parse_zones(zones or {}))
+
+
+def _status_frame() -> np.ndarray:
+    """Un frame grande: el texto del panel sale con el color justo en el centro del trazo."""
+    return np.full((720, 1280, 3), 128, np.uint8)
 
 
 def _grain(verdict: str, *, timestamp_s: float = 100.0,
@@ -172,130 +182,137 @@ def _person_box(x1: int, y1: int, x2: int, y2: int) -> Detection:
                      bbox_px=(x1, y1, x2, y2))
 
 
-def _persons(*boxes: Detection, timestamp_s: float = 100.0,
+def _persons(state: int = STATE_OK, *boxes: Detection, timestamp_s: float = 100.0,
              is_valid: bool = True) -> InferenceResult:
+    """Un resultado de personas con el veredicto filtrado que deja el analyzer."""
     return InferenceResult(camera_slot=_SLOT, pipeline_slot=_PERSON_PIPELINE,
-                           detections=list(boxes), timestamp_s=timestamp_s,
-                           is_valid=is_valid)
+                           detections=list(boxes), metrics={SAFETY_METRIC: state},
+                           timestamp_s=timestamp_s, is_valid=is_valid)
 
 
-def _border(frame_bgr: np.ndarray) -> tuple[int, int, int]:
-    return tuple(int(value) for value in frame_bgr[60, 0])
+def _row_states(frame_bgr: np.ndarray) -> list[str]:
+    """
+    Los veredictos del panel de arriba hacia abajo: un renglón es una franja de filas con el
+    color de su estado, separada de la siguiente por filas sin ninguno.
+    """
+    states: list[str] = []
+    previous = None
+    for row in frame_bgr[:300, :700]:
+        state = next((name for name, color in (("ok", _GREEN), ("nok", _RED),
+                                               ("unknown", _GRAY))
+                      if np.any(np.all(row == color, axis=1))), None)
+        if state is not None and state != previous:
+            states.append(state)
+        previous = state
+    return states
 
 
 def _panel_height_px(frame_bgr: np.ndarray) -> int:
     """Filas negras del panel, medidas sobre una columna que el texto no toca."""
-    return int(np.count_nonzero(np.all(frame_bgr[:, 12] == 0, axis=1)))
+    return int(np.count_nonzero(np.all(frame_bgr[:, 2] == 0, axis=1)))
+
+
+# Lejos del panel, para que su borde no se cuente como un renglón.
+_ZONE = [[900, 300], [1200, 300], [1200, 700], [900, 700]]
 
 
 class TestUnloadStatus:
-    def test_grain_and_no_person_is_green(self):
-        annotator, frame = _status(), _frame()
-        annotator(_frame(), _persons())
+    def test_grain_and_nobody_is_ok_in_both(self):
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _persons(STATE_OK))
         annotator(frame, _grain("flow"))
-        assert _border(frame) == _GREEN
+        assert _row_states(frame) == ["ok", "ok"]
 
     @pytest.mark.parametrize("verdict", ["no_flow", "none"])
-    def test_no_grain_is_red(self, verdict):
-        annotator, frame = _status(), _frame()
-        annotator(_frame(), _persons())
+    def test_no_grain_is_nok(self, verdict):
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _persons(STATE_OK))
         annotator(frame, _grain(verdict))
-        assert _border(frame) == _RED
+        assert _row_states(frame) == ["nok", "ok"]
 
-    def test_a_person_in_the_frame_is_red_even_with_grain(self):
-        annotator, frame = _status(), _frame()
+    def test_a_confirmed_person_is_nok(self):
+        annotator, frame = _status(), _status_frame()
         annotator(_frame(), _grain("flow"))
-        annotator(frame, _persons(_person_box(50, 20, 70, 90)))
-        assert _border(frame) == _RED
+        annotator(frame, _persons(STATE_NOK, _person_box(950, 320, 1000, 600)))
+        assert _row_states(frame) == ["ok", "nok"]
 
-    def test_a_person_and_no_grain_is_red(self):
-        annotator, frame = _status(), _frame()
-        annotator(_frame(), _grain("no_flow"))
-        annotator(frame, _persons(_person_box(50, 20, 70, 90)))
-        assert _border(frame) == _RED
+    def test_the_person_line_is_the_filtered_verdict_not_the_boxes(self):
+        """Una caja que el filtro todavía no confirmó no pone NOK: el PLC tampoco la ve."""
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _grain("flow"))
+        annotator(frame, _persons(STATE_OK, _person_box(950, 320, 1000, 600)))
+        assert _row_states(frame) == ["ok", "ok"]
 
     def test_the_verdict_is_the_same_whichever_result_draws(self):
         """El anotado lo puede poner cualquiera de los dos pipelines de la cámara."""
         annotator = _status()
-        from_grain, from_persons = _frame(), _frame()
-        annotator(from_persons, _persons(_person_box(50, 20, 70, 90)))
+        from_grain, from_persons = _status_frame(), _status_frame()
+        annotator(_frame(), _persons(STATE_NOK))
         annotator(from_grain, _grain("flow"))
-        annotator(from_persons, _persons(_person_box(50, 20, 70, 90), timestamp_s=100.1))
-        assert _border(from_grain) == _border(from_persons) == _RED
+        annotator(from_persons, _persons(STATE_NOK, timestamp_s=100.1))
+        assert _row_states(from_grain) == _row_states(from_persons) == ["ok", "nok"]
 
-    def test_only_the_feet_inside_the_zone_count(self):
-        zone = [[100, 0], [199, 0], [199, 119], [100, 119]]
-        annotator = _status(zones={_SLOT: zone})
-        annotator(_frame(), _grain("flow"))
-        outside, inside = _frame(), _frame()
-        # La caja cruza la zona, pero los pies quedan afuera.
-        annotator(outside, _persons(_person_box(40, 20, 120, 90)))
-        assert _border(outside) == _GREEN
-        annotator(inside, _persons(_person_box(110, 20, 150, 90), timestamp_s=100.1))
-        assert _border(inside) == _RED
+    def test_the_zone_is_drawn_with_the_person_state(self):
+        annotator = _status(zones={_SLOT: _ZONE})
+        clear, occupied = _status_frame(), _status_frame()
+        annotator(clear, _persons(STATE_OK))
+        annotator(occupied, _persons(STATE_NOK, timestamp_s=100.1))
+        assert tuple(int(value) for value in clear[500, 900]) == _GREEN
+        assert tuple(int(value) for value in occupied[500, 900]) == _RED
 
-    def test_the_zone_is_drawn(self):
-        zone = [[100, 30], [180, 30], [180, 100], [100, 100]]
-        annotator, frame = _status(zones={_SLOT: zone}), _frame()
-        annotator(frame, _persons())
-        assert np.all(frame[65, 100] != 128)
-
-    def test_a_malformed_zone_stops_the_build(self):
-        with pytest.raises(ValueError, match=_SLOT):
-            _status(zones={_SLOT: [[0, 0], [10, 10]]})
-
-    def test_without_a_person_verdict_it_is_red(self):
-        """Un pipeline de personas caído no puede dar verde."""
-        annotator, frame = _status(), _frame()
+    def test_without_a_person_verdict_it_is_unknown(self):
+        """Un pipeline de personas caído no puede dar OK."""
+        annotator, frame = _status(), _status_frame()
         annotator(frame, _grain("flow"))
-        assert _border(frame) == _RED
+        assert _row_states(frame) == ["ok", "unknown"]
 
     def test_a_stale_person_verdict_does_not_count(self):
-        annotator, frame = _status(), _frame()
-        annotator(_frame(), _persons(timestamp_s=100.0))
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _persons(STATE_OK, timestamp_s=100.0))
         annotator(frame, _grain("flow", timestamp_s=105.0))
-        assert _border(frame) == _RED
+        assert _row_states(frame) == ["ok", "unknown"]
 
-    def test_a_camera_without_person_detection_follows_the_grain(self):
-        annotator, frame = _status(person_cameras=set()), _frame()
+    def test_a_camera_without_person_detection_shows_only_the_grain(self):
+        annotator, frame = _status(person_cameras=set()), _status_frame()
         annotator(frame, _grain("flow"))
-        assert _border(frame) == _GREEN
+        assert _row_states(frame) == ["ok"]
 
-    def test_without_a_grain_verdict_there_is_no_border(self):
+    def test_without_a_grain_verdict_the_person_line_is_still_drawn(self):
+        """Con la plataforma inclinada el grano se corta, y las personas se siguen vigilando."""
+        frame = _status_frame()
+        _status()(frame, _persons(STATE_NOK))
+        assert _row_states(frame) == ["nok"]
+
+    def test_with_no_line_to_show_there_is_no_panel(self):
         frame = _frame()
-        _status()(frame, _persons())
+        _status(person_cameras=set())(frame, _persons(STATE_OK))
         assert _painted_rows(frame) == set()
 
     def test_an_invalid_result_updates_nothing(self):
-        annotator, frame = _status(), _frame()
-        annotator(_frame(), _persons())
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _persons(STATE_OK))
         annotator(_frame(), _grain("flow"))
         annotator(frame, _grain("no_flow", timestamp_s=100.1, is_valid=False))
-        assert _border(frame) == _GREEN
+        assert _row_states(frame) == ["ok", "ok"]
 
-    def test_the_border_goes_around_the_whole_frame(self):
-        annotator, frame = _status(person_cameras=set()), _frame()
+    def test_there_is_no_status_border(self):
+        """Si se puede arrancar lo decide el PLC: el frame no lleva borde."""
+        annotator, frame = _status(), _status_frame()
+        annotator(_frame(), _persons(STATE_NOK))
         annotator(frame, _grain("flow"))
-        for row, column in [(0, 100), (119, 100), (60, 0), (60, 199)]:
-            assert np.all(frame[row, column] != 128)
-        assert np.all(frame[60, 100] == 128)
+        for row, column in ((0, 1279), (719, 0), (719, 1279), (360, 0), (360, 1279)):
+            assert tuple(int(value) for value in frame[row, column]) == (128, 128, 128)
 
-    def test_the_panel_is_drawn_on_top_of_the_border(self):
-        annotator, frame = _status(person_cameras=set()), _frame()
+    def test_the_panel_sits_in_the_top_left_corner(self):
+        annotator, frame = _status(), _status_frame()
         annotator(frame, _grain("flow"))
-        assert np.all(frame[11, 12] == 0)
+        assert np.all(frame[0, 0] == 0) and np.all(frame[0, 40] == 0)
 
     def test_the_panel_adds_the_person_line_where_persons_are_detected(self):
         with_persons, without_persons = _frame(), _frame()
         _status()(with_persons, _grain("flow"))
         _status(person_cameras=set())(without_persons, _grain("flow"))
         assert _panel_height_px(with_persons) > _panel_height_px(without_persons)
-
-    def test_an_unknown_person_verdict_is_gray_in_the_panel(self):
-        """En un frame grande: el trazo es grueso y su centro sale sin antialiasing."""
-        annotator, frame = _status(), np.full((720, 1280, 3), 128, np.uint8)
-        annotator(frame, _grain("flow"))
-        assert np.any(np.all(frame == _GRAY, axis=2))
 
     def test_the_text_grows_with_the_frame(self):
         """La cámara puede llegar reducida por el decodificador: el estado se lee igual."""
@@ -330,13 +347,6 @@ class TestTimestamp:
         timestamp_annotator()(small, _result())
         timestamp_annotator()(large, _result())
         assert _timestamp_height_px(large) > 2 * _timestamp_height_px(small)
-
-    def test_it_is_taller_than_the_status_border(self):
-        """Encima del borde y más alto que él: si no, queda escondida adentro."""
-        frame = np.full((1440, 2560, 3), 128, np.uint8)
-        chain(_status(person_cameras=set()), timestamp_annotator())(frame, _grain("flow"))
-        border_px = int(np.count_nonzero(np.any(frame[:, 1280] != 128, axis=1))) // 2
-        assert _timestamp_height_px(frame) > border_px
 
     def test_an_empty_frame_is_ignored(self):
         timestamp_annotator()(np.zeros((0, 0, 3), np.uint8), _result())
@@ -385,13 +395,14 @@ def _stoppers(*detections: Detection, is_valid: bool = True,
 def _stopper_status(*, levels: dict | None = None, min_raised: dict | None = None,
                     max_gaps: dict | None = None, sides: dict | None = None,
                     language: str = "es"):
-    return stopper_status_annotator(
-        stopper_pipelines={_STOPPER_PIPELINE}, stopper_class="stopper", wheel_class="wheel",
+    rule = StopperRule(
+        stopper_class="stopper", wheel_class="wheel",
         raised_y_px_by_camera={_SLOT: _RAISED_Y} if levels is None else levels,
         min_raised_px_by_camera=min_raised,
         max_gap_px_by_camera={_SLOT: 20} if max_gaps is None else max_gaps,
-        wheel_side_by_camera=sides,
-        language=language)
+        wheel_side_by_camera=sides)
+    return stopper_status_annotator(rule, stopper_pipelines={_STOPPER_PIPELINE},
+                                    language=language)
 
 
 def _panel_states(frame_bgr: np.ndarray) -> set[str]:

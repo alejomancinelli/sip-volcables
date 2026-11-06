@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**93 archivos, 556 grupos, 2874 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**96 archivos, 566 grupos, 2917 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 16 | 627 |
+| [test/inference/](#testinference) | 19 | 659 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 211 |
@@ -31,7 +31,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 16 | 231 |
+| [test/ui/](#testui) | 16 | 242 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -1548,7 +1548,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 63 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 60 tests
 
 Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
 
@@ -1557,8 +1557,8 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 | `TestMaxLoadLine` | 9 |
 | `TestChain` | 6 |
 | `TestLabelsPanel` | 2 |
-| `TestUnloadStatus` | 20 |
-| `TestTimestamp` | 4 |
+| `TestUnloadStatus` | 18 |
+| `TestTimestamp` | 3 |
 | `TestStopperStatus` | 22 |
 
 <details><summary>Tests</summary>
@@ -1584,30 +1584,27 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
   - `test_a_result_with_labels_gets_a_panel`
   - `test_a_result_without_labels_draws_nothing`
 - `TestUnloadStatus`
-  - `test_grain_and_no_person_is_green`
-  - `test_no_grain_is_red`
-  - `test_a_person_in_the_frame_is_red_even_with_grain`
-  - `test_a_person_and_no_grain_is_red`
+  - `test_grain_and_nobody_is_ok_in_both`
+  - `test_no_grain_is_nok`
+  - `test_a_confirmed_person_is_nok`
+  - `test_the_person_line_is_the_filtered_verdict_not_the_boxes`
   - `test_the_verdict_is_the_same_whichever_result_draws`
-  - `test_only_the_feet_inside_the_zone_count`
-  - `test_the_zone_is_drawn`
-  - `test_a_malformed_zone_stops_the_build`
-  - `test_without_a_person_verdict_it_is_red`
+  - `test_the_zone_is_drawn_with_the_person_state`
+  - `test_without_a_person_verdict_it_is_unknown`
   - `test_a_stale_person_verdict_does_not_count`
-  - `test_a_camera_without_person_detection_follows_the_grain`
-  - `test_without_a_grain_verdict_there_is_no_border`
+  - `test_a_camera_without_person_detection_shows_only_the_grain`
+  - `test_without_a_grain_verdict_the_person_line_is_still_drawn`
+  - `test_with_no_line_to_show_there_is_no_panel`
   - `test_an_invalid_result_updates_nothing`
-  - `test_the_border_goes_around_the_whole_frame`
-  - `test_the_panel_is_drawn_on_top_of_the_border`
+  - `test_there_is_no_status_border`
+  - `test_the_panel_sits_in_the_top_left_corner`
   - `test_the_panel_adds_the_person_line_where_persons_are_detected`
-  - `test_an_unknown_person_verdict_is_gray_in_the_panel`
   - `test_the_text_grows_with_the_frame`
   - `test_an_empty_frame_is_ignored`
   - `test_it_names_itself_with_its_settings`
 - `TestTimestamp`
   - `test_it_draws_in_the_bottom_right_corner`
   - `test_it_grows_with_the_frame`
-  - `test_it_is_taller_than_the_status_border`
   - `test_an_empty_frame_is_ignored`
 - `TestStopperStatus`
   - `test_a_raised_stopper_against_the_wheel_is_ok_in_both`
@@ -1918,7 +1915,7 @@ Tests de la geometría sobre detecciones: una máscara contra una línea y la di
 
 </details>
 
-### [test_hooks.py](../test/inference/test_hooks.py) — 17 tests
+### [test_hooks.py](../test/inference/test_hooks.py) — 24 tests
 
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
@@ -1926,6 +1923,8 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
 |---|---|---:|
 | `TestTemplateHooks` |  | 9 |
 | `TestStopperHooks` | El annotator de calzas no lleva borde de estado —lo decide el PLC—, así que estos tests no leen un veredicto: comparan el dibujo con el de otro config, y un valor que se lee es uno que lo cambia. | 5 |
+| `TestPersonHooks` |  | 5 |
+| `TestStopperSignals` |  | 2 |
 | `TestReadPipelines` |  | 3 |
 
 <details><summary>Tests</summary>
@@ -1946,10 +1945,41 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_the_process_values_are_the_ones_measured`
   - `test_the_wheel_side_is_read`
   - `test_a_null_distance_is_uncalibrated`
+- `TestPersonHooks`
+  - `test_a_person_pipeline_adds_the_filtered_verdict`
+  - `test_the_filter_settings_are_read`
+  - `test_the_exclusion_zone_is_read`
+  - `test_a_malformed_zone_stops_the_build`
+  - `test_an_impossible_filter_stops_the_build`
+- `TestStopperSignals`
+  - `test_a_stopper_pipeline_adds_its_signals`
+  - `test_uncalibrated_signals_are_zero`
 - `TestReadPipelines`
   - `test_it_keeps_the_enabled_pipelines_of_that_type`
   - `test_the_cameras_come_in_the_config_order`
   - `test_no_cameras_means_all_of_them`
+
+</details>
+
+### [test_metrics.py](../test/inference/test_metrics.py) — 6 tests
+
+Tests de las métricas del proyecto: las genéricas, la señal del grano y cómo se les suman las de un extra.
+
+| Grupo | Tests |
+|---|---:|
+| `TestBuildAnalyzer` | 3 |
+| `TestGrainFlow` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestBuildAnalyzer`
+  - `test_without_extras_it_is_the_generic_count`
+  - `test_the_extras_are_added_to_the_generic_metrics`
+  - `test_an_extra_overrides_a_generic_key`
+- `TestGrainFlow`
+  - `test_flow_is_one`
+  - `test_anything_else_is_zero`
+  - `test_a_result_without_the_verdict_has_no_signal`
 
 </details>
 
@@ -2112,6 +2142,35 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_with_draw_roi_off_the_state_is_not_drawn_either`
   - `test_the_options_of_a_result_without_state_paint_as_before`
   - `test_a_state_outside_the_vocabulary_is_drawn_as_none`
+
+</details>
+
+### [test_person_safety.py](../test/inference/test_person_safety.py) — 13 tests
+
+Tests del veredicto de personas: quién cuenta en la zona, y que el analyzer filtre por par (pipeline, cámara) y dé 1 sólo sin nadie confirmado.
+
+| Grupo | Tests |
+|---|---:|
+| `TestZone` | 4 |
+| `TestAnalyzer` | 9 |
+
+<details><summary>Tests</summary>
+
+- `TestZone`
+  - `test_only_the_feet_inside_the_zone_count`
+  - `test_without_a_zone_anyone_in_the_frame_counts`
+  - `test_a_malformed_zone_stops_the_build`
+  - `test_a_cleared_zone_is_no_zone`
+- `TestAnalyzer`
+  - `test_nobody_is_ok`
+  - `test_a_single_frame_with_a_person_is_still_ok`
+  - `test_a_confirmed_person_is_zero`
+  - `test_it_stays_zero_until_the_release_time_passes`
+  - `test_each_camera_has_its_own_filter`
+  - `test_the_counts_split_the_frame_from_the_zone`
+  - `test_a_person_outside_the_zone_does_not_count`
+  - `test_another_pipeline_gets_no_person_metrics`
+  - `test_an_impossible_filter_stops_the_build`
 
 </details>
 
@@ -2504,6 +2563,31 @@ Tests de la media móvil por ventana de tiempo: evicción, drenaje sin muestras 
   - `test_it_rounds_to_an_integer_percentage`
   - `test_without_a_total_it_returns_zero`
   - `test_it_is_capped_at_one_hundred`
+
+</details>
+
+### [test_stopper_check.py](../test/inference/test_stopper_check.py) — 9 tests
+
+Tests de la regla de las calzas como señales: 1 OK y 0 cualquier otra cosa. El dibujo de la misma regla se prueba en test_annotations.py.
+
+| Grupo | Tests |
+|---|---:|
+| `TestSignals` | 7 |
+| `TestRule` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestSignals`
+  - `test_raised_and_touching_is_one_in_both`
+  - `test_without_a_stopper_both_are_zero`
+  - `test_a_raised_stopper_far_from_the_wheel_has_no_contact`
+  - `test_an_uncalibrated_height_is_zero_in_both`
+  - `test_an_uncalibrated_gap_is_zero`
+  - `test_a_wheel_on_the_wrong_side_is_no_contact`
+  - `test_another_pipeline_gets_no_stopper_signals`
+- `TestRule`
+  - `test_a_height_that_is_not_a_frame_row_stops_the_build`
+  - `test_an_unknown_wheel_side_stops_the_build`
 
 </details>
 
@@ -4736,7 +4820,7 @@ Tests del diálogo de polígono: los vértices que se agregan, mueven y borran c
 
 </details>
 
-### [test_process_tab.py](../test/ui/test_process_tab.py) — 20 tests
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 31 tests
 
 Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
 
@@ -4744,6 +4828,8 @@ Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopp
 |---|---|---:|
 | `TestCameraTabs` |  | 3 |
 | `TestRoundTrip` |  | 7 |
+| `TestPersonFilter` |  | 5 |
+| `TestPersonZone` |  | 6 |
 | `TestLevel` |  | 2 |
 | `TestLevelInspector` | En pausa, el diálogo de la altura mide sobre el último frame inferido: los píxeles de la calza sobre la línea y la distancia a la rueda, con las reglas del annotator. | 8 |
 
@@ -4761,6 +4847,19 @@ Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopp
   - `test_a_missing_wheel_side_is_any`
   - `test_the_height_goes_back_as_it_was`
   - `test_an_uncalibrated_height_is_saved_as_null`
+- `TestPersonFilter`
+  - `test_without_person_pipelines_there_is_no_group`
+  - `test_the_values_go_back_as_they_were`
+  - `test_missing_values_show_the_defaults`
+  - `test_the_hits_cannot_exceed_the_window`
+  - `test_the_stopper_tabs_are_still_there`
+- `TestPersonZone`
+  - `test_one_zone_tab_per_person_camera`
+  - `test_a_camera_without_zone_says_the_whole_frame_counts`
+  - `test_a_drawn_zone_shows_its_vertices`
+  - `test_the_draw_button_asks_for_its_camera_key`
+  - `test_reload_polygon_shows_what_the_dialog_wrote`
+  - `test_save_does_not_write_the_zone`
 - `TestLevel`
   - `test_reload_level_shows_what_the_dialog_wrote`
   - `test_the_mark_button_asks_for_its_camera_key`

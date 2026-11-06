@@ -23,8 +23,8 @@ from dataclasses import dataclass
 
 from system.config_manager import ConfigManager
 
-from . import annotations
-from .metrics import compute_metrics
+from . import annotations, person_safety, stopper_check
+from .metrics import build_analyzer
 from .pipeline import FLOW_CLASS
 from .result import Detection, InferenceResult
 
@@ -32,6 +32,7 @@ Classifier = Callable[[list[Detection], str], list[Detection]]
 Analyzer = Callable[[InferenceResult], dict]
 
 PERSON_PIPELINE_TYPE = "person_safety"
+PERSON_SECTION = "process.person_safety"
 STOPPER_PIPELINE_TYPE = "stopper_check"
 
 # Las clases de `stopper_seg`.
@@ -65,54 +66,72 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     Arma los hooks del proyecto con los valores de `process:`.
 
     No filtra ni reetiqueta y cuenta con el analyzer genérico. Dibuja el límite de carga
-    sólo si alguna cámara lo declara, y el estado de la descarga —borde y panel OK / NOK del
-    grano y de las personas— sólo si el config declara la sección `process.grain_flow`.
+    sólo si alguna cámara lo declara, y el estado de la descarga —panel OK / NOK del grano y
+    de las personas— sólo si el config declara la sección `process.grain_flow`.
 
     Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines` (ver
-    `read_pipelines()`). La zona de exclusión sale de `process.person_safety`. El estado de
-    las calzas —borde y panel OK / NOK de la calza levantada y del contacto con la rueda— se
-    dibuja si hay algún pipeline `stopper_check`, con los valores de `process.stopper_check`.
-    Los rótulos de los dos paneles salen en el idioma de `ui.language`.
+    `read_pipelines()`). Con alguno, el analyzer suma el veredicto filtrado de personas
+    (`person_safety.py`) con la zona de exclusión y el filtro de `process.person_safety`; la
+    misma zona es la que dibuja el annotator, así que la pantalla y el PLC no pueden mirar
+    zonas distintas. Con algún pipeline `stopper_check` se arma la regla de las calzas
+    (`stopper_check.py`) con los valores de `process.stopper_check`, y la misma regla da las
+    señales del analyzer y el panel OK / NOK de la calza levantada y del contacto con la
+    rueda. Los rótulos de los dos paneles salen en el idioma de
+    `ui.language`.
 
     Con `inference.overlay.draw_timestamp` en false la hora la dibuja el proyecto, del
-    tamaño del frame y última, encima del borde: es una sola clave para que nunca salgan
-    las dos ni ninguna sin quererlo.
+    tamaño del frame y última, encima de todo: es una sola clave para que nunca salgan las
+    dos ni ninguna sin quererlo.
     """
     max_load_y_px = config.get("process.max_load_y_px", {}) or {}
     has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
     language = str(config.get("ui.language", "") or "")
 
+    person_pipelines, person_cameras = read_pipelines(config, PERSON_PIPELINE_TYPE)
+    zone_by_camera = person_safety.parse_zones(
+        config.get(f"{PERSON_SECTION}.exclusion_zone_px", {}) or {})
+    extras = []
+    if person_pipelines:
+        extras.append(person_safety.build_analyzer(
+            person_pipelines=person_pipelines,
+            zone_by_camera=zone_by_camera,
+            confirm_hits=int(config.get(f"{PERSON_SECTION}.confirm_hits",
+                                        person_safety.DEFAULT_CONFIRM_HITS)),
+            confirm_window=int(config.get(f"{PERSON_SECTION}.confirm_window",
+                                          person_safety.DEFAULT_CONFIRM_WINDOW)),
+            release_s=float(config.get(f"{PERSON_SECTION}.release_s",
+                                       person_safety.DEFAULT_RELEASE_S)),
+        ))
+
     selected = []
     if has_grain_flow:
-        person_pipelines, person_cameras = read_pipelines(config, PERSON_PIPELINE_TYPE)
         selected.append(annotations.unload_status_annotator(
             flow_class=FLOW_CLASS,
-            person_pipelines=person_pipelines,
             person_cameras=set(person_cameras),
-            exclusion_zone_px_by_camera=config.get(
-                "process.person_safety.exclusion_zone_px", {}) or {},
+            zone_by_camera=zone_by_camera,
             language=language,
         ))
     stopper_pipelines, _ = read_pipelines(config, STOPPER_PIPELINE_TYPE)
     if stopper_pipelines:
         section = "process.stopper_check"
-        selected.append(annotations.stopper_status_annotator(
-            stopper_pipelines=stopper_pipelines,
+        rule = stopper_check.StopperRule(
             stopper_class=STOPPER_CLASS,
             wheel_class=WHEEL_CLASS,
             raised_y_px_by_camera=_read_camera_map(config, f"{section}.raised_y_px"),
             min_raised_px_by_camera=_read_camera_map(config, f"{section}.min_raised_px"),
             max_gap_px_by_camera=_read_camera_map(config, f"{section}.max_gap_px"),
             wheel_side_by_camera=_read_camera_map(config, f"{section}.wheel_side"),
-            language=language,
-        ))
+        )
+        extras.append(stopper_check.build_analyzer(rule, stopper_pipelines=stopper_pipelines))
+        selected.append(annotations.stopper_status_annotator(
+            rule, stopper_pipelines=stopper_pipelines, language=language))
     if max_load_y_px:
         selected.append(annotations.max_load_line_annotator(max_load_y_px))
     if not config.get("inference.overlay.draw_timestamp", True):
         selected.append(annotations.timestamp_annotator())
     annotator = annotations.chain(*selected) if selected else None
 
-    return EngineHooks(analyzer=compute_metrics, annotator=annotator)
+    return EngineHooks(analyzer=build_analyzer(*extras), annotator=annotator)
 
 
 def read_pipelines(config: ConfigManager, pipeline_type: str) -> tuple[set[str], list[str]]:

@@ -22,9 +22,17 @@ Al pausar el video del diálogo de la altura, la pestaña le da al diálogo el �
 el pipeline de calzas infirió en esa cámara y le dice qué daría la altura marcada: los
 píxeles de la calza sobre ella y la distancia a la rueda, con los valores que tiene la
 pestaña en ese momento —guardados o no—. Lo mide con las mismas funciones del annotator
-(`pick_stopper_and_wheels`, `find_closest_wheel`), así que el número del diálogo es el que el
+de `stopper_check.py` (`pick_stopper_and_wheels`, `find_closest_wheel`), así que el número del diálogo es el que el
 equipo mide. Es el último inferido y no el último en vivo porque es el único que trae
 detecciones: con la compuerta de la plataforma cerrada puede ser viejo, y por eso dice la hora.
+
+Con algún pipeline `person_safety` va además un grupo de personas. El filtro es uno solo para
+todas las cámaras —cuántos frames confirman a una persona en la zona y cuántos segundos sin
+verla la liberan—: es una política de seguridad y no una calibración del montaje. Qué hace
+cada valor está en `system/inference/presence.py`. La zona de exclusión sí es de cada
+montaje: una sub-pestaña por cámara de personas dice si tiene zona y abre el diálogo que la
+dibuja sobre el frame en vivo (`ui/dialogs/polygon_dialog.py`). Esa zona la escribe y la
+persiste su diálogo, como la altura, y al cerrarse el ConfigView pide `reload_polygon()`.
 
 Dos cosas que **no** van acá: la validación de lo que tiene que frenar el arranque —es de
 quien lee la sección, `hooks.py`— y qué cámaras usa cada proceso, que es config.
@@ -37,22 +45,26 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from system.config_manager import ConfigManager
-from system.inference.annotations import (
+from system.inference.geometry import count_px_above_y
+from system.inference.hooks import (
+    PERSON_PIPELINE_TYPE, PERSON_SECTION, STOPPER_CLASS, STOPPER_PIPELINE_TYPE, WHEEL_CLASS,
+    read_pipelines,
+)
+from system.inference.person_safety import (
+    DEFAULT_CONFIRM_HITS, DEFAULT_CONFIRM_WINDOW, DEFAULT_RELEASE_S,
+)
+from system.inference.result import InferenceResult
+from system.inference.stopper_check import (
     DEFAULT_MIN_RAISED_PX, WHEEL_SIDE_ANY, WHEEL_SIDE_LEFT, WHEEL_SIDE_RIGHT,
     find_closest_wheel, pick_stopper_and_wheels,
 )
-from system.inference.geometry import count_px_above_y
-from system.inference.hooks import (
-    STOPPER_CLASS, STOPPER_PIPELINE_TYPE, WHEEL_CLASS, read_pipelines,
-)
-from system.inference.result import InferenceResult
 
 from ui.dialogs.level_dialog import LevelSnapshot
 from ui.strings import tr
 from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
-    add_form_row, add_hint_row, build_form_page, build_group_box, build_slot_tabs,
-    build_spin_box, build_value_combo_box, set_combo_data,
+    add_form_row, add_hint_row, build_double_spin_box, build_form_page, build_group_box,
+    build_slot_tabs, build_spin_box, build_value_combo_box, set_combo_data,
 )
 
 _STOPPER_SECTION = "process.stopper_check"
@@ -65,23 +77,36 @@ _WHEEL_SIDES = (
 _MAX_FRAME_SIDE_PX = 8192
 _MAX_RAISED_PX = 10_000_000
 _UNCALIBRATED = -1           # valor del spin que se muestra «sin calibrar» y se guarda null
+_MAX_CONFIRM_FRAMES = 60
+_MAX_RELEASE_S = 120.0
 
 
 class ProcessTab(AbstractConfigTab):
-    """Sección `process:` del config: una sub-pestaña de calza por cámara de `stopper_check`."""
+    """
+    Sección `process:` del config: una sub-pestaña de calza por cámara de `stopper_check` y
+    el filtro de personas, si hay un pipeline `person_safety`.
+    """
 
     TITLE_KEY = "tab_process"
 
     # (slot de cámara, clave del config donde va la altura, clave de idioma del título).
     open_level_requested = Signal(str, str, str)
+    # (slot de cámara, clave del config donde va la zona, clave de idioma del título).
+    open_polygon_requested = Signal(str, str, str)
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
         self._stoppers: dict[str, _StopperFields] = {}
         self._stopper_tabs = None
+        self._person = None
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
+        _, person_cameras = read_pipelines(self._config, PERSON_PIPELINE_TYPE)
+        if person_cameras:
+            self._person = _PersonFields(self._config, person_cameras)
+            self._person.open_polygon_requested.connect(self.open_polygon_requested)
+            layout.addWidget(self._person)
         _, stopper_cameras = read_pipelines(self._config, STOPPER_PIPELINE_TYPE)
         if stopper_cameras:
             box, form = build_group_box(tr("process_stopper_box"))
@@ -93,7 +118,7 @@ class ProcessTab(AbstractConfigTab):
                 self._stopper_tabs.addTab(fields, fields.camera_name)
             form.addRow(self._stopper_tabs)
             layout.addWidget(box)
-        else:
+        if self._person is None and not stopper_cameras:
             note = QLabel(tr("process_empty_note"))
             note.setObjectName("hintLabel")
             note.setWordWrap(True)
@@ -103,12 +128,21 @@ class ProcessTab(AbstractConfigTab):
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
     def load(self):
+        if self._person is not None:
+            self._person.load()
         for fields in self._stoppers.values():
             fields.load()
 
     def save(self):
+        if self._person is not None:
+            self._person.save()
         for fields in self._stoppers.values():
             fields.save()
+
+    def reload_polygon(self, camera_slot: str):
+        """Recarga la zona de una cámara cuando su diálogo terminó de escribirla."""
+        if self._person is not None:
+            self._person.load_zone(camera_slot)
 
     def reload_level(self, camera_slot: str):
         """Recarga la altura de una cámara cuando su diálogo terminó de escribirla."""
@@ -144,6 +178,84 @@ class ProcessTab(AbstractConfigTab):
                                  lambda y_px: fields.describe(result, y_px))
 
         return inspect
+
+
+class _PersonFields(QWidget):
+    """
+    El grupo de personas: el filtro —cuántos frames confirman y cuántos segundos liberan— y
+    una sub-pestaña por cámara con su zona de exclusión.
+    """
+
+    open_polygon_requested = Signal(str, str, str)
+
+    def __init__(self, config_manager: ConfigManager, camera_slots: list[str], parent=None):
+        super().__init__(parent)
+        self._config = config_manager
+
+        box, form = build_group_box(tr("process_person_box"))
+        self._confirm_hits_spin = add_form_row(
+            form, tr("process_person_confirm_hits"),
+            build_spin_box(1, _MAX_CONFIRM_FRAMES, DEFAULT_CONFIRM_HITS))
+        self._confirm_window_spin = add_form_row(
+            form, tr("process_person_confirm_window"),
+            build_spin_box(1, _MAX_CONFIRM_FRAMES, DEFAULT_CONFIRM_WINDOW))
+        # No se pueden pedir más aciertos que frames en la ventana: el filtro no arrancaría.
+        self._confirm_window_spin.valueChanged.connect(self._confirm_hits_spin.setMaximum)
+        self._confirm_hits_spin.setMaximum(self._confirm_window_spin.value())
+        self._release_spin = add_form_row(
+            form, tr("process_person_release"),
+            build_double_spin_box(0.0, _MAX_RELEASE_S, DEFAULT_RELEASE_S, decimals=1, step=0.5))
+        add_hint_row(form, tr("process_person_hint"))
+
+        self._zone_tabs = build_slot_tabs()
+        self._zone_labels: dict[str, QLabel] = {}
+        for camera_slot in camera_slots:
+            page, zone_form = build_form_page()
+            label = add_form_row(zone_form, tr("process_person_zone"), QLabel())
+            button = QPushButton(tr("process_draw_zone"))
+            button.clicked.connect(
+                lambda _=False, slot=camera_slot: self.open_polygon_requested.emit(
+                    slot, _get_zone_key(slot), "process_person_zone"))
+            zone_form.addRow("", button)
+            self._zone_labels[camera_slot] = label
+            camera_name = str(self._config.get(f"cameras.{camera_slot}.name", "")
+                              or camera_slot)
+            self._zone_tabs.addTab(page, camera_name)
+        form.addRow(self._zone_tabs)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(box)
+
+    def load(self):
+        # La ventana primero: es el techo de los aciertos.
+        self._confirm_window_spin.setValue(int(self._config.get(
+            f"{PERSON_SECTION}.confirm_window", DEFAULT_CONFIRM_WINDOW)))
+        self._confirm_hits_spin.setValue(int(self._config.get(
+            f"{PERSON_SECTION}.confirm_hits", DEFAULT_CONFIRM_HITS)))
+        self._release_spin.setValue(float(self._config.get(
+            f"{PERSON_SECTION}.release_s", DEFAULT_RELEASE_S)))
+        for camera_slot in self._zone_labels:
+            self.load_zone(camera_slot)
+
+    def load_zone(self, camera_slot: str):
+        """Muestra si la cámara tiene zona; la escribe su diálogo, no `save()`."""
+        label = self._zone_labels.get(camera_slot)
+        if label is None:
+            return
+        zones = self._config.get(f"{PERSON_SECTION}.exclusion_zone_px", {}) or {}
+        points = zones.get(camera_slot) or []
+        label.setText(tr("polygon_vertices").format(count=len(points)) if points
+                      else tr("process_person_no_zone"))
+
+    def save(self):
+        self._config.set(f"{PERSON_SECTION}.confirm_hits", self._confirm_hits_spin.value())
+        self._config.set(f"{PERSON_SECTION}.confirm_window", self._confirm_window_spin.value())
+        self._config.set(f"{PERSON_SECTION}.release_s", self._release_spin.value())
+
+
+def _get_zone_key(camera_slot: str) -> str:
+    return f"{PERSON_SECTION}.exclusion_zone_px.{camera_slot}"
 
 
 class _StopperFields(QWidget):

@@ -82,6 +82,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         geometry.py           nivel 1 — una máscara contra una altura y la distancia entre dos
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
         presence.py           nivel 1 — presencia filtrada: confirma por frames, libera por tiempo
+        person_safety.py      nivel 1 — personas en la zona: el veredicto filtrado que va al PLC
+        stopper_check.py      nivel 1 — la regla de las calzas: la usan analyzer, annotator y pestaña
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
         preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
@@ -496,6 +498,27 @@ Lo que no se deduce leyendo un archivo suelto:
   el PLC, que es quien manda la señal, sabe que no los tiene que leer. No hay timeout: un
   PLC que deja de escribir deja la plataforma en el último estado, y el latido del PLC
   queda para después.
+- **Los veredictos que el PLC usa para decidir salen del analyzer, no del annotator, y valen
+  1 OK y 0 cualquier otra cosa.** El annotator sólo corre si alguien mira el anotado, así que
+  lo que tiene que llegar al PLC lo calcula el analyzer y el annotator dibuja lo mismo: grano
+  `flow_ok` (`metrics.py`), calzas `raised_ok` / `contact_ok` (`stopper_check.py`, la regla
+  que comparten analyzer, annotator y pestaña) y personas `safety_ok` (`person_safety.py`). El
+  0 es a la vez NOK y «sin veredicto» —sin calibrar, el equipo arrancando, el pipeline
+  caído—, así que una falla nunca se lee como OK. Los nombres van sin la cámara: qué
+  registro le toca a cada par lo decide el mapa. Para que una fila vuelva a 0 cuando su
+  pipeline deja de dar resultados —sin resultados nuevos el analyzer no corre y la fila
+  quedaría en 1— la fila declara `max_age_s` (`system/modbus/schema.py`); con la licencia en
+  `degrade` queda con su último valor, como el resto del proceso.
+- **El veredicto de personas sale filtrado del equipo, no crudo al PLC.** El filtro
+  (`presence.py`) confirma con K detecciones en los últimos N frames —no seguidos: una
+  persona real que el modelo pierde de a ratos no se confirmaría nunca con N seguidos— y
+  libera tras `release_s` sin verla; se edita en la pestaña de proceso. Filtra el equipo y no
+  el PLC porque el PLC lee los registros una vez por segundo y vería uno de cada cinco o diez
+  frames: no podría contar frames, sólo muestras. Es el único analyzer con estado, uno por
+  par (pipeline, cámara). Una persona cuenta si los pies de su caja caen en la zona de
+  exclusión de su cámara (`process.person_safety.exclusion_zone_px`), que se dibuja con el
+  diálogo de polígono desde la pestaña de proceso; sin zona cuenta todo el frame. En el
+  anotado la zona va tramada —tinte, rayas y borde— con el color del veredicto.
 - **Un veredicto del frame no es una detección ni una métrica.** Lo que dice una
   clasificación de la imagen entera —el estado de la cinta— viaja en `labels`, que es
   texto: no tiene forma ni posición, y si tiene que llegar al PLC lo traduce a bit el
@@ -839,8 +862,10 @@ La tabla completa, archivo por archivo, está en `README.md`.
   métodos marcados de `main.py`: el widget del monitor, el contexto del dataset, las
   compuertas de frames y la reacción a un cambio de señal. Lo que sigue faltando es el
   contenido: qué se mide y qué se publica.
-- El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
-  pero qué publica es lo más específico de cada fork y se declara al escribirlo. Del
+- El rango 3-50 del mapa de registros sigue reservado y vacío en esta rama: las señales
+  (`flow_ok`, `raised_ok`, `contact_ok`, `safety_ok` y los conteos de personas) ya salen del
+  analyzer, pero sus filas —con `max_age_s`— y la traducción de métrica a registro por
+  posición viven en `fork/modbus-map`. Del
   bloque 40101-40150 que escribe el PLC, la única fila es `ramp_state`.
 - **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
   y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de

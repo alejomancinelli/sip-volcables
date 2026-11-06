@@ -7,9 +7,11 @@ alguna cámara lo declara.
 """
 
 import numpy as np
+import pytest
 
 from system.inference.hooks import EngineHooks, build_hooks, read_pipelines
 from system.inference.metrics import compute_metrics
+from system.inference.person_safety import SAFETY_METRIC
 from system.inference.result import Detection, InferenceResult
 
 
@@ -128,6 +130,72 @@ class TestStopperHooks:
         missing = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px": {}}))
         assert np.array_equal(_drawn_by(null), _drawn_by(missing))
         assert not np.array_equal(_drawn_by(null), _drawn_by(build_hooks(_stopper_config())))
+
+
+_PERSON_PIPELINES = {"pipeline_2": {"type": "person_safety", "cameras": ["camera_3"]}}
+
+
+def _person_hooks(**overrides) -> EngineHooks:
+    values = {"cameras": {"camera_3": {}},
+              "inference.pipelines": _PERSON_PIPELINES,
+              "process.person_safety.confirm_hits": 1,
+              "process.person_safety.confirm_window": 1}
+    values.update(overrides)
+    return build_hooks(_MockConfig(**values))
+
+
+def _person_result(*detections: Detection) -> InferenceResult:
+    return InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                           detections=list(detections))
+
+
+_FEET_AT_100_80 = Detection(class_index=0, class_name="person", confidence_pct=90.0,
+                            bbox_px=(90, 20, 110, 80))
+
+
+class TestPersonHooks:
+    def test_a_person_pipeline_adds_the_filtered_verdict(self):
+        metrics = _person_hooks().analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 0
+        assert metrics["detection_count"] == 1
+
+    def test_the_filter_settings_are_read(self):
+        hooks = _person_hooks(**{"process.person_safety.confirm_hits": 2,
+                                 "process.person_safety.confirm_window": 2})
+        metrics = hooks.analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 1
+
+    def test_the_exclusion_zone_is_read(self):
+        zone = {"camera_3": [[0, 0], [50, 0], [50, 50], [0, 50]]}
+        hooks = _person_hooks(**{"process.person_safety.exclusion_zone_px": zone})
+        metrics = hooks.analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 1
+
+    def test_a_malformed_zone_stops_the_build(self):
+        with pytest.raises(ValueError, match="camera_3"):
+            _person_hooks(**{"process.person_safety.exclusion_zone_px":
+                             {"camera_3": [[0, 0]]}})
+
+    def test_an_impossible_filter_stops_the_build(self):
+        with pytest.raises(ValueError):
+            _person_hooks(**{"process.person_safety.confirm_hits": 3})
+
+
+class TestStopperSignals:
+    def test_a_stopper_pipeline_adds_its_signals(self):
+        hooks = build_hooks(_MockConfig(**{
+            "inference.pipelines": _STOPPER_PIPELINES,
+            "process.stopper_check.raised_y_px": {"camera_1": 30},
+            "process.stopper_check.min_raised_px": {"camera_1": 1},
+            "process.stopper_check.max_gap_px": {"camera_1": 5},
+        }))
+        metrics = hooks.analyzer(_stopper_result())
+        assert metrics["raised_ok"] == 1 and metrics["contact_ok"] == 1
+
+    def test_uncalibrated_signals_are_zero(self):
+        hooks = build_hooks(_MockConfig(**{"inference.pipelines": _STOPPER_PIPELINES}))
+        metrics = hooks.analyzer(_stopper_result())
+        assert metrics["raised_ok"] == 0 and metrics["contact_ok"] == 0
 
 
 class TestReadPipelines:

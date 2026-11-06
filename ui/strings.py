@@ -555,6 +555,49 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "câmera. Salva-se com Salvar "
                                      "—a altura marcada sobre a imagem, também ao fechar sua "
                                      "janela— e aplica-se ao reiniciar."},
+    "process_person_box":     {"es": "Personas",       "en": "People",        "pt": "Pessoas"},
+    "process_person_confirm_hits": {"es": "Frames con persona para confirmar",
+                                    "en": "Frames with a person to confirm",
+                                    "pt": "Quadros com pessoa para confirmar"},
+    "process_person_confirm_window": {"es": "…entre los últimos (frames)",
+                                      "en": "…among the last (frames)",
+                                      "pt": "…entre os últimos (quadros)"},
+    "process_person_release": {"es": "Liberar tras (s) sin nadie",
+                               "en": "Release after (s) with nobody",
+                               "pt": "Liberar após (s) sem ninguém"},
+    "process_person_zone":    {"es": "Zona de exclusión", "en": "Exclusion zone",
+                               "pt": "Zona de exclusão"},
+    "process_person_no_zone": {"es": "Sin zona: cuenta todo el frame",
+                               "en": "No zone: the whole frame counts",
+                               "pt": "Sem zona: conta o quadro inteiro"},
+    "process_draw_zone":      {"es": "Dibujar sobre la imagen",
+                               "en": "Draw on the image",
+                               "pt": "Desenhar sobre a imagem"},
+    "process_person_hint":    {"es": "Una persona en la zona de exclusión se confirma cuando "
+                                     "aparece en esa cantidad de frames entre los últimos, no "
+                                     "necesariamente seguidos: así un frame suelto no la da "
+                                     "por presente y una que el modelo pierde de a ratos se "
+                                     "confirma igual. Se libera recién después de esos "
+                                     "segundos sin verla. El frame es el que infiere el "
+                                     "pipeline de personas en esa cámara, así que confirmar "
+                                     "tarda más con el equipo cargado. Se aplica al reiniciar.",
+                               "en": "A person in the exclusion zone is confirmed when they "
+                                     "appear in that many frames among the last ones, not "
+                                     "necessarily in a row: a single frame does not mark them "
+                                     "present, and one the model loses now and then is still "
+                                     "confirmed. They are released only after that many "
+                                     "seconds without being seen. Frames are the ones the "
+                                     "people pipeline infers on that camera, so confirming "
+                                     "takes longer with the device under load. Applied after "
+                                     "a restart.",
+                               "pt": "Uma pessoa na zona de exclusão é confirmada quando "
+                                     "aparece nessa quantidade de quadros entre os últimos, "
+                                     "não necessariamente seguidos: um quadro solto não a dá "
+                                     "por presente e uma que o modelo perde às vezes é "
+                                     "confirmada igual. É liberada só depois desses segundos "
+                                     "sem vê-la. Os quadros são os que o pipeline de pessoas "
+                                     "infere nessa câmera, então confirmar demora mais com o "
+                                     "equipamento carregado. Aplica-se ao reiniciar."},
     "process_empty_note":     {"es": "Esta instalación todavía no declaró parámetros de "
                                      "proceso editables desde la pantalla.\n\n"
                                      "Los parámetros de lo que se mide —escalas de píxel, "
