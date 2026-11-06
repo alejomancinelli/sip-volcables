@@ -153,6 +153,9 @@ ui/
                         pide una pestaña con `open_level_requested`, igual que el ROI. En
                         pausa puede medir sobre el último frame inferido si esa pestaña
                         arma un inspector (`build_level_inspector()`)
+    polygon_dialog.py   dibujar una zona —un polígono, tramado— sobre el frame en vivo:
+                        click agrega un vértice, arrastrar lo mueve, click derecho lo borra;
+                        la pide una pestaña con `open_polygon_requested`, igual que la altura
     gpio_dialog.py      entradas y salidas digitales
   styles/               dark.qss y light.qss
   icons/                logos y el .ico de la ventana
@@ -189,7 +192,7 @@ overlay sólo dibuja ASCII («Verificación» sale «Verificacion»).
   en `docs/jetson.md` §4.1.1.
 - **Pausar el video**: el botón «Pausar video» congela el frame para dibujar sobre una imagen
   quieta; la vista previa y los avisos siguen sobre ese frame. Lo tienen también el diálogo de
-  ROI y el de nivel (`ui/widgets/pause_button.py`).
+  ROI, el de nivel y el de zona (`ui/widgets/pause_button.py`).
 - **Avisos**, de `system/inference/regions.py` (`find_region_problems()`): el rectángulo se
   sale del frame, el config pide el video nativo en una cámara con corrección de lente o ajuste de
   imagen, o se dibujó sobre un frame de otro tamaño que el que llega ahora. Una pestaña con

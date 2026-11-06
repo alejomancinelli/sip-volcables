@@ -458,6 +458,7 @@ class MainWindow(QMainWindow):
         self._config_view.open_roi_requested.connect(self._on_open_roi_requested)
         self._config_view.open_regions_requested.connect(self._on_open_regions_requested)
         self._config_view.open_level_requested.connect(self._on_open_level_requested)
+        self._config_view.open_polygon_requested.connect(self._on_open_polygon_requested)
         self._config_view.calibrate_lens_requested.connect(
             self._on_calibrate_lens_requested)
 
@@ -543,6 +544,20 @@ class MainWindow(QMainWindow):
         self._exec_on_live_frame(dialog, camera_slot)
         if self._config_view is not None:
             self._config_view.refresh_level_fields(camera_slot)
+
+    def _on_open_polygon_requested(self, camera_slot: str, config_key: str, title_key: str):
+        """
+        Abre el diálogo de zona alimentado con el frame en vivo de esa cámara.
+
+        Igual que el de nivel: dónde se guarda la zona y cómo se titula la ventana lo dice la
+        pestaña que la pide, así que esta ventana no conoce qué se mide con ella.
+        """
+        from ui.dialogs.polygon_dialog import PolygonDialog
+
+        dialog = PolygonDialog(self._config, camera_slot, config_key, self, title_key=title_key)
+        self._exec_on_live_frame(dialog, camera_slot)
+        if self._config_view is not None:
+            self._config_view.refresh_polygon_fields(camera_slot)
 
     def _exec_on_live_frame(self, dialog, camera_slot: str):
         """

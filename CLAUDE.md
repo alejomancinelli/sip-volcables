@@ -151,7 +151,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               camera_panel (una cámara), camera_grid (N, con foco),
                               region_canvas (el frame con las regiones de los pipelines),
                               pause_button (congela el video de un diálogo de dibujo)
-      dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog, gpio_dialog
+      dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog,
+                              polygon_dialog (una zona con vértices), gpio_dialog
       styles/                 dark.qss y light.qss, espejados regla por regla
 
     test/                     espeja el árbol de arriba; conftest.py en la raíz
