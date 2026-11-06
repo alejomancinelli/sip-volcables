@@ -7,7 +7,7 @@ import asyncio
 import signal
 import threading
 import time
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -810,6 +810,46 @@ class TestMetricRegisters:
         with caplog.at_level("WARNING"):
             app._build_metric_registers()
         assert "grain_pct" not in caplog.text
+
+
+class TestExpiringMetricRegisters:
+    """Una fila con `max_age_s` vuelve a 0 —sale en None— si nadie la renueva a tiempo."""
+
+    def _app(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_REGISTER_NAMES",
+                            frozenset({"grain_pct", "grain_1_flow_ok"}))
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"grain_1_flow_ok": 3.0})
+        return app
+
+    def _store(self, app, monkeypatch, now_s: float, **metrics):
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                                           metrics=metrics))
+
+    def _build(self, app, monkeypatch, now_s: float) -> dict:
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        return app._build_metric_registers()
+
+    def test_a_fresh_verdict_is_published(self, monkeypatch):
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, grain_1_flow_ok=1)
+        assert self._build(app, monkeypatch, 102.0)["grain_1_flow_ok"] == 1
+
+    def test_a_stale_verdict_goes_back_to_zero(self, monkeypatch):
+        """Con el pipeline caído el PLC no puede seguir leyendo «cae grano»."""
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, grain_1_flow_ok=1)
+        assert self._build(app, monkeypatch, 103.5)["grain_1_flow_ok"] is None
+
+    def test_a_row_nobody_ever_published_is_zero(self, monkeypatch):
+        app = self._app(monkeypatch)
+        assert self._build(app, monkeypatch, 100.0) == {"grain_1_flow_ok": None}
+
+    def test_a_row_without_max_age_keeps_its_last_value(self, monkeypatch):
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, grain_pct=40.0)
+        assert self._build(app, monkeypatch, 1000.0)["grain_pct"] == 40.0
 
 
 class _StatusEngine:

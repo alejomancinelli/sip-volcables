@@ -343,6 +343,55 @@ class TestLoadPlcRows:
         assert "camera_switch" in message
 
 
+class TestMaxAge:
+    """Una fila de inferencia que vuelve a 0 sin un resultado que la renueve."""
+
+    def test_an_inference_row_keeps_its_max_age(self, tmp_path):
+        registers = load_registers(_write_map(tmp_path, """
+- addr: 3
+  name: camera_3_person_safety
+  desc: Personas
+  producer: inference
+  max_age_s: 3
+"""))
+        assert registers[0].max_age_s == 3
+
+    def test_without_it_a_row_never_expires(self):
+        assert Reg(1, "x", "x", PRODUCER_INFERENCE).max_age_s is None
+
+    @pytest.mark.parametrize("producer, extra", [("health", ""), ("plc", ""),
+                                                 ("config", "config_key: process.x")])
+    def test_it_only_goes_on_inference_rows(self, tmp_path, producer, extra):
+        """En otra fila no hay un resultado que la renueve, y nadie la vencería."""
+        with pytest.raises(ValueError, match="sólo va en filas de inferencia"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 3
+  name: some_value
+  desc: Algo
+  producer: {producer}
+  max_age_s: 3
+  {extra}
+"""))
+
+    @pytest.mark.parametrize("value", [0, -1, "'3'", "true"])
+    def test_it_has_to_be_a_positive_number_of_seconds(self, tmp_path, value):
+        with pytest.raises(ValueError, match="max_age_s"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 3
+  name: camera_3_person_safety
+  desc: Personas
+  producer: inference
+  max_age_s: {value}
+"""))
+
+    def test_the_schema_lists_only_the_rows_that_expire(self):
+        schema = RegisterSchema([
+            Reg(3, "camera_3_person_safety", "Personas", PRODUCER_INFERENCE, max_age_s=3),
+            Reg(5, "coverage_pct", "Cobertura", PRODUCER_INFERENCE),
+        ])
+        assert schema.max_age_by_name() == {"camera_3_person_safety": 3.0}
+
+
 class TestWritable:
     def setup_method(self):
         self.schema = RegisterSchema([
