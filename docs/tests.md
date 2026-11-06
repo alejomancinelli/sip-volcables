@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 535 grupos, 2740 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**91 archivos, 538 grupos, 2753 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 5 | 90 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 15 | 533 |
+| [test/inference/](#testinference) | 16 | 546 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 211 |
@@ -2143,6 +2143,37 @@ Tests del preprocessor del motor: la cadena que arma el frame de referencia.
   - `test_can_cut_native_needs_a_video_driver_and_no_preprocessor`
   - `test_loses_native_cut_is_a_video_camera_with_a_preprocessor`
   - `test_the_cameras_of_a_pipeline_are_the_same_the_engine_expects`
+
+</details>
+
+### [test_presence.py](../test/inference/test_presence.py) — 13 tests
+
+Tests del filtro de presencia: confirma por cantidad de frames y libera por tiempo.
+
+| Grupo | Tests |
+|---|---:|
+| `TestConfirm` | 5 |
+| `TestRelease` | 5 |
+| `TestSettings` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestConfirm`
+  - `test_a_single_frame_does_not_confirm`
+  - `test_enough_hits_in_the_window_confirm`
+  - `test_the_hits_do_not_need_to_be_consecutive`
+  - `test_hits_spread_wider_than_the_window_do_not_confirm`
+  - `test_one_hit_out_of_one_confirms_at_once`
+- `TestRelease`
+  - `test_it_holds_while_less_than_the_release_time_has_passed`
+  - `test_it_releases_after_the_release_time_without_hits`
+  - `test_a_hit_while_present_restarts_the_release`
+  - `test_after_a_release_it_confirms_again_from_scratch`
+  - `test_with_zero_release_a_frame_with_a_hit_keeps_it`
+- `TestSettings`
+  - `test_an_impossible_confirmation_stops_the_build`
+  - `test_a_negative_release_stops_the_build`
+  - `test_it_starts_absent`
 
 </details>
 

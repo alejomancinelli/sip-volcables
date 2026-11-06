@@ -81,6 +81,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
         geometry.py           nivel 1 — una máscara contra una altura y la distancia entre dos
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
+        presence.py           nivel 1 — presencia filtrada: confirma por frames, libera por tiempo
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
         preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
