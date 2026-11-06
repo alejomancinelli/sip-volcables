@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**92 archivos, 553 grupos, 2860 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**93 archivos, 556 grupos, 2874 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -31,7 +31,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 15 | 217 |
+| [test/ui/](#testui) | 16 | 231 |
 | [test/video/](#testvideo) | 3 | 193 |
 
 ## test/
@@ -4701,6 +4701,38 @@ Tests del diálogo de regiones: qué pestañas arma, qué escribe al aceptar y q
   - `test_a_paused_dialog_keeps_the_frame_it_had`
   - `test_resuming_takes_the_next_frame`
   - `test_the_region_is_still_editable_while_paused`
+
+</details>
+
+### [test_polygon_dialog.py](../test/ui/test_polygon_dialog.py) — 14 tests
+
+Tests del diálogo de polígono: los vértices que se agregan, mueven y borran con el mouse, y qué guarda y dónde.
+
+| Grupo | Tests |
+|---|---:|
+| `TestEditing` | 8 |
+| `TestSave` | 5 |
+| `TestPause` | 1 |
+
+<details><summary>Tests</summary>
+
+- `TestEditing`
+  - `test_it_starts_with_the_saved_zone`
+  - `test_a_click_adds_a_vertex_at_the_end`
+  - `test_a_click_on_an_edge_inserts_the_vertex_there`
+  - `test_dragging_a_vertex_moves_it`
+  - `test_a_right_click_deletes_a_vertex`
+  - `test_clear_leaves_no_vertices`
+  - `test_a_vertex_outside_the_frame_is_clamped_to_it`
+  - `test_without_a_frame_the_mouse_does_nothing`
+- `TestSave`
+  - `test_it_saves_the_vertices_under_its_key_and_persists`
+  - `test_a_cleared_zone_is_saved_as_null`
+  - `test_one_or_two_vertices_cannot_be_saved`
+  - `test_the_count_says_how_many_vertices_there_are`
+  - `test_a_malformed_saved_zone_starts_empty`
+- `TestPause`
+  - `test_a_paused_dialog_keeps_the_frame_it_had`
 
 </details>
 

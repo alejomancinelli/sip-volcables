@@ -917,6 +917,30 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "measure: the video froze on the last frame.",
                                "pt": "Não há resultado de inferência desta câmera para "
                                      "medir: o vídeo congelou no último quadro."},
+    "polygon_title":          {"es": "Dibujar zona",   "en": "Draw zone",     "pt": "Desenhar zona"},
+    "polygon_box":            {"es": "Zona (píxeles del frame)",
+                               "en": "Zone (frame pixels)",
+                               "pt": "Zona (pixels do quadro)"},
+    "polygon_vertices":       {"es": "{count} vértices", "en": "{count} vertices",
+                               "pt": "{count} vértices"},
+    "polygon_empty":          {"es": "Sin zona",       "en": "No zone",       "pt": "Sem zona"},
+    "polygon_too_few":        {"es": "{count} vértices: hacen falta al menos {min}, o ninguno "
+                                     "para no tener zona.",
+                               "en": "{count} vertices: at least {min} are needed, or none to "
+                                     "have no zone.",
+                               "pt": "{count} vértices: são necessários pelo menos {min}, ou "
+                                     "nenhum para não ter zona."},
+    "polygon_hint":           {"es": "Click sobre la imagen agrega un vértice; sobre un lado, "
+                                     "lo inserta ahí. Arrastrá un vértice para moverlo y "
+                                     "hacé click derecho para borrarlo.",
+                               "en": "Click on the image to add a vertex; on an edge, it is "
+                                     "inserted there. Drag a vertex to move it and right-click "
+                                     "to delete it.",
+                               "pt": "Clique na imagem para adicionar um vértice; sobre um "
+                                     "lado, ele é inserido ali. Arraste um vértice para movê-lo "
+                                     "e clique com o botão direito para apagá-lo."},
+    "polygon_clear":          {"es": "Borrar zona",    "en": "Clear zone",    "pt": "Apagar zona"},
+    "polygon_save":           {"es": "Guardar zona",   "en": "Save zone",     "pt": "Salvar zona"},
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
     "dialog_pause":           {"es": "Pausar video",   "en": "Pause video",   "pt": "Pausar vídeo"},
     "dialog_resume":          {"es": "Reanudar video", "en": "Resume video",  "pt": "Retomar vídeo"},
