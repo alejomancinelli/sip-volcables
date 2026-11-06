@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**90 archivos, 533 grupos, 2731 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**90 archivos, 535 grupos, 2740 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -14,7 +14,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 
 | Carpeta | Archivos | Tests |
 |---|---:|---:|
-| [test/](#test) | 7 | 368 |
+| [test/](#test) | 7 | 372 |
 | [test/build/](#testbuild) | 2 | 64 |
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
@@ -24,7 +24,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/inference/](#testinference) | 15 | 533 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
-| [test/modbus/](#testmodbus) | 5 | 206 |
+| [test/modbus/](#testmodbus) | 5 | 211 |
 | [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
@@ -228,7 +228,7 @@ Tests del controlador de GPIO: lectura del config, modo simulado, comando de sal
 
 </details>
 
-### [test_main.py](../test/test_main.py) — 139 tests
+### [test_main.py](../test/test_main.py) — 143 tests
 
 Tests del cableado: la salida del proceso y el manejo de señales.
 
@@ -249,6 +249,7 @@ Tests del cableado: la salida del proceso y el manejo de señales.
 | `TestFramePath` | El frame de cámara no pasa entero por la GUI: la inferencia y el video crudo lo toman en el hilo de captura, y la GUI recibe sólo el último de cada cámara cuando puede. | 10 |
 | `TestEngines` | Un hilo por pipeline habilitado y licenciado, con la clase que pide su `type`. | 7 |
 | `TestMetricRegisters` | Las métricas se guardan por par (cámara, pipeline), no por cámara. | 3 |
+| `TestExpiringMetricRegisters` | Una fila con `max_age_s` vuelve a 0 —sale en None— si nadie la renueva a tiempo. | 4 |
 | `TestPipelineWords` | Una palabra por pipeline del config: el que no corre dice por qué. | 9 |
 | `TestMergedAnnotated` | Una cámara que miran varios pipelines muestra un solo anotado, con todas las capas. | 4 |
 | `TestFrameGates` | Una señal de la planta corta los frames de una cámara a un pipeline, y sólo a ése. | 12 |
@@ -345,6 +346,11 @@ Tests del cableado: la salida del proceso y el manejo de señales.
   - `test_two_pipelines_on_one_camera_keep_their_own_metrics`
   - `test_two_pairs_publishing_the_same_metric_are_warned_once`
   - `test_one_pair_per_metric_is_not_warned`
+- `TestExpiringMetricRegisters`
+  - `test_a_fresh_verdict_is_published`
+  - `test_a_stale_verdict_goes_back_to_zero`
+  - `test_a_row_nobody_ever_published_is_zero`
+  - `test_a_row_without_max_age_keeps_its_last_value`
 - `TestPipelineWords`
   - `test_a_healthy_pipeline_is_zero`
   - `test_an_unlicensed_pipeline_says_so`
@@ -3053,7 +3059,7 @@ Tests del mapa de registros que se despacha con el repo.
 
 </details>
 
-### [test_schema.py](../test/modbus/test_schema.py) — 77 tests
+### [test_schema.py](../test/modbus/test_schema.py) — 82 tests
 
 Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, la copia del config que se publica al PLC, y qué filas puede escribir el PLC y con qué rango.
 
@@ -3063,6 +3069,7 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
 | `TestRegDefaults` |  | 3 |
 | `TestLoadRegisters` |  | 12 |
 | `TestLoadPlcRows` | Lo que el mapa deja escribir al PLC, y lo que hace que no cargue. | 12 |
+| `TestMaxAge` | Una fila de inferencia que vuelve a 0 sin un resultado que la renueve. | 5 |
 | `TestWritable` |  | 12 |
 | `TestDecode` |  | 6 |
 | `TestEncodeRefusesPlcRows` | Una fila `plc` tiene un solo dueño: si la app la escribiera, pisaría al PLC. | 4 |
@@ -3111,6 +3118,12 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_a_range_that_does_not_fit_the_register_is_rejected`
   - `test_a_non_numeric_bound_is_rejected`
   - `test_the_error_names_the_file_the_entry_and_the_row`
+- `TestMaxAge`
+  - `test_an_inference_row_keeps_its_max_age`
+  - `test_without_it_a_row_never_expires`
+  - `test_it_only_goes_on_inference_rows`
+  - `test_it_has_to_be_a_positive_number_of_seconds`
+  - `test_the_schema_lists_only_the_rows_that_expire`
 - `TestWritable`
   - `test_only_the_plc_rows_are_writable`
   - `test_a_config_row_is_read_only`

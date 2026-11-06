@@ -251,6 +251,8 @@ _HEALTH_REGISTER_NAMES = frozenset({
 # así que una métrica que se llame igual no las pisa.
 _REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
                             if reg.producer not in (PRODUCER_PLC, PRODUCER_CONFIG))
+# Las filas que vuelven a 0 cuando ningún resultado confiable las renueva a tiempo.
+_MAX_AGE_S_BY_NAME = SCHEMA.max_age_by_name()
 
 _COLLECTOR_MODE_INTERVAL = "interval"
 
@@ -538,9 +540,10 @@ class Application(QObject):
         self._last_metrics: dict = {}
         self._camera_status: dict[str, dict] = {}
         self._camera_illumination: dict[str, int] = {}
-        # Últimas métricas válidas de cada par (cámara, pipeline), para los registros. Por
+        # Últimas métricas válidas de cada par (cámara, pipeline), para los registros, con el
+        # instante monotónico en que llegaron —es lo que vence una fila con `max_age_s`—. Por
         # par y no por cámara: dos pipelines sobre una cámara se pisarían el dict entero.
-        self._metrics_by_pair: dict[tuple[str, str], dict] = {}
+        self._metrics_by_pair: dict[tuple[str, str], tuple[float, dict]] = {}
         # Si el último resultado de cada par fue confiable, para la palabra de su pipeline.
         self._last_valid_by_pair: dict[tuple[str, str], bool] = {}
         # El último resultado de cada par, para el diálogo que mide sobre un frame inferido.
@@ -1966,13 +1969,22 @@ class Application(QObject):
         proyecto que mide lo mismo en dos cintas prefija el nombre con el slot
         —`camera_1_coverage_pct`— y declara una fila por cámara, igual que hacen los
         registros de estado.
+
+        **Una fila con `max_age_s` vuelve a 0** —sale en None— si ningún par la renovó en ese
+        tiempo: el pipeline caído, frames que no se pueden juzgar o el equipo arrancando. Las
+        demás quedan con su último valor. Es para un veredicto cuyo 0 quiere decir «sin
+        dato»: sin resultados nuevos nadie lo pisa, y el PLC seguiría leyendo el último.
         """
+        now_s = time.monotonic()
         values = {}
         source_by_name: dict[str, tuple[str, str]] = {}
-        for pair, metrics in self._metrics_by_pair.items():
+        for pair, (stored_s, metrics) in self._metrics_by_pair.items():
             camera_slot, pipeline_slot = pair
             for name, value in metrics.items():
                 if name in _HEALTH_REGISTER_NAMES:
+                    continue
+                max_age_s = _MAX_AGE_S_BY_NAME.get(name)
+                if max_age_s is not None and now_s - stored_s > max_age_s:
                     continue
                 if name in _REGISTER_NAMES:
                     previous = source_by_name.setdefault(name, pair)
@@ -1995,6 +2007,9 @@ class Application(QObject):
                         f"[Main] La métrica '{name}' de {camera_slot}/{pipeline_slot} no "
                         f"tiene fila en register_map.yaml: no se publica al PLC."
                     )
+        for name in _MAX_AGE_S_BY_NAME:
+            if name in _REGISTER_NAMES and name not in values:
+                values[name] = None
         return values
 
     # ── Internos ─────────────────────────────────────────────────────────────
@@ -2073,7 +2088,7 @@ class Application(QObject):
         """Guarda las métricas del último resultado válido de cada par, para los registros."""
         if result.is_valid and result.metrics:
             self._metrics_by_pair[(result.camera_slot, result.pipeline_slot)] = \
-                dict(result.metrics)
+                (time.monotonic(), dict(result.metrics))
 
     def _start_timer(self, interval_ms: int, slot) -> QTimer:
         timer = QTimer(self)
