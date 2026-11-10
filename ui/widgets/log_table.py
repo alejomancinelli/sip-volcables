@@ -32,8 +32,7 @@ class EventLogTable(QTableWidget):
     Tabla de eventos FIFO de hasta `max_rows` filas.
 
     Con `show_module=True` agrega la columna del módulo entre la hora y el nivel, que
-    es lo que quiere la pestaña de logs; la barra lateral del monitor la deja afuera
-    porque no tiene ancho.
+    es lo que quiere la pestaña de logs; sin ella la tabla entra en un lugar angosto.
     """
 
     def __init__(self, parent=None, *, max_rows: int = 20, show_module: bool = False):

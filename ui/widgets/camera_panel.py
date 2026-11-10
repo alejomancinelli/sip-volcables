@@ -1,7 +1,9 @@
 """
 Panel de una cámara: el feed en vivo, sus chips de telemetría y el recuadro del ROI.
 
-Un panel por slot de `cameras:`. Recibe frames y estado por sus slots
+Un panel por slot de `cameras:`, en una tarjeta: arriba una sola fila con el nombre de la
+cámara y sus chips —chicos, para que la fila no le robe alto al video— y debajo el video,
+que se lleva todo el resto. Recibe frames y estado por sus slots
 —`update_frame()` y `update_status()`—, que es lo que un CaptureThread emite, y no
 sabe de dónde salieron: la grilla o la vista de monitor los conecta.
 
@@ -15,7 +17,7 @@ import numpy as np
 from PySide6.QtCore import QEvent, QRect, Qt, Signal, Slot
 from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout,
+    QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from system.config_manager import ConfigManager
@@ -23,23 +25,26 @@ from system.inference import overlay
 from system.inference.regions import PipelineRegion, clip_roi_px, list_camera_regions
 from system.video.abstract_video_server import MODE_RAW
 
+from ui import service_status
 from ui.strings import tr
 from ui.widgets.region_canvas import paint_region_box
-from ui.widgets.status_chip import CHIP_ERROR, CHIP_INFO, CHIP_OK, CHIP_WARNING, StatusChip
+from ui.widgets.status_chip import CHIP_INFO, StatusChip
 
 _MIN_VIDEO_WIDTH_PX = 320
 _MIN_VIDEO_HEIGHT_PX = 200
+_CARD_MARGIN_PX = 8
+_HEADER_SPACING_PX = 6        # entre el nombre y los chips, y entre chip y chip
 # Ancho mínimo del panel, fijo a propósito: ver `__init__`.
 _MIN_PANEL_WIDTH_PX = 360
 _REGION_PEN_WIDTH_PX = 2
 
 
-class CameraPanel(QGroupBox):
+class CameraPanel(QWidget):
     """
     Feed de una cámara con su telemetría.
 
-    El título es el `name` de la cámara en el config; el slot es la identidad y no se
-    muestra.
+    El título es el `name` de la cámara en el config —`name`—; el slot es la identidad y
+    no se muestra.
 
     **Lo que se muestra y lo que se recorta no son el mismo frame.** `update_frame()`
     pinta lo que el cableado mande según el modo —crudo o anotado—, y `update_raw_frame()`
@@ -51,10 +56,12 @@ class CameraPanel(QGroupBox):
     frame_updated = Signal(object)   # np.ndarray BGR crudo — uno por frame de cámara
 
     def __init__(self, camera_slot: str, config_manager: ConfigManager, parent=None):
+        super().__init__(parent)
+        self.setObjectName("cameraPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self._config = config_manager
         self._camera_slot = camera_slot
-        title = str(self._config.get(f"cameras.{camera_slot}.name", camera_slot))
-        super().__init__(title, parent)
+        self._name = str(self._config.get(f"cameras.{camera_slot}.name", camera_slot))
         self._last_frame: np.ndarray | None = None
         self._last_raw_frame: np.ndarray | None = None
         self._is_dark = True
@@ -63,8 +70,9 @@ class CameraPanel(QGroupBox):
         self._regions_revision: object = object()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 16, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(_CARD_MARGIN_PX, _CARD_MARGIN_PX,
+                                  _CARD_MARGIN_PX, _CARD_MARGIN_PX)
+        layout.setSpacing(_CARD_MARGIN_PX)
 
         self._video_label = QLabel(tr("camera_no_signal"))
         self._video_label.setObjectName("videoFeed")
@@ -73,28 +81,34 @@ class CameraPanel(QGroupBox):
         self._video_label.setAlignment(Qt.AlignCenter)
         self._video_label.installEventFilter(self)
 
-        self._chip_state = StatusChip(tr("camera_starting"))
-        self._chip_fps = StatusChip("0.0 FPS")
-        self._chip_temperature = StatusChip("0.0 °C")
-        self._chip_illumination = StatusChip("--- %")
+        self._chip_state = StatusChip(tr("camera_starting"), compact=True)
+        self._chip_fps = StatusChip("0.0 FPS", compact=True)
+        self._chip_temperature = StatusChip("0.0 °C", compact=True)
+        self._chip_illumination = StatusChip("--- %", compact=True)
         for chip in (self._chip_fps, self._chip_temperature, self._chip_illumination):
             chip.set_state(CHIP_INFO)
 
-        chip_row = QHBoxLayout()
+        # El nombre cede ancho antes que los chips: si no entra se recorta, y los chips
+        # —que cambian en caliente— nunca empujan la fila más allá de la tarjeta.
+        title = QLabel(self._name)
+        title.setObjectName("cameraTitle")
+        title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        header = QHBoxLayout()
+        header.setSpacing(_HEADER_SPACING_PX)
+        header.addWidget(title, stretch=1)
         for chip in (self._chip_state, self._chip_fps,
                      self._chip_temperature, self._chip_illumination):
-            chip_row.addWidget(chip)
-        chip_row.addStretch()
+            header.addWidget(chip)
 
+        layout.addLayout(header)
         layout.addWidget(self._video_label, stretch=1)
-        layout.addLayout(chip_row)
 
         # El ancho que el panel pide es fijo y no sale de su contenido. Sin esto lo fija el
         # texto más largo que tenga adentro —el nombre de la cámara en el título, o el chip
         # de estado, que pasa de «Conectada» a «Mal configurada» en caliente— y dos paneles
         # con el mismo tamaño de imagen terminan con anchos distintos en la grilla: la
         # cámara con problemas se lleva 70 px de la que anda. Se nota cuando el espacio
-        # aprieta, que es justo con la barra lateral abierta. Si el texto no entra, se
+        # aprieta, que es justo con la barra lateral expandida. Si el texto no entra, se
         # recorta; el estado también se lee por el color del chip.
         #
         # `Ignored` es la mitad que hace falta para que sean iguales de verdad: el mínimo
@@ -109,6 +123,11 @@ class CameraPanel(QGroupBox):
     @property
     def camera_slot(self) -> str:
         return self._camera_slot
+
+    @property
+    def name(self) -> str:
+        """El nombre de la cámara en el config, el que se ve arriba del video."""
+        return self._name
 
     def get_last_frame(self) -> np.ndarray | None:
         """
@@ -209,26 +228,15 @@ class CameraPanel(QGroupBox):
         """
         Slot de `CaptureThread.status_updated`. Claves de `AbstractCameraDriver.get_status()`.
 
-        Los cuatro estados se distinguen porque piden cosas distintas: una cámara mal
-        configurada necesita que alguien corrija el config y reinicie, una desconectada
-        se recupera sola, y una deshabilitada está así porque alguien lo pidió. El orden
-        de los `if` es el de la acción más urgente primero.
+        Qué estado es cada caso lo decide `service_status.describe_camera()`. Una cámara mal
+        configurada o desconectada se queda sin video: el último frame haría creer que
+        sigue andando.
         """
-        error = status.get("error")
-        if error:
-            self._chip_state.set_state(CHIP_ERROR, tr("camera_misconfigured"))
-            self._chip_state.setToolTip(str(error))
+        text, chip_state = service_status.describe_camera(status)
+        self._chip_state.set_state(chip_state, text)
+        self._chip_state.setToolTip(str(status.get("error") or ""))
+        if status.get("error") or not status.get("connected"):
             self._show_placeholder()
-        elif not status.get("connected"):
-            self._chip_state.set_state(CHIP_ERROR, tr("camera_disconnected"))
-            self._chip_state.setToolTip("")
-            self._show_placeholder()
-        elif not status.get("capture_enabled", True):
-            self._chip_state.set_state(CHIP_WARNING, tr("camera_disabled"))
-            self._chip_state.setToolTip("")
-        else:
-            self._chip_state.set_state(CHIP_OK, tr("camera_connected"))
-            self._chip_state.setToolTip("")
         self._chip_fps.setText(f"{status.get('fps_estimated', 0.0):.1f} FPS")
         self._chip_temperature.setText(f"{status.get('temperature', 0.0):.1f} °C")
 

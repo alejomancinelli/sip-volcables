@@ -28,16 +28,71 @@ _FALLBACK_LANGUAGE = "es"
 # edita mirando la pantalla.
 _TEXTS: dict[str, dict[str, str]] = {
     # ── Ventana principal ────────────────────────────────────────────────────
+    # Páginas de la barra lateral: el mismo texto va en la barra, en la miga de pan y en el
+    # título de la página.
+    "nav_home":               {"es": "Inicio",         "en": "Home",          "pt": "Início"},
     "nav_monitor":            {"es": "Monitor",        "en": "Monitor",       "pt": "Monitor"},
-    "nav_config":             {"es": "Configuración",  "en": "Settings",      "pt": "Configuração"},
-    "nav_diagnostics":        {"es": "Diagnóstico",    "en": "Diagnostics",   "pt": "Diagnóstico"},
-    "nav_gpio":               {"es": "GPIO",           "en": "GPIO",          "pt": "GPIO"},
-    "gpio_tooltip":           {"es": "Control de entradas/salidas digitales",
-                               "en": "Digital input/output control",
-                               "pt": "Controle de entradas/saídas digitais"},
-    "config_loading":         {"es": "Cargando configuración…",
-                               "en": "Loading settings…",
-                               "pt": "Carregando configuração…"},
+    "nav_process":            {"es": "Proceso",        "en": "Process",       "pt": "Processo"},
+    "nav_cameras":            {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
+    "nav_inference":          {"es": "Inferencia",     "en": "Inference",     "pt": "Inferência"},
+    "nav_modbus":             {"es": "Modbus",         "en": "Modbus",        "pt": "Modbus"},
+    "nav_video_telemetry":    {"es": "Video y telemetría",
+                               "en": "Video & telemetry",
+                               "pt": "Vídeo e telemetria"},
+    "nav_system":             {"es": "Sistema",        "en": "System",        "pt": "Sistema"},
+    "nav_logs":               {"es": "Logs",           "en": "Logs",          "pt": "Logs"},
+    "nav_gpio":               {"es": "Entradas y salidas",
+                               "en": "Inputs & outputs",
+                               "pt": "Entradas e saídas"},
+    # La línea bajo el título de cada página: para orientarse, no un manual.
+    "nav_process_description": {"es": "Los parámetros de lo que se mide en esta planta.",
+                                "en": "The parameters of what this plant measures.",
+                                "pt": "Os parâmetros do que se mede nesta planta."},
+    "nav_cameras_description": {"es": "Conexión y adquisición de cada cámara, y la salud de su "
+                                      "óptica.",
+                                "en": "Connection and acquisition of each camera, and the "
+                                      "health of its optics.",
+                                "pt": "Conexão e aquisição de cada câmera, e a saúde da sua "
+                                      "óptica."},
+    "nav_inference_description": {"es": "Modelos, pipelines y regiones de cada cámara, y las "
+                                        "imágenes que se guardan para reentrenar.",
+                                  "en": "Models, pipelines and regions of each camera, and the "
+                                        "images kept for retraining.",
+                                  "pt": "Modelos, pipelines e regiões de cada câmera, e as "
+                                        "imagens guardadas para retreinar."},
+    "nav_modbus_description": {"es": "El canal con el PLC: qué consulta, qué registros salen "
+                                     "y dónde escucha el equipo.",
+                               "en": "The channel to the PLC: what it polls, which registers "
+                                     "go out and where the device listens.",
+                               "pt": "O canal com o CLP: o que consulta, quais registradores "
+                                     "saem e onde o equipamento escuta."},
+    "nav_video_telemetry_description": {"es": "Streams de video para mirar la línea y "
+                                              "telemetría hacia InfluxDB y MQTT.",
+                                        "en": "Video streams to watch the line and telemetry "
+                                              "to InfluxDB and MQTT.",
+                                        "pt": "Streams de vídeo para acompanhar a linha e "
+                                              "telemetria para InfluxDB e MQTT."},
+    "nav_system_description": {"es": "Identidad del equipo, interfaz, hardware y licencia.",
+                               "en": "Device identity, interface, hardware and licence.",
+                               "pt": "Identidade do equipamento, interface, hardware e "
+                                     "licença."},
+    "nav_logs_description":   {"es": "Lo que registra cada subsistema, con filtro por nivel.",
+                               "en": "What every subsystem logs, filtered by level.",
+                               "pt": "O que cada subsistema registra, com filtro por nível."},
+    "nav_gpio_description":   {"es": "Estado de las entradas digitales y comando de las "
+                                     "salidas.",
+                               "en": "State of the digital inputs and control of the outputs.",
+                               "pt": "Estado das entradas digitais e comando das saídas."},
+    # Rótulos de los grupos de la barra lateral; se muestran en mayúsculas.
+    "nav_group_operation":    {"es": "Operación",      "en": "Operation",     "pt": "Operação"},
+    "nav_group_vision":       {"es": "Visión",         "en": "Vision",        "pt": "Visão"},
+    "nav_group_integration":  {"es": "Integración",    "en": "Integration",   "pt": "Integração"},
+    "nav_group_device":       {"es": "Equipo",         "en": "Device",        "pt": "Equipamento"},
+    "sidebar_company":        {"es": "Ingeniería Electrónica Argentina",
+                               "en": "Ingeniería Electrónica Argentina",
+                               "pt": "Ingeniería Electrónica Argentina"},
+    "nav_collapse":           {"es": "Contraer menú",  "en": "Collapse menu", "pt": "Recolher menu"},
+    "nav_expand":             {"es": "Expandir menú",  "en": "Expand menu",   "pt": "Expandir menu"},
     "status_ready":           {"es": "Listo.",         "en": "Ready.",        "pt": "Pronto."},
     "status_started":         {"es": "Sistema inicializado.",
                                "en": "System initialised.",
@@ -51,15 +106,6 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "{project_id}  ·  v{version}",
                                "pt": "{project_id}  ·  v{version}"},
     "footer_version_only":    {"es": "v{version}", "en": "v{version}", "pt": "v{version}"},
-
-    # ── Monitor ──────────────────────────────────────────────────────────────
-    "monitor_services":       {"es": "Estado de servicios",
-                               "en": "Service status",
-                               "pt": "Estado dos serviços"},
-    "monitor_event_log":      {"es": "Log de eventos", "en": "Event log",     "pt": "Log de eventos"},
-    "sidebar_tooltip":        {"es": "Mostrar u ocultar el panel lateral",
-                               "en": "Show or hide the side panel",
-                               "pt": "Mostrar ou ocultar o painel lateral"},
 
     # ── Panel y grilla de cámaras ────────────────────────────────────────────
     "camera_no_signal":       {"es": "SIN SEÑAL",      "en": "NO SIGNAL",     "pt": "SEM SINAL"},
@@ -91,14 +137,93 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Show all cameras, or just one enlarged",
                                "pt": "Ver todas as câmeras ou apenas uma ampliada"},
 
+    # ── Página de inicio ─────────────────────────────────────────────────────
+    # El estado general, en el rótulo de la placa.
+    "home_state_ok":          {"es": "Equipo en marcha",
+                               "en": "System running",
+                               "pt": "Equipamento em operação"},
+    "home_state_warning":     {"es": "Equipo con avisos",
+                               "en": "System with warnings",
+                               "pt": "Equipamento com avisos"},
+    "home_state_error":       {"es": "Sin licencia válida",
+                               "en": "No valid licence",
+                               "pt": "Sem licença válida"},
+    "home_tagline":           {"es": "Visión artificial en línea: captura de cámaras, "
+                                     "inferencia y publicación de resultados al PLC.",
+                               "en": "In-line machine vision: camera capture, inference and "
+                                     "results published to the PLC.",
+                               "pt": "Visão artificial em linha: captura de câmeras, "
+                                     "inferência e publicação de resultados ao CLP."},
+    "home_spec_device":       {"es": "Equipo",         "en": "Device",        "pt": "Equipamento"},
+    "home_spec_version":      {"es": "Versión",        "en": "Version",       "pt": "Versão"},
+    "home_spec_uptime":       {"es": "En servicio",    "en": "Uptime",        "pt": "Em serviço"},
+    "home_uptime_minutes":    {"es": "{minutes} min",  "en": "{minutes} min", "pt": "{minutes} min"},
+    "home_uptime_hours":      {"es": "{hours} h {minutes:02d} min",
+                               "en": "{hours} h {minutes:02d} min",
+                               "pt": "{hours} h {minutes:02d} min"},
+    "home_uptime_days":       {"es": "{days} d {hours:02d} h",
+                               "en": "{days} d {hours:02d} h",
+                               "pt": "{days} d {hours:02d} h"},
+    "home_ring_total":        {"es": "de {total}",     "en": "of {total}",    "pt": "de {total}"},
+    "home_ring_caption":      {"es": "Cámaras en línea",
+                               "en": "Cameras online",
+                               "pt": "Câmeras on-line"},
+    "home_ring_detail":       {"es": "{count} pipelines de inferencia",
+                               "en": "{count} inference pipelines",
+                               "pt": "{count} pipelines de inferência"},
+    "home_cameras":           {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
+    "home_open_monitor":      {"es": "Ver monitor",    "en": "Open monitor",  "pt": "Ver monitor"},
+    "home_camera_address":    {"es": "Dirección",      "en": "Address",       "pt": "Endereço"},
+    "home_camera_fps":        {"es": "FPS",            "en": "FPS",           "pt": "FPS"},
+    "home_camera":            {"es": "Cámara",         "en": "Camera",        "pt": "Câmera"},
+    "home_camera_state":      {"es": "Estado",         "en": "Status",        "pt": "Estado"},
+    "home_inference":         {"es": "Inferencia",     "en": "Inference",     "pt": "Inferência"},
+    "home_inference_pipeline": {"es": "Pipeline",      "en": "Pipeline",      "pt": "Pipeline"},
+    "home_inference_cycle":   {"es": "Ciclo",          "en": "Cycle",         "pt": "Ciclo"},
+    "home_inference_time":    {"es": "Inferencia",     "en": "Inference",     "pt": "Inferência"},
+    "home_inference_age":     {"es": "Último resultado",
+                               "en": "Last result",
+                               "pt": "Último resultado"},
+    "home_no_result":         {"es": "Sin resultados", "en": "No results",    "pt": "Sem resultados"},
+    "home_no_pipelines":      {"es": "No hay pipelines habilitados.",
+                               "en": "No pipelines enabled.",
+                               "pt": "Nenhum pipeline habilitado."},
+    "home_age_now":           {"es": "ahora",          "en": "now",           "pt": "agora"},
+    "home_age_seconds":       {"es": "hace {seconds} s",
+                               "en": "{seconds} s ago",
+                               "pt": "há {seconds} s"},
+    "home_age_minutes":       {"es": "hace {minutes} min",
+                               "en": "{minutes} min ago",
+                               "pt": "há {minutes} min"},
+    "home_age_hours":         {"es": "hace {hours} h", "en": "{hours} h ago", "pt": "há {hours} h"},
+    "home_heartbeat":         {"es": "Latido al PLC",  "en": "PLC heartbeat", "pt": "Batimento ao CLP"},
+    "home_services":          {"es": "Servicios",      "en": "Services",      "pt": "Serviços"},
+    "home_license":           {"es": "Licencia",       "en": "Licence",       "pt": "Licença"},
+    "home_results":           {"es": "Resultados",     "en": "Results",       "pt": "Resultados"},
+    "home_results_verdicts":  {"es": "Veredictos",     "en": "Verdicts",      "pt": "Veredictos"},
+    "home_results_waiting":   {"es": "Esperando resultados",
+                               "en": "Waiting for results",
+                               "pt": "Aguardando resultados"},
+    # Un veredicto es una métrica `<nombre>_ok` del analyzer; su rótulo es `verdict_<nombre>_ok`
+    # y, si no está en la tabla, el nombre de la métrica tal cual.
+    "verdict_ok":             {"es": "OK",             "en": "OK",            "pt": "OK"},
+    "verdict_nok":            {"es": "NOK",            "en": "NOK",           "pt": "NOK"},
+    "verdict_no_data":        {"es": "Sin dato",       "en": "No data",       "pt": "Sem dado"},
+    "verdict_safety_ok":      {"es": "Personas",       "en": "People",        "pt": "Pessoas"},
+    "verdict_flow_ok":        {"es": "Grano",          "en": "Grain",         "pt": "Grão"},
+    "verdict_raised_ok":      {"es": "Calza elevada",  "en": "Stopper raised",
+                               "pt": "Calço elevado"},
+    "verdict_contact_ok":     {"es": "Contacto",       "en": "Contact",       "pt": "Contato"},
+
     # ── Configuración ────────────────────────────────────────────────────────
-    "config_title":           {"es": "Configuración del sistema",
-                               "en": "System settings",
-                               "pt": "Configuração do sistema"},
     "config_save":            {"es": "Guardar y aplicar",
                                "en": "Save and apply",
                                "pt": "Salvar e aplicar"},
     "config_discard":         {"es": "Descartar",      "en": "Discard",       "pt": "Descartar"},
+    # La barra que aparece al editar algo; {tabs} son los títulos de las pestañas con cambios.
+    "save_bar_message":       {"es": "Cambios sin guardar en {tabs}",
+                               "en": "Unsaved changes in {tabs}",
+                               "pt": "Alterações não salvas em {tabs}"},
     "config_saved_title":     {"es": "Configuración guardada",
                                "en": "Settings saved",
                                "pt": "Configuração salva"},
@@ -116,93 +241,113 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "As alterações têm efeito ao reiniciar a aplicação."},
 
     "tab_cameras":            {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
-    "tab_lens_health":        {"es": "Óptica",         "en": "Optics",        "pt": "Óptica"},
     "tab_video":              {"es": "Video",          "en": "Video",         "pt": "Vídeo"},
     "tab_inference":          {"es": "Inferencia",     "en": "Inference",     "pt": "Inferência"},
     "tab_process":            {"es": "Proceso",        "en": "Process",       "pt": "Processo"},
     "tab_collector":          {"es": "Dataset",        "en": "Dataset",       "pt": "Dataset"},
     "tab_telemetry":          {"es": "Telemetría",     "en": "Telemetry",     "pt": "Telemetria"},
-    "tab_modbus":             {"es": "Modbus",         "en": "Modbus",        "pt": "Modbus"},
+    # La página ya se llama Modbus: la pestaña que lo configura dice qué es.
+    "tab_modbus_config":      {"es": "Configuración",  "en": "Configuration", "pt": "Configuração"},
     "tab_system":             {"es": "Sistema",        "en": "System",        "pt": "Sistema"},
     "tab_hardware":           {"es": "Hardware",       "en": "Hardware",      "pt": "Hardware"},
     "tab_logs":               {"es": "Logs",           "en": "Logs",          "pt": "Logs"},
+    # Las pestañas en vivo de Modbus y de Video y telemetría, al lado de las que configuran.
+    "tab_modbus_registers":   {"es": "Registros",      "en": "Registers",     "pt": "Registradores"},
+    "tab_video_streams":      {"es": "Streams",        "en": "Streams",       "pt": "Streams"},
+    "tab_modbus_stats":       {"es": "Estadísticas",   "en": "Statistics",    "pt": "Estatísticas"},
     "tab_license":            {"es": "Licencia",       "en": "Licence",       "pt": "Licença"},
 
     # ── Campos comunes ───────────────────────────────────────────────────────
-    "field_enabled":          {"es": "Habilitado",     "en": "Enabled",       "pt": "Habilitado"},
-    "field_host":             {"es": "Host:",          "en": "Host:",         "pt": "Host:"},
-    "field_port":             {"es": "Puerto:",        "en": "Port:",         "pt": "Porta:"},
-    "field_fps":              {"es": "FPS:",           "en": "FPS:",          "pt": "FPS:"},
-    "field_name":             {"es": "Nombre:",        "en": "Name:",         "pt": "Nome:"},
-    "field_url":              {"es": "URL:",           "en": "URL:",          "pt": "URL:"},
-    "field_user":             {"es": "Usuario:",       "en": "User:",         "pt": "Usuário:"},
+    "field_host":             {"es": "Host",           "en": "Host",          "pt": "Host"},
+    "field_port":             {"es": "Puerto",         "en": "Port",          "pt": "Porta"},
+    "field_fps":              {"es": "FPS",            "en": "FPS",           "pt": "FPS"},
+    "field_name":             {"es": "Nombre",         "en": "Name",          "pt": "Nome"},
+    "field_url":              {"es": "URL",            "en": "URL",           "pt": "URL"},
+    "field_user":             {"es": "Usuario",        "en": "User",          "pt": "Usuário"},
+
+    # ── Interfaces de red: por dónde escucha un servidor (interface_picker) ──
+    "net_listen_on":          {"es": "Escuchar en",    "en": "Listen on",     "pt": "Escutar em"},
+    "net_listen_hint":        {"es": "Por dónde lo alcanzan los clientes",
+                               "en": "Where clients reach it",
+                               "pt": "Por onde os clientes o alcançam"},
+    "net_all_interfaces":     {"es": "Todas las interfaces", "en": "All interfaces",
+                               "pt": "Todas as interfaces"},
+    "net_loopback":           {"es": "Sólo este equipo", "en": "This device only",
+                               "pt": "Só este equipamento"},
+    "net_no_link":            {"es": "sin enlace",     "en": "no link",       "pt": "sem enlace"},
+    "net_interfaces_hint":    {"es": "Todas marcadas incluye también las que se agreguen",
+                               "en": "All checked also includes any added later",
+                               "pt": "Todas marcadas inclui também as que forem adicionadas"},
+    "net_none_found":         {"es": "El equipo no informó interfaces de red: se conserva lo que "
+                                     "diga el config.",
+                               "en": "The device reported no network interfaces: the config "
+                                     "value is kept.",
+                               "pt": "O equipamento não informou interfaces de rede: mantém-se o "
+                                     "que diz o config."},
+    "net_unknown_interfaces": {"es": "También en el config: {names}, que este equipo no tiene. Se "
+                                     "conserva al guardar.",
+                               "en": "Also in the config: {names}, which this device does not "
+                                     "have. Kept on save.",
+                               "pt": "Também no config: {names}, que este equipamento não tem. "
+                                     "Mantém-se ao salvar."},
 
     # ── Cámaras (configuración) ──────────────────────────────────────────────
     "cam_box_connection":     {"es": "Conexión",       "en": "Connection",    "pt": "Conexão"},
+    "cam_connection_description": {"es": "Qué cámara es y dónde se la encuentra. Se aplica al "
+                                         "reiniciar.",
+                                   "en": "Which camera it is and where to find it. Applied on "
+                                         "restart.",
+                                   "pt": "Qual câmera é e onde encontrá-la. Aplicado ao "
+                                         "reiniciar."},
     "cam_box_acquisition":    {"es": "Adquisición",    "en": "Acquisition",   "pt": "Aquisição"},
-    "cam_box_calibration":    {"es": "Calibración de lente",
-                               "en": "Lens calibration",
-                               "pt": "Calibração da lente"},
-    "cam_box_image_adjust":   {"es": "Ajuste de imagen para la medición",
-                               "en": "Image adjustment for measurement",
-                               "pt": "Ajuste de imagem para a medição"},
+    "cam_acquisition_description": {"es": "Cómo se toman las imágenes de esta cámara. Se aplica al reiniciar.",
+                                    "en": "How this camera takes its images. Applied on restart.",
+                                    "pt": "Como esta câmera tira as imagens. Aplicado ao reiniciar."},
+    "cam_box_calibration":    {"es": "Corrección de lente",
+                               "en": "Lens correction",
+                               "pt": "Correção de lente"},
+    "cam_box_image_adjust":   {"es": "Ajuste de imagen",
+                               "en": "Image adjustment",
+                               "pt": "Ajuste de imagem"},
     "cam_enabled":            {"es": "Cámara habilitada",
                                "en": "Camera enabled",
                                "pt": "Câmera habilitada"},
-    "cam_brand":              {"es": "Fabricante:",    "en": "Brand:",        "pt": "Fabricante:"},
-    "cam_model":              {"es": "Modelo:",        "en": "Model:",        "pt": "Modelo:"},
-    "cam_address":            {"es": "Dirección (IP o ID):",
-                               "en": "Address (IP or ID):",
-                               "pt": "Endereço (IP ou ID):"},
-    "cam_rotation":           {"es": "Rotación:",      "en": "Rotation:",     "pt": "Rotação:"},
-    "cam_fps_limit":          {"es": "Límite de FPS:", "en": "FPS limit:",    "pt": "Limite de FPS:"},
-    "cam_exposure":           {"es": "Exposición (µs):",
-                               "en": "Exposure (µs):",
-                               "pt": "Exposição (µs):"},
-    "cam_gain":               {"es": "Ganancia:",      "en": "Gain:",         "pt": "Ganho:"},
-    "cam_illumination_min":   {"es": "Iluminación mínima (%):",
-                               "en": "Minimum illumination (%):",
-                               "pt": "Iluminação mínima (%):"},
-    "cam_roi_enabled":        {"es": "ROI activo",     "en": "ROI active",    "pt": "ROI ativo"},
+    "cam_brand":              {"es": "Fabricante",     "en": "Brand",         "pt": "Fabricante"},
+    "cam_model":              {"es": "Modelo",         "en": "Model",         "pt": "Modelo"},
+    "cam_address":            {"es": "Dirección (IP, URL o archivo)",
+                               "en": "Address (IP, URL or file)",
+                               "pt": "Endereço (IP, URL ou arquivo)"},
+    "cam_rotation":           {"es": "Rotación",       "en": "Rotation",      "pt": "Rotação"},
+    "cam_fps_limit":          {"es": "Límite de FPS",  "en": "FPS limit",     "pt": "Limite de FPS"},
+    "cam_exposure":           {"es": "Exposición", "en": "Exposure", "pt": "Exposição"},
+    "cam_gain":               {"es": "Ganancia",       "en": "Gain",          "pt": "Ganho"},
+    "cam_illumination_min":   {"es": "Iluminación mínima",
+                               "en": "Minimum illumination",
+                               "pt": "Iluminação mínima"},
     "cam_roi_x":              {"es": "X (px):",        "en": "X (px):",       "pt": "X (px):"},
     "cam_roi_y":              {"es": "Y (px):",        "en": "Y (px):",       "pt": "Y (px):"},
     "cam_roi_width":          {"es": "Ancho (px):",    "en": "Width (px):",   "pt": "Largura (px):"},
     "cam_roi_height":         {"es": "Alto (px):",     "en": "Height (px):",  "pt": "Altura (px):"},
-    "cam_roi_tool":           {"es": "Herramienta interactiva de ROI",
-                               "en": "Interactive ROI tool",
-                               "pt": "Ferramenta interativa de ROI"},
-    "cam_calibration_note":   {"es": "Los intrínsecos del lente se editan en el config.yaml: "
-                                     "son una matriz y una lista de coeficientes.",
-                               "en": "Lens intrinsics are edited in config.yaml: they are a "
-                                     "matrix and a list of coefficients.",
-                               "pt": "Os intrínsecos da lente são editados no config.yaml: são "
-                                     "uma matriz e uma lista de coeficientes."},
-    "cam_brightness_factor":  {"es": "Brillo (x1.0 = sin cambio):",
-                               "en": "Brightness (x1.0 = no change):",
-                               "pt": "Brilho (x1.0 = sem alteração):"},
-    "cam_clahe":              {"es": "Contraste local CLAHE (0 = apagado):",
-                               "en": "CLAHE local contrast (0 = off):",
-                               "pt": "Contraste local CLAHE (0 = desligado):"},
-    "cam_image_adjust_note":  {"es": "Para reproducir un equipo o un modelo entrenado con imágenes "
-                                     "ajustadas. En una instalación nueva, dejarlo en x1.0 y "
-                                     "ajustar la ganancia: el modelo se entrena con la imagen del "
-                                     "sensor. No es un ajuste de pantalla: cambia la imagen que "
-                                     "mide el modelo y la que guarda el dataset, y con ella el "
-                                     "brillo que se compara con la iluminación mínima. Se aplica "
-                                     "al reiniciar.",
-                               "en": "To reproduce equipment or a model trained on adjusted "
-                                     "images. On a new installation, leave it at x1.0 and adjust "
-                                     "the gain: the model is trained on the sensor image. This is "
-                                     "not a display setting: it changes the image the model "
-                                     "measures and the one the dataset stores, and with it the "
-                                     "brightness compared against the minimum illumination. "
-                                     "Applied on restart.",
-                               "pt": "Para reproduzir um equipamento ou um modelo treinado com "
-                                     "imagens ajustadas. Em uma instalação nova, deixar em x1.0 e "
-                                     "ajustar o ganho: o modelo é treinado com a imagem do sensor. "
-                                     "Não é um ajuste de tela: muda a imagem que o modelo mede e a "
-                                     "que o dataset guarda, e com ela o brilho comparado com a "
-                                     "iluminação mínima. Aplicado ao reiniciar."},
+    "cam_calibration_note":   {"es": "Los intrínsecos del lente se editan en el config.yaml.",
+                               "en": "Lens intrinsics are edited in config.yaml.",
+                               "pt": "Os intrínsecos da lente são editados no config.yaml."},
+    "cam_brightness_factor":  {"es": "Brillo",   "en": "Brightness", "pt": "Brilho"},
+    "cam_clahe":              {"es": "Contraste local (CLAHE)",
+                               "en": "Local contrast (CLAHE)",
+                               "pt": "Contraste local (CLAHE)"},
+    "cam_image_adjust_note":  {"es": "Cambia la imagen que mide el modelo y guarda el dataset. "
+                                     "En una instalación nueva, x1.0.",
+                               "en": "Changes the image the model measures and the dataset "
+                                     "stores. On a new installation, x1.0.",
+                               "pt": "Muda a imagem que o modelo mede e o dataset guarda. Em "
+                                     "uma instalação nova, x1.0."},
+    "cam_illumination_hint":  {"es": "En % de brillo",
+                               "en": "In % of brightness",
+                               "pt": "Em % de brilho"},
+    "cam_brightness_hint":    {"es": "Multiplicador; x1.0 = sin cambio",
+                               "en": "Multiplier; x1.0 = no change",
+                               "pt": "Multiplicador; x1.0 = sem alteração"},
+    "cam_clahe_hint":         {"es": "0 = apagado", "en": "0 = off", "pt": "0 = desligado"},
     "cam_calibration_set":    {"es": "Corrección de lente configurada",
                                "en": "Lens correction configured",
                                "pt": "Correção de lente configurada"},
@@ -210,50 +355,65 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "No lens correction",
                                "pt": "Sem correção de lente"},
 
+    # ── Unidades: la aclaración debajo de un campo ──────────────────────────
+    "unit_seconds":           {"es": "En segundos", "en": "In seconds", "pt": "Em segundos"},
+    "unit_hours":             {"es": "En horas", "en": "In hours", "pt": "Em horas"},
+    "unit_pixels":            {"es": "En píxeles", "en": "In pixels", "pt": "Em pixels"},
+    "unit_microseconds":      {"es": "En microsegundos",
+                               "en": "In microseconds",
+                               "pt": "Em microssegundos"},
+    "unit_fps":               {"es": "En frames por segundo",
+                               "en": "In frames per second",
+                               "pt": "Em quadros por segundo"},
+
     # ── Óptica / lente sucio (configuración) ─────────────────────────────────
+    "lens_card_eyebrow":      {"es": "Óptica",   "en": "Optics", "pt": "Óptica"},
+    "lens_general_eyebrow":   {"es": "Todas las cámaras", "en": "All cameras",
+                               "pt": "Todas as câmeras"},
+    "cam_optics_tab":         {"es": "Óptica",         "en": "Optics",        "pt": "Óptica"},
     "lens_box_detection":     {"es": "Detección de lente sucio",
                                "en": "Dirty lens detection",
                                "pt": "Detecção de lente suja"},
     "lens_enabled":           {"es": "Detección habilitada",
                                "en": "Detection enabled",
                                "pt": "Detecção habilitada"},
-    "lens_interval":          {"es": "Intervalo de medición (s):",
-                               "en": "Measurement interval (s):",
-                               "pt": "Intervalo de medição (s):"},
-    "lens_window":            {"es": "Ventana de análisis (h):",
-                               "en": "Analysis window (h):",
-                               "pt": "Janela de análise (h):"},
-    "lens_threshold":         {"es": "Nitidez mínima (% de la referencia):",
-                               "en": "Minimum sharpness (% of reference):",
-                               "pt": "Nitidez mínima (% da referência):"},
-    "lens_analysis_width":    {"es": "Ancho de análisis (px):",
-                               "en": "Analysis width (px):",
-                               "pt": "Largura de análise (px):"},
-    "lens_calibration_samples": {"es": "Muestras de calibración:",
-                                 "en": "Calibration samples:",
-                                 "pt": "Amostras de calibração:"},
-    "lens_method_note":       {"es": "La nitidez se mide sobre el ROI de cada cámara y se "
-                                     "compara contra su propia referencia. La alarma recién "
-                                     "se afirma cuando pasó la ventana entera.",
-                               "en": "Sharpness is measured over each camera's ROI and "
-                                     "compared against its own reference. The alarm is only "
-                                     "raised once the full window has elapsed.",
-                               "pt": "A nitidez é medida sobre o ROI de cada câmera e "
-                                     "comparada com a sua própria referência. O alarme só é "
-                                     "afirmado quando a janela inteira passou."},
-    "lens_width_note":        {"es": "Cambiar el ancho de análisis invalida las referencias "
-                                     "ya calibradas: hay que calibrar de nuevo cada cámara.",
-                               "en": "Changing the analysis width invalidates the references "
-                                     "already calibrated: every camera must be recalibrated.",
-                               "pt": "Alterar a largura de análise invalida as referências já "
-                                     "calibradas: é preciso calibrar cada câmera de novo."},
+    "lens_interval":          {"es": "Intervalo de medición",
+                               "en": "Measurement interval",
+                               "pt": "Intervalo de medição"},
+    "lens_window":            {"es": "Ventana de análisis",
+                               "en": "Analysis window",
+                               "pt": "Janela de análise"},
+    "lens_threshold":         {"es": "Nitidez mínima",
+                               "en": "Minimum sharpness",
+                               "pt": "Nitidez mínima"},
+    "lens_analysis_width":    {"es": "Ancho de análisis",
+                               "en": "Analysis width",
+                               "pt": "Largura de análise"},
+    "lens_calibration_samples": {"es": "Muestras de calibración",
+                                 "en": "Calibration samples",
+                                 "pt": "Amostras de calibração"},
+    "lens_method_note":       {"es": "Igual para todas las cámaras. La alarma se afirma cuando pasó la ventana entera.",
+                               "en": "The same for every camera. The alarm is raised once the full window has elapsed.",
+                               "pt": "Igual para todas as câmeras. O alarme é afirmado quando a janela inteira passou."},
+    "lens_width_note":        {"es": "En píxeles; cambiarlo obliga a calibrar de nuevo",
+                               "en": "In pixels; changing it requires recalibrating",
+                               "pt": "Em pixels; alterá-lo obriga a calibrar de novo"},
     "lens_box_reference":     {"es": "Referencia de vidrio limpio",
                                "en": "Clean-glass reference",
                                "pt": "Referência de vidro limpo"},
-    "lens_reference_variance": {"es": "Varianza de referencia:",
-                                "en": "Reference variance:",
-                                "pt": "Variância de referência:"},
-    "lens_reference_state":   {"es": "Estado:",        "en": "State:",        "pt": "Estado:"},
+    "lens_reference_variance": {"es": "Varianza de referencia",
+                                "en": "Reference variance",
+                                "pt": "Variância de referência"},
+    "lens_threshold_hint":    {"es": "En % de la referencia",
+                               "en": "In % of the reference",
+                               "pt": "Em % da referência"},
+    "lens_samples_hint":      {"es": "Una por intervalo de medición",
+                               "en": "One per measurement interval",
+                               "pt": "Uma por intervalo de medição"},
+    "lens_variance_hint":     {"es": "Del Laplaciano, con el vidrio limpio",
+                               "en": "Of the Laplacian, with clean glass",
+                               "pt": "Do Laplaciano, com o vidro limpo"},
+    "lens_reference_state":   {"es": "Estado",         "en": "State",         "pt": "Estado"},
     "lens_uncalibrated":      {"es": "Sin calibrar — la detección no informa nada",
                                "en": "Not calibrated — detection reports nothing",
                                "pt": "Sem calibrar — a detecção não informa nada"},
@@ -263,33 +423,37 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "(dispersion {dispersion}%)",
                                "pt": "Calibrada em {date} com {samples} amostras "
                                      "(dispersão {dispersion} %)"},
-    "lens_calibrate":         {"es": "Calibrar con el lente limpio",
-                               "en": "Calibrate with a clean lens",
-                               "pt": "Calibrar com a lente limpa"},
-    "lens_box_region":        {"es": "Región de medición", "en": "Measurement region",
-                               "pt": "Região de medição"},
+    "lens_calibrating":       {"es": "Calibrando: {samples} muestras, una cada {interval} s "
+                                     "(unos {minutes} min)",
+                               "en": "Calibrating: {samples} samples, one every {interval} s "
+                                     "(about {minutes} min)",
+                               "pt": "Calibrando: {samples} amostras, uma a cada {interval} s "
+                                     "(uns {minutes} min)"},
+    "lens_calibrate":         {"es": "Calibrar",       "en": "Calibrate",     "pt": "Calibrar"},
+    "lens_calibrate_note":    {"es": "Limpiar el vidrio antes de calibrar. Se puede copiar a "
+                                     "mano la de un equipo gemelo.",
+                               "en": "Clean the glass before calibrating. A twin unit's can "
+                                     "be copied by hand.",
+                               "pt": "Limpar o vidro antes de calibrar. Pode-se copiar à mão "
+                                     "a de um equipamento gêmeo."},
+    "lens_box_region":        {"es": "Región de nitidez", "en": "Sharpness region",
+                               "pt": "Região de nitidez"},
+    "lens_region_note":       {"es": "Una zona con textura fija y nítida. Sin región se mide "
+                                     "el frame entero.",
+                               "en": "An area with fixed, sharp texture. Without a region the "
+                                     "whole frame is measured.",
+                               "pt": "Uma zona com textura fixa e nítida. Sem região mede-se o "
+                                     "frame inteiro."},
+    "lens_region_enabled":    {"es": "Medir sólo en la región",
+                               "en": "Measure only within the region",
+                               "pt": "Medir só na região"},
+    "lens_draw_region":       {"es": "Dibujar",        "en": "Draw",          "pt": "Desenhar"},
+    "lens_region_x":          {"es": "X",        "en": "X",      "pt": "X"},
+    "lens_region_y":          {"es": "Y",        "en": "Y",      "pt": "Y"},
+    "lens_region_width":      {"es": "Ancho",    "en": "Width",  "pt": "Largura"},
+    "lens_region_height":     {"es": "Alto",     "en": "Height", "pt": "Altura"},
     "lens_roi_title":         {"es": "Región de la óptica", "en": "Lens region",
                                "pt": "Região da óptica"},
-    "lens_region_note":       {"es": "Dónde se mide la nitidez: elegí una zona con textura "
-                                     "fija y nítida. Sin región se mide el frame entero. No "
-                                     "tiene que ver con lo que mira cada modelo.",
-                               "en": "Where sharpness is measured: pick an area with fixed, "
-                                     "sharp texture. Without a region the whole frame is "
-                                     "measured. It has nothing to do with what each model "
-                                     "looks at.",
-                               "pt": "Onde a nitidez é medida: escolha uma zona com textura "
-                                     "fixa e nítida. Sem região mede-se o frame inteiro. Não "
-                                     "tem relação com o que cada modelo olha."},
-    "lens_calibrate_note":    {"es": "Limpiar el vidrio antes de calibrar: lo que se guarda "
-                                     "es el techo de nitidez de ese montaje. La referencia "
-                                     "se puede editar a mano para copiar la de un equipo "
-                                     "gemelo.",
-                               "en": "Clean the glass before calibrating: what gets stored is "
-                                     "that mount's sharpness ceiling. The reference can be "
-                                     "edited by hand to copy one from a twin unit.",
-                               "pt": "Limpar o vidro antes de calibrar: o que se guarda é o "
-                                     "teto de nitidez daquela montagem. A referência pode ser "
-                                     "editada à mão para copiar a de um equipamento gêmeo."},
     "lens_calibrate_started": {"es": "Calibrando la óptica",
                                "en": "Calibrating optics",
                                "pt": "Calibrando a óptica"},
@@ -312,93 +476,167 @@ _TEXTS: dict[str, dict[str, str]] = {
     "rotation_180":           {"es": "180°",           "en": "180°",          "pt": "180°"},
 
     # ── Video (configuración) ────────────────────────────────────────────────
+    "video_card_servers":     {"es": "Servidores",     "en": "Servers",       "pt": "Servidores"},
     "video_box_http":         {"es": "HTTP (MJPEG)",   "en": "HTTP (MJPEG)",  "pt": "HTTP (MJPEG)"},
+    "video_http_description": {"es": "El stream liviano, para mirar en el navegador. Se aplica "
+                                     "al reiniciar.",
+                               "en": "The lightweight stream, to watch in a browser. Applied on "
+                                     "restart.",
+                               "pt": "O stream leve, para ver no navegador. Aplicado ao "
+                                     "reiniciar."},
+    "video_http_enabled":     {"es": "Servidor HTTP habilitado",
+                               "en": "HTTP server enabled",
+                               "pt": "Servidor HTTP habilitado"},
     "video_box_rtsp":         {"es": "RTSP",           "en": "RTSP",          "pt": "RTSP"},
-    "video_box_display":      {"es": "Ajuste de visualización",
-                               "en": "Display adjustment",
-                               "pt": "Ajuste de visualização"},
-    "video_jpeg_quality":     {"es": "Calidad JPEG:",  "en": "JPEG quality:", "pt": "Qualidade JPEG:"},
-    "video_frame_width":      {"es": "Ancho del frame (px, 0 = nativo):",
-                               "en": "Frame width (px, 0 = native):",
-                               "pt": "Largura do frame (px, 0 = nativo):"},
-    "video_codec":            {"es": "Codec:",         "en": "Codec:",        "pt": "Codec:"},
-    "video_bitrate":          {"es": "Bitrate (kbit/s, 0 = el del encoder):",
-                               "en": "Bitrate (kbit/s, 0 = encoder default):",
-                               "pt": "Bitrate (kbit/s, 0 = padrão do encoder):"},
-    "video_net_interfaces":   {"es": "Interfaces de red (vacío = todas):",
-                               "en": "Network interfaces (empty = all):",
-                               "pt": "Interfaces de rede (vazio = todas):"},
+    "video_rtsp_description": {"es": "Resolución completa, para un NVR o un reproductor. Necesita "
+                                     "GStreamer. Se aplica al reiniciar.",
+                               "en": "Full resolution, for an NVR or a player. Needs GStreamer. "
+                                     "Applied on restart.",
+                               "pt": "Resolução completa, para um NVR ou um reprodutor. Precisa "
+                                     "do GStreamer. Aplicado ao reiniciar."},
+    "video_rtsp_enabled":     {"es": "Servidor RTSP habilitado",
+                               "en": "RTSP server enabled",
+                               "pt": "Servidor RTSP habilitado"},
+    "video_jpeg_quality":     {"es": "Calidad JPEG",   "en": "JPEG quality",  "pt": "Qualidade JPEG"},
+    "video_jpeg_quality_hint": {"es": "De 1 a 100", "en": "From 1 to 100", "pt": "De 1 a 100"},
+    "video_frame_width":      {"es": "Ancho del frame", "en": "Frame width",  "pt": "Largura do frame"},
+    "video_frame_width_hint": {"es": "En píxeles; 0 = el de la cámara",
+                               "en": "In pixels; 0 = the camera's",
+                               "pt": "Em pixels; 0 = o da câmera"},
+    "video_codec":            {"es": "Codec",          "en": "Codec",         "pt": "Codec"},
+    "video_codec_hint":       {"es": "Los de hardware, sólo en la Jetson",
+                               "en": "Hardware ones only on the Jetson",
+                               "pt": "Os de hardware, só na Jetson"},
+    "video_bitrate":          {"es": "Bitrate",        "en": "Bitrate",       "pt": "Bitrate"},
+    "video_bitrate_hint":     {"es": "En kbit/s; 0 = el del encoder",
+                               "en": "In kbit/s; 0 = encoder default",
+                               "pt": "Em kbit/s; 0 = o do encoder"},
+    "video_net_interfaces":   {"es": "Interfaces de red", "en": "Network interfaces",
+                               "pt": "Interfaces de rede"},
     "video_log_connections":  {"es": "Loguear conexiones de clientes",
                                "en": "Log client connections",
                                "pt": "Registrar conexões de clientes"},
-    "video_gamma":            {"es": "Gamma — brillo (menos de 1 aclara)",
-                               "en": "Gamma — brightness (below 1 brightens)",
-                               "pt": "Gama — brilho (abaixo de 1 clareia)"},
-    "video_clahe_clip":       {"es": "Contraste local CLAHE",
-                               "en": "CLAHE local contrast",
-                               "pt": "Contraste local CLAHE"},
-    "video_display_note":     {"es": "Los dos ajustes van sólo al camino de visualización —la UI y "
-                                     "los streams—: el modelo y el dataset siguen recibiendo el "
-                                     "frame de la cámara. El contraste local rescata una escena "
-                                     "con una zona quemada y otra en sombra, y cuesta bastante "
-                                     "más que el gamma.",
-                               "en": "Both adjustments apply only to the display path —the UI and "
-                                     "the streams—: the model and the dataset still get the raw "
-                                     "frame. Local contrast rescues a scene with one blown-out "
-                                     "area and one in shadow, and costs far more than gamma.",
-                               "pt": "Os dois ajustes vão somente ao caminho de visualização —a UI "
-                                     "e os streams—: o modelo e o dataset continuam recebendo o "
-                                     "frame cru. O contraste local resgata uma cena com uma área "
-                                     "estourada e outra na sombra, e custa bem mais que a gama."},
+    "video_card_display":     {"es": "Visualización",  "en": "Display",       "pt": "Visualização"},
+    "video_box_display":      {"es": "Ajuste de visualización",
+                               "en": "Display adjustment",
+                               "pt": "Ajuste de visualização"},
+    "video_display_description": {"es": "Sólo la interfaz y los streams: el modelo y el dataset "
+                                        "siguen viendo el frame de la cámara. Se aplica al guardar.",
+                                  "en": "Only the interface and the streams: the model and the "
+                                        "dataset still see the camera frame. Applied on save.",
+                                  "pt": "Só a interface e os streams: o modelo e o dataset "
+                                        "continuam vendo o frame da câmera. Aplicado ao salvar."},
+    "video_gamma":            {"es": "Gamma",          "en": "Gamma",         "pt": "Gama"},
+    "video_gamma_hint":       {"es": "Menos de 1 aclara las sombras",
+                               "en": "Below 1 brightens the shadows",
+                               "pt": "Abaixo de 1 clareia as sombras"},
+    "video_clahe_clip":       {"es": "Contraste local (CLAHE)",
+                               "en": "Local contrast (CLAHE)",
+                               "pt": "Contraste local (CLAHE)"},
+    "video_clahe_hint":       {"es": "0 = apagado; cuesta más que el gamma",
+                               "en": "0 = off; costs more than gamma",
+                               "pt": "0 = desligado; custa mais que a gama"},
 
     # ── Inferencia (configuración) ───────────────────────────────────────────
     "inf_box_models":         {"es": "Modelos",        "en": "Models",        "pt": "Modelos"},
     "inf_box_pipelines":      {"es": "Pipelines",      "en": "Pipelines",     "pt": "Pipelines"},
-    "inf_model_type":         {"es": "Tipo:",          "en": "Type:",         "pt": "Tipo:"},
-    "inf_model_path":         {"es": "Pesos:",         "en": "Weights:",      "pt": "Pesos:"},
-    "inf_min_confidence":     {"es": "Confianza mínima por detección (%):",
-                               "en": "Minimum confidence per detection (%):",
-                               "pt": "Confiança mínima por detecção (%):"},
-    "inf_max_side":           {"es": "Redimensionar (px, 0 = nativo):",
-                               "en": "Resize (px, 0 = native):",
-                               "pt": "Redimensionar (px, 0 = nativo):"},
-    "inf_pipeline_type":      {"es": "Tipo:",          "en": "Type:",         "pt": "Tipo:"},
-    "inf_pipeline_cameras":   {"es": "Cámaras (coma, vacío = todas):",
-                               "en": "Cameras (comma, empty = all):",
-                               "pt": "Câmeras (vírgula, vazio = todas):"},
-    "inf_pipeline_interval":  {"es": "Intervalo mín. (s, 0 = todos los frames):",
-                               "en": "Min. interval (s, 0 = every frame):",
-                               "pt": "Intervalo mín. (s, 0 = todos os frames):"},
-    "inf_min_detections":     {"es": "Detecciones mínimas del resultado:",
-                               "en": "Minimum detections per result:",
-                               "pt": "Detecções mínimas do resultado:"},
-    "inf_min_result_conf":    {"es": "Confianza mínima del resultado (%):",
-                               "en": "Minimum result confidence (%):",
-                               "pt": "Confiança mínima do resultado (%):"},
-    "inf_frames_per_cycle":   {"es": "Imágenes por medición:",
-                               "en": "Frames per measurement:",
-                               "pt": "Imagens por medição:"},
-    "inf_cycle_interval":     {"es": "Espera entre mediciones (s):",
-                               "en": "Wait between measurements (s):",
-                               "pt": "Espera entre medições (s):"},
-    "inf_capture_timeout":    {"es": "Tiempo máximo por imagen (s):",
-                               "en": "Timeout per frame (s):",
-                               "pt": "Tempo máximo por imagem (s):"},
-    "inf_idle_cameras":       {"es": "Apagar la captura entre mediciones",
-                               "en": "Stop capture between measurements",
-                               "pt": "Desligar a captura entre medições"},
-    "inf_cycle_note":         {"es": "Con 1 imagen por medición las otras tres no hacen "
-                                     "nada, salvo en un pipeline que mide a pedido. Apagar "
-                                     "la captura libera la red, pero deja el video en vivo "
-                                     "sin imagen hasta la medición siguiente.",
-                               "en": "With 1 frame per measurement the other three do "
-                                     "nothing, except on a pipeline that measures on "
-                                     "request. Stopping capture frees the network but "
-                                     "leaves the live view blank until the next measurement.",
-                               "pt": "Com 1 imagem por medição as outras três não fazem "
-                                     "nada, exceto num pipeline que mede sob demanda. "
-                                     "Desligar a captura libera a rede, mas deixa o "
-                                     "vídeo ao vivo sem imagem até a medição seguinte."},
+    "inf_model_section":      {"es": "Pesos y umbral", "en": "Weights and threshold",
+                               "pt": "Pesos e limiar"},
+    "inf_model_description":  {"es": "De dónde se carga el modelo y qué detecciones descarta. "
+                                     "Se aplica al reiniciar.",
+                               "en": "Where the model is loaded from and which detections it "
+                                     "drops. Applied on restart.",
+                               "pt": "De onde o modelo é carregado e quais detecções descarta. "
+                                     "Aplicado ao reiniciar."},
+    "inf_model_type":         {"es": "Tipo",           "en": "Type",          "pt": "Tipo"},
+    "inf_model_path":         {"es": "Pesos",          "en": "Weights",       "pt": "Pesos"},
+    "inf_min_confidence":     {"es": "Confianza mínima", "en": "Minimum confidence",
+                               "pt": "Confiança mínima"},
+    "inf_min_confidence_hint": {"es": "En %; por debajo, la detección se descarta",
+                                "en": "In %; below it the detection is dropped",
+                                "pt": "Em %; abaixo, a detecção é descartada"},
+    "inf_model_browse":       {"es": "Examinar…",      "en": "Browse…",       "pt": "Procurar…"},
+    "inf_model_browse_title": {"es": "Elegir los pesos del modelo", "en": "Choose the model weights",
+                               "pt": "Escolher os pesos do modelo"},
+    "inf_model_browse_filter": {"es": "Pesos del modelo (*.pt *.engine *.onnx *.enc);;"
+                                      "Todos los archivos (*)",
+                                "en": "Model weights (*.pt *.engine *.onnx *.enc);;"
+                                      "All files (*)",
+                                "pt": "Pesos do modelo (*.pt *.engine *.onnx *.enc);;"
+                                      "Todos os arquivos (*)"},
+    "inf_pipeline_section":   {"es": "Pipeline",       "en": "Pipeline",      "pt": "Pipeline"},
+    "inf_pipeline_description": {"es": "Qué clase corre y qué cámaras mira. Se aplica al "
+                                       "reiniciar.",
+                                 "en": "Which class runs and which cameras it looks at. "
+                                       "Applied on restart.",
+                                 "pt": "Qual classe roda e quais câmeras olha. Aplicado ao "
+                                       "reiniciar."},
+    "inf_pipeline_enabled":   {"es": "Pipeline habilitado", "en": "Pipeline enabled",
+                               "pt": "Pipeline habilitado"},
+    "inf_pipeline_slot_hint": {"es": "En el config: {slot}", "en": "In the config: {slot}",
+                               "pt": "No config: {slot}"},
+    "inf_pipeline_type":      {"es": "Tipo",           "en": "Type",          "pt": "Tipo"},
+    "inf_pipeline_cameras":   {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
+    "inf_pipeline_cameras_hint": {"es": "Al menos una. Para no usar el pipeline, deshabilitalo.",
+                                  "en": "At least one. To stop the pipeline, disable it.",
+                                  "pt": "Pelo menos uma. Para não usar o pipeline, desabilite-o."},
+    "inf_result_section":     {"es": "Resultado",      "en": "Result",        "pt": "Resultado"},
+    "inf_result_description": {"es": "Cuándo un resultado cuenta como medición. Si no llega, sale "
+                                     "igual, marcado no confiable.",
+                               "en": "When a result counts as a measurement. If it falls short, "
+                                     "it still goes out, marked unreliable.",
+                               "pt": "Quando um resultado conta como medição. Se não chegar, sai "
+                                     "igual, marcado como não confiável."},
+    "inf_pipeline_interval":  {"es": "Intervalo mínimo", "en": "Minimum interval",
+                               "pt": "Intervalo mínimo"},
+    "inf_pipeline_interval_hint": {"es": "En ms, entre dos inferencias de una cámara",
+                                   "en": "In ms, between two inferences of a camera",
+                                   "pt": "Em ms, entre duas inferências de uma câmera"},
+    "inf_every_frame":        {"es": "Cada frame",     "en": "Every frame",   "pt": "Cada frame"},
+    "inf_min_detections":     {"es": "Detecciones mínimas", "en": "Minimum detections",
+                               "pt": "Detecções mínimas"},
+    "inf_min_result_conf":    {"es": "Confianza mínima", "en": "Minimum confidence",
+                               "pt": "Confiança mínima"},
+    "inf_min_result_conf_hint": {"es": "En %, promedio del resultado",
+                                 "en": "In %, result average",
+                                 "pt": "Em %, média do resultado"},
+    "inf_cycle_section":      {"es": "Ciclo de medición", "en": "Measurement cycle",
+                               "pt": "Ciclo de medição"},
+    "inf_cycle_description":  {"es": "Con 1 imagen se infiere de continuo, hasta el intervalo "
+                                     "mínimo. Con más, se mide por rondas.",
+                               "en": "With 1 frame it infers continuously, up to the minimum "
+                                     "interval. With more, it measures in rounds.",
+                               "pt": "Com 1 imagem infere de forma contínua, até o intervalo "
+                                     "mínimo. Com mais, mede por rodadas."},
+    "inf_frames_per_cycle":   {"es": "Imágenes por medición", "en": "Frames per measurement",
+                               "pt": "Imagens por medição"},
+    "inf_cycle_interval":     {"es": "Espera entre mediciones", "en": "Wait between measurements",
+                               "pt": "Espera entre medições"},
+    "inf_cycle_interval_hint": {"es": "En segundos, entre una ronda y la siguiente",
+                                "en": "In seconds, between one round and the next",
+                                "pt": "Em segundos, entre uma rodada e a seguinte"},
+    "inf_no_wait":            {"es": "Sin espera",     "en": "No wait",       "pt": "Sem espera"},
+    "inf_capture_timeout":    {"es": "Tiempo máximo por imagen", "en": "Timeout per frame",
+                               "pt": "Tempo máximo por imagem"},
+    "inf_capture_timeout_hint": {"es": "En segundos; pasado, la imagen se da por perdida",
+                                 "en": "In seconds; after it the frame counts as lost",
+                                 "pt": "Em segundos; depois, a imagem é dada como perdida"},
+    "inf_no_limit":           {"es": "Sin límite",     "en": "No limit",      "pt": "Sem limite"},
+    "inf_idle_cameras_label": {"es": "Entre mediciones", "en": "Between measurements",
+                               "pt": "Entre medições"},
+    "inf_idle_cameras":       {"es": "Apagar la captura", "en": "Stop capture",
+                               "pt": "Desligar a captura"},
+    "inf_idle_cameras_hint":  {"es": "Libera la red; el video en vivo queda sin imagen.",
+                               "en": "Frees the network; the live view goes blank.",
+                               "pt": "Libera a rede; o vídeo ao vivo fica sem imagem."},
+    "inf_regions_section":    {"es": "Región de cada pipeline", "en": "Each pipeline's region",
+                               "pt": "Região de cada pipeline"},
+    "inf_regions_description": {"es": "Se dibujan todas juntas sobre el frame en vivo. Se aplica "
+                                      "al reiniciar.",
+                                "en": "They are drawn together on the live frame. Applied on "
+                                      "restart.",
+                                "pt": "São desenhadas juntas sobre o frame ao vivo. Aplicado ao "
+                                      "reiniciar."},
     "inf_roi_box":            {"es": "ROI en",         "en": "ROI on",        "pt": "ROI em"},
     "inf_roi_mode":           {"es": "Región:",        "en": "Region:",       "pt": "Região:"},
     "inf_roi_mode_own":       {"es": "Propia de este pipeline",
@@ -407,7 +645,7 @@ _TEXTS: dict[str, dict[str, str]] = {
     "inf_roi_mode_full":      {"es": "Frame completo", "en": "Whole frame",   "pt": "Frame completo"},
     "inf_box_regions":        {"es": "Regiones (ROI)", "en": "Regions (ROI)",
                                "pt": "Regiões (ROI)"},
-    "inf_pipeline_name":      {"es": "Nombre:",        "en": "Name:",         "pt": "Nome:"},
+    "inf_pipeline_name":      {"es": "Nombre",         "en": "Name",          "pt": "Nome"},
     "inf_roi_note":           {"es": "En una cámara que decodifica video la región se corta del "
                                      "video nativo, no del frame reducido, y el VIC la entrega "
                                      "a la entrada del modelo. Se aplica al reiniciar.",
@@ -483,22 +721,35 @@ _TEXTS: dict[str, dict[str, str]] = {
 
     # ── Proceso (configuración) ──────────────────────────────────────────────
     "process_stopper_box":    {"es": "Calza",          "en": "Stopper",       "pt": "Calço"},
-    "process_stopper_level":  {"es": "Altura de calza levantada (Y px)",
-                               "en": "Raised stopper height (Y px)",
-                               "pt": "Altura de calço levantado (Y px)"},
-    "process_draw_level":     {"es": "Marcar sobre la imagen",
-                               "en": "Mark on the image",
-                               "pt": "Marcar sobre a imagem"},
-    "process_stopper_min_raised": {"es": "Píxeles mínimos sobre la línea",
-                               "en": "Minimum pixels above the line",
-                               "pt": "Pixels mínimos acima da linha"},
-    "process_stopper_max_gap": {"es": "Distancia máx. rueda-calza (px)",
-                               "en": "Max wheel-stopper distance (px)",
-                               "pt": "Distância máx. roda-calço (px)"},
+    "process_stopper_section": {"es": "Calibración por cámara",
+                                "en": "Per-camera calibration",
+                                "pt": "Calibração por câmera"},
+    "process_stopper_description": {"es": "Altura de la calza levantada y tolerancias de cada "
+                                          "montaje, en píxeles. Se aplica al reiniciar.",
+                                    "en": "Raised stopper height and tolerances of each "
+                                          "mounting, in pixels. Applied after a restart.",
+                                    "pt": "Altura do calço levantado e tolerâncias de cada "
+                                          "montagem, em pixels. Aplica-se ao reiniciar."},
+    "process_stopper_level":  {"es": "Altura levantada (Y px)",
+                               "en": "Raised height (Y px)",
+                               "pt": "Altura levantada (Y px)"},
+    "process_draw_level":     {"es": "Marcar",         "en": "Mark",          "pt": "Marcar"},
+    "process_stopper_min_raised": {"es": "Píxeles mín. sobre la línea",
+                               "en": "Min. pixels above the line",
+                               "pt": "Pixels mín. acima da linha"},
+    "process_stopper_min_raised_hint": {"es": "De la máscara de la calza",
+                                        "en": "Of the stopper mask",
+                                        "pt": "Da máscara do calço"},
+    "process_stopper_max_gap": {"es": "Distancia máx. a la rueda (px)",
+                               "en": "Max. distance to the wheel (px)",
+                               "pt": "Distância máx. até a roda (px)"},
     "process_uncalibrated":   {"es": "Sin calibrar",   "en": "Not calibrated", "pt": "Não calibrado"},
-    "process_wheel_side":     {"es": "Lado de la rueda respecto de la calza",
-                               "en": "Wheel side relative to the stopper",
-                               "pt": "Lado da roda em relação ao calço"},
+    "process_wheel_side":     {"es": "Lado de la rueda",
+                               "en": "Wheel side",
+                               "pt": "Lado da roda"},
+    "process_wheel_side_hint": {"es": "Respecto de la calza, en la imagen",
+                                "en": "Relative to the stopper, in the image",
+                                "pt": "Em relação ao calço, na imagem"},
     "wheel_side_any":         {"es": "Cualquiera",     "en": "Either",        "pt": "Qualquer"},
     "wheel_side_left":        {"es": "Izquierda",      "en": "Left",          "pt": "Esquerda"},
     "wheel_side_right":       {"es": "Derecha",        "en": "Right",         "pt": "Direita"},
@@ -528,76 +779,34 @@ _TEXTS: dict[str, dict[str, str]] = {
     "stopper_inspect_no_wheel": {"es": "No se detectó una rueda del lado configurado.",
                                  "en": "No wheel was detected on the configured side.",
                                  "pt": "Nenhuma roda foi detectada no lado configurado."},
-    "process_stopper_hint":   {"es": "La calza está levantada si al menos esa cantidad de "
-                                     "píxeles de su máscara queda por encima de esa altura, "
-                                     "una línea horizontal de borde a borde. Recién con la calza levantada, "
-                                     "la rueda la toca si la distancia más corta entre las dos "
-                                     "máscaras no pasa del máximo; con un lado elegido, sólo "
-                                     "cuenta la rueda de ese lado de la calza en la imagen. "
-                                     "Todo en píxeles del frame de la cámara. Se guarda con "
-                                     "Guardar —la altura marcada sobre la imagen, también al "
-                                     "cerrar su ventana— y se aplica al reiniciar.",
-                               "en": "The stopper is raised if at least that many pixels of "
-                                     "its mask are above that height, a horizontal line across "
-                                     "the whole width. Only once the stopper is raised, the wheel "
-                                     "touches it if the shortest distance between the two "
-                                     "masks is within the maximum; with a side chosen, only "
-                                     "the wheel on that side of the stopper in the image "
-                                     "counts. All in pixels of the camera frame. Saved with Save "
-                                     "—the height marked on the image also when its window "
-                                     "closes— and applied after a restart.",
-                               "pt": "O calço está levantado se pelo menos essa quantidade de "
-                                     "pixels da sua máscara fica acima dessa altura, uma linha "
-                                     "horizontal de borda a borda. Só com o calço levantado, a roda o toca "
-                                     "se a menor distância entre as duas máscaras não passa do "
-                                     "máximo; com um lado escolhido, só conta a roda desse "
-                                     "lado do calço na imagem. Tudo em pixels do frame da "
-                                     "câmera. Salva-se com Salvar "
-                                     "—a altura marcada sobre a imagem, também ao fechar sua "
-                                     "janela— e aplica-se ao reiniciar."},
     "process_person_box":     {"es": "Personas",       "en": "People",        "pt": "Pessoas"},
-    "process_person_confirm_hits": {"es": "Frames con persona para confirmar",
-                                    "en": "Frames with a person to confirm",
-                                    "pt": "Quadros com pessoa para confirmar"},
-    "process_person_confirm_window": {"es": "…entre los últimos (frames)",
-                                      "en": "…among the last (frames)",
-                                      "pt": "…entre os últimos (quadros)"},
-    "process_person_release": {"es": "Liberar tras (s) sin nadie",
-                               "en": "Release after (s) with nobody",
-                               "pt": "Liberar após (s) sem ninguém"},
+    "process_person_filter":  {"es": "Confirmación",   "en": "Confirmation",  "pt": "Confirmação"},
+    "process_person_filter_description": {"es": "Cuándo se da por confirmada una persona en la "
+                                                "zona y cuándo se libera. Se aplica al reiniciar.",
+                                          "en": "When a person in the zone counts as confirmed "
+                                                "and when it is released. Applied after a "
+                                                "restart.",
+                                          "pt": "Quando uma pessoa na zona é dada como "
+                                                "confirmada e quando é liberada. Aplica-se ao "
+                                                "reiniciar."},
+    "process_person_confirm_hits": {"es": "Frames para confirmar",
+                                    "en": "Frames to confirm",
+                                    "pt": "Quadros para confirmar"},
+    "process_person_confirm_window": {"es": "En los últimos (frames)",
+                                      "en": "Within the last (frames)",
+                                      "pt": "Nos últimos (quadros)"},
+    "process_person_release": {"es": "Liberar tras",   "en": "Release after", "pt": "Liberar após"},
+    "process_person_release_hint": {"es": "En segundos", "en": "In seconds", "pt": "Em segundos"},
     "process_person_zone":    {"es": "Zona de exclusión", "en": "Exclusion zone",
                                "pt": "Zona de exclusão"},
-    "process_person_no_zone": {"es": "Sin zona: cuenta todo el frame",
-                               "en": "No zone: the whole frame counts",
-                               "pt": "Sem zona: conta o quadro inteiro"},
-    "process_draw_zone":      {"es": "Dibujar sobre la imagen",
-                               "en": "Draw on the image",
-                               "pt": "Desenhar sobre a imagem"},
-    "process_person_hint":    {"es": "Una persona en la zona de exclusión se confirma cuando "
-                                     "aparece en esa cantidad de frames entre los últimos, no "
-                                     "necesariamente seguidos: así un frame suelto no la da "
-                                     "por presente y una que el modelo pierde de a ratos se "
-                                     "confirma igual. Se libera recién después de esos "
-                                     "segundos sin verla. El frame es el que infiere el "
-                                     "pipeline de personas en esa cámara, así que confirmar "
-                                     "tarda más con el equipo cargado. Se aplica al reiniciar.",
-                               "en": "A person in the exclusion zone is confirmed when they "
-                                     "appear in that many frames among the last ones, not "
-                                     "necessarily in a row: a single frame does not mark them "
-                                     "present, and one the model loses now and then is still "
-                                     "confirmed. They are released only after that many "
-                                     "seconds without being seen. Frames are the ones the "
-                                     "people pipeline infers on that camera, so confirming "
-                                     "takes longer with the device under load. Applied after "
-                                     "a restart.",
-                               "pt": "Uma pessoa na zona de exclusão é confirmada quando "
-                                     "aparece nessa quantidade de quadros entre os últimos, "
-                                     "não necessariamente seguidos: um quadro solto não a dá "
-                                     "por presente e uma que o modelo perde às vezes é "
-                                     "confirmada igual. É liberada só depois desses segundos "
-                                     "sem vê-la. Os quadros são os que o pipeline de pessoas "
-                                     "infere nessa câmera, então confirmar demora mais com o "
-                                     "equipamento carregado. Aplica-se ao reiniciar."},
+    "process_person_zone_description": {"es": "Una por cámara. Sin zona, cuenta todo el frame.",
+                                        "en": "One per camera. Without a zone, the whole frame "
+                                              "counts.",
+                                        "pt": "Uma por câmera. Sem zona, conta o quadro "
+                                              "inteiro."},
+    "process_person_no_zone": {"es": "Sin zona",       "en": "No zone",       "pt": "Sem zona"},
+    "process_person_zone_state": {"es": "Zona dibujada", "en": "Drawn zone", "pt": "Zona desenhada"},
+    "process_draw_zone":      {"es": "Dibujar",        "en": "Draw",          "pt": "Desenhar"},
     "process_empty_note":     {"es": "Esta instalación todavía no declaró parámetros de "
                                      "proceso editables desde la pantalla.\n\n"
                                      "Los parámetros de lo que se mide —escalas de píxel, "
@@ -631,63 +840,84 @@ _TEXTS: dict[str, dict[str, str]] = {
 
     # ── Dataset (configuración) ──────────────────────────────────────────────
     "col_box_general":        {"es": "Recolección",    "en": "Collection",    "pt": "Coleta"},
-    "col_box_dedup":          {"es": "Deduplicación de frames",
-                               "en": "Frame deduplication",
-                               "pt": "Deduplicação de frames"},
-    "col_mode":               {"es": "Modo:",          "en": "Mode:",         "pt": "Modo:"},
+    "col_card_storage":       {"es": "Almacenamiento", "en": "Storage",       "pt": "Armazenamento"},
+    "col_collection_section": {"es": "Cuándo se guarda", "en": "When to save",
+                               "pt": "Quando salvar"},
+    "col_collection_description": {"es": "Imágenes para reentrenar los modelos. Prenderla o "
+                                         "apagarla no exige reiniciar.",
+                                   "en": "Images to retrain the models. Turning it on or off "
+                                         "needs no restart.",
+                                   "pt": "Imagens para retreinar os modelos. Ligar ou desligar "
+                                         "não exige reiniciar."},
+    "col_enabled":            {"es": "Recolección habilitada", "en": "Collection enabled",
+                               "pt": "Coleta habilitada"},
+    "col_mode":               {"es": "Modo",           "en": "Mode",          "pt": "Modo"},
+    "col_mode_hint":          {"es": "A pedido: una imagen por medición. Se aplica al reiniciar.",
+                               "en": "On demand: one image per measurement. Applied on restart.",
+                               "pt": "Sob demanda: uma imagem por medição. Aplicado ao "
+                                     "reiniciar."},
     "col_mode_on_demand":     {"es": "A pedido",       "en": "On demand",     "pt": "Sob demanda"},
     "col_mode_interval":      {"es": "Por intervalo",  "en": "By interval",   "pt": "Por intervalo"},
-    "col_interval_min":       {"es": "Intervalo mínimo (s):",
-                               "en": "Minimum interval (s):",
-                               "pt": "Intervalo mínimo (s):"},
-    "col_interval_max":       {"es": "Intervalo máximo (s):",
-                               "en": "Maximum interval (s):",
-                               "pt": "Intervalo máximo (s):"},
-    "col_max_images":         {"es": "Máximo de imágenes por cámara:",
-                               "en": "Maximum images per camera:",
-                               "pt": "Máximo de imagens por câmera:"},
-    "col_min_free_space":     {"es": "Espacio libre mínimo (GB):",
-                               "en": "Minimum free space (GB):",
-                               "pt": "Espaço livre mínimo (GB):"},
-    "col_save_original":      {"es": "Guardar el frame crudo",
-                               "en": "Save the raw frame",
-                               "pt": "Salvar o frame cru"},
-    "col_save_annotated":     {"es": "Guardar el frame anotado",
-                               "en": "Save the annotated frame",
-                               "pt": "Salvar o frame anotado"},
-    "col_save_json":          {"es": "Guardar el JSON de inferencia",
-                               "en": "Save the inference JSON",
-                               "pt": "Salvar o JSON de inferência"},
+    "col_interval_min":       {"es": "Intervalo mínimo", "en": "Minimum interval",
+                               "pt": "Intervalo mínimo"},
+    "col_interval_max":       {"es": "Intervalo máximo", "en": "Maximum interval",
+                               "pt": "Intervalo máximo"},
+    "col_interval_hint":      {"es": "Cada guardado, al azar entre los dos",
+                               "en": "Each save, at random between the two",
+                               "pt": "Cada salvamento, ao acaso entre os dois"},
+    "col_content_section":    {"es": "Qué se guarda",  "en": "What is saved", "pt": "O que é salvo"},
+    "col_content_description": {"es": "Lo que lleva cada guardado. El JSON tiene las detecciones "
+                                      "y el contexto de la medición.",
+                                "en": "What each save carries. The JSON has the detections and "
+                                      "the measurement context.",
+                                "pt": "O que cada salvamento leva. O JSON tem as detecções e o "
+                                      "contexto da medição."},
+    "col_save_original":      {"es": "Frame crudo",    "en": "Raw frame",     "pt": "Frame cru"},
+    "col_save_annotated":     {"es": "Frame anotado",  "en": "Annotated frame",
+                               "pt": "Frame anotado"},
+    "col_save_json":          {"es": "JSON de inferencia", "en": "Inference JSON",
+                               "pt": "JSON de inferência"},
     "col_box_cameras":        {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
-    "col_cameras_note":       {"es": "Con todas marcadas se guardan todas, incluidas las que "
-                                     "se agreguen después. Con alguna desmarcada se guardan "
-                                     "sólo las marcadas, y una cámara nueva no entra hasta "
-                                     "marcarla.",
-                               "en": "With all checked, every camera is saved, including any "
-                                     "added later. With any unchecked, only the checked ones "
-                                     "are saved, and a new camera is left out until it is "
-                                     "checked.",
-                               "pt": "Com todas marcadas, todas são salvas, inclusive as que "
-                                     "forem adicionadas depois. Com alguma desmarcada, só as "
-                                     "marcadas são salvas, e uma câmera nova fica de fora até "
-                                     "ser marcada."},
-    "col_history_len":        {"es": "Historial comparado (guardados):",
-                               "en": "Compared history (saves):",
-                               "pt": "Histórico comparado (salvamentos):"},
-    "col_hamming":            {"es": "Umbral Hamming (0–64):",
-                               "en": "Hamming threshold (0–64):",
-                               "pt": "Limiar de Hamming (0–64):"},
-    "col_mode_note":          {"es": "Cambiar el modo toma efecto al reiniciar la aplicación. "
-                                     "A pedido guarda una imagen por ciclo de medición, y se "
-                                     "ofrece sólo si algún pipeline mide de a varios frames.",
-                               "en": "Changing the mode takes effect when the application "
-                                     "restarts. On demand saves one image per measurement "
-                                     "cycle, and is offered only if some pipeline measures "
-                                     "several frames at a time.",
-                               "pt": "Alterar o modo tem efeito ao reiniciar a aplicação. "
-                                     "Sob demanda salva uma imagem por ciclo de medição, e só "
-                                     "é oferecido se algum pipeline mede vários frames por "
-                                     "vez."},
+    "col_cameras_note":       {"es": "Con todas marcadas entra también una cámara que se agregue "
+                                     "después.",
+                               "en": "With all checked, a camera added later is saved too.",
+                               "pt": "Com todas marcadas, uma câmera adicionada depois também "
+                                     "entra."},
+    "col_cameras_hint":       {"es": "Al menos una. Para no guardar, deshabilitá la recolección.",
+                               "en": "At least one. To save nothing, disable collection.",
+                               "pt": "Pelo menos uma. Para não salvar, desabilite a coleta."},
+    "col_space_section":      {"es": "Espacio",        "en": "Space",         "pt": "Espaço"},
+    "col_space_description":  {"es": "Al llegar a un tope se borra lo más viejo para hacer lugar.",
+                               "en": "On reaching a limit the oldest is deleted to make room.",
+                               "pt": "Ao atingir um limite o mais antigo é apagado para abrir "
+                                     "espaço."},
+    "col_max_images":         {"es": "Máximo de imágenes", "en": "Maximum images",
+                               "pt": "Máximo de imagens"},
+    "col_max_images_hint":    {"es": "Por cámara",     "en": "Per camera",    "pt": "Por câmera"},
+    "col_min_free_space":     {"es": "Espacio libre mínimo", "en": "Minimum free space",
+                               "pt": "Espaço livre mínimo"},
+    "col_min_free_space_hint": {"es": "En GB, en el disco del dataset",
+                                "en": "In GB, on the dataset disk",
+                                "pt": "Em GB, no disco do dataset"},
+    "col_box_dedup":          {"es": "Duplicados",     "en": "Duplicates",    "pt": "Duplicados"},
+    "col_dedup_description":  {"es": "Descarta un frame casi igual a uno de los últimos guardados "
+                                     "de esa cámara.",
+                               "en": "Drops a frame nearly equal to one of that camera's last "
+                                     "saves.",
+                               "pt": "Descarta um frame quase igual a um dos últimos salvos dessa "
+                                     "câmera."},
+    "col_dedup_enabled":      {"es": "Descartar duplicados", "en": "Drop duplicates",
+                               "pt": "Descartar duplicados"},
+    "col_history_len":        {"es": "Historial comparado", "en": "Compared history",
+                               "pt": "Histórico comparado"},
+    "col_history_len_hint":   {"es": "Últimos guardados contra los que se compara",
+                               "en": "Last saves it is compared against",
+                               "pt": "Últimos salvos com os quais se compara"},
+    "col_hamming":            {"es": "Umbral de Hamming", "en": "Hamming threshold",
+                               "pt": "Limiar de Hamming"},
+    "col_hamming_hint":       {"es": "De 0 a 64; más alto descarta más",
+                               "en": "From 0 to 64; higher drops more",
+                               "pt": "De 0 a 64; mais alto descarta mais"},
     "col_mode_no_cycle":      {"es": "A pedido no guarda nada: ningún pipeline tiene ciclo de "
                                      "medición. Usar Por intervalo.",
                                "en": "On demand saves nothing: no pipeline has a measurement "
@@ -696,13 +926,38 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "medição. Usar Por intervalo."},
 
     # ── Telemetría (configuración) ───────────────────────────────────────────
+    "tel_card_destinations":  {"es": "Destinos",       "en": "Destinations",  "pt": "Destinos"},
     "tel_box_influxdb":       {"es": "InfluxDB",       "en": "InfluxDB",      "pt": "InfluxDB"},
+    "tel_influx_description": {"es": "Series de tiempo para los dashboards, un punto por segundo. "
+                                     "Se aplica al reiniciar.",
+                               "en": "Time series for the dashboards, one point per second. "
+                                     "Applied on restart.",
+                               "pt": "Séries temporais para os dashboards, um ponto por segundo. "
+                                     "Aplicado ao reiniciar."},
+    "tel_influx_enabled":     {"es": "InfluxDB habilitado",
+                               "en": "InfluxDB enabled",
+                               "pt": "InfluxDB habilitado"},
     "tel_box_mqtt":           {"es": "MQTT",           "en": "MQTT",          "pt": "MQTT"},
-    "tel_org":                {"es": "Organización:",  "en": "Organisation:", "pt": "Organização:"},
-    "tel_bucket":             {"es": "Bucket:",        "en": "Bucket:",       "pt": "Bucket:"},
-    "tel_topic_base":         {"es": "Base de tópicos:",
-                               "en": "Topic base:",    "pt": "Base de tópicos:"},
-    "tel_tls":                {"es": "TLS",            "en": "TLS",           "pt": "TLS"},
+    "tel_mqtt_description":   {"es": "El mismo dato en JSON, un tópico por measurement. Se aplica "
+                                     "al reiniciar.",
+                               "en": "The same data as JSON, one topic per measurement. Applied "
+                                     "on restart.",
+                               "pt": "O mesmo dado em JSON, um tópico por measurement. Aplicado "
+                                     "ao reiniciar."},
+    "tel_mqtt_enabled":       {"es": "MQTT habilitado", "en": "MQTT enabled", "pt": "MQTT habilitado"},
+    "tel_org":                {"es": "Organización",   "en": "Organisation",  "pt": "Organização"},
+    "tel_bucket":             {"es": "Bucket",         "en": "Bucket",        "pt": "Bucket"},
+    "tel_topic_base":         {"es": "Base de tópicos",
+                               "en": "Topic base",     "pt": "Base de tópicos"},
+    "tel_topic_base_hint":    {"es": "Publica en <base>/<measurement>",
+                               "en": "Publishes to <base>/<measurement>",
+                               "pt": "Publica em <base>/<measurement>"},
+    "tel_mqtt_port_hint":     {"es": "0 = 1883, u 8883 con TLS",
+                               "en": "0 = 1883, or 8883 with TLS",
+                               "pt": "0 = 1883, ou 8883 com TLS"},
+    "tel_security":           {"es": "Seguridad",      "en": "Security",      "pt": "Segurança"},
+    "tel_tls":                {"es": "Conectar con TLS", "en": "Connect over TLS",
+                               "pt": "Conectar com TLS"},
     "tel_influx_token_note":  {"es": "El token sale de INFLUXDB_TOKEN, del entorno o del .env.",
                                "en": "The token comes from INFLUXDB_TOKEN, in the environment or the .env file.",
                                "pt": "O token vem de INFLUXDB_TOKEN, do ambiente ou do .env."},
@@ -711,31 +966,59 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "pt": "A senha vem de MQTT_PASSWORD, do ambiente ou do .env."},
 
     # ── Modbus (configuración) ───────────────────────────────────────────────
-    "mb_box_general":         {"es": "General",        "en": "General",       "pt": "Geral"},
-    "mb_box_tcp":             {"es": "TCP",            "en": "TCP",           "pt": "TCP"},
-    "mb_box_rtu":             {"es": "RTU (RS-485)",   "en": "RTU (RS-485)",  "pt": "RTU (RS-485)"},
-    "mb_slave_id":            {"es": "Slave id (1–247):",
-                               "en": "Slave id (1–247):",
-                               "pt": "Slave id (1–247):"},
-    "mb_register_count":      {"es": "Registros expuestos:",
-                               "en": "Exposed registers:",
-                               "pt": "Registradores expostos:"},
-    "mb_map_extent":          {"es": "El mapa cargado usa hasta el registro {max_addr} "
-                                     "({plc_addr} para el PLC).",
-                               "en": "The loaded map uses up to register {max_addr} "
-                                     "({plc_addr} for the PLC).",
-                               "pt": "O mapa carregado usa até o registrador {max_addr} "
-                                     "({plc_addr} para o CLP)."},
-    "mb_serial_port":         {"es": "Puerto serie:",  "en": "Serial port:",  "pt": "Porta serial:"},
-    "mb_baudrate":            {"es": "Baudrate:",      "en": "Baud rate:",    "pt": "Baud rate:"},
-    "mb_parity":              {"es": "Paridad:",       "en": "Parity:",       "pt": "Paridade:"},
-    "mb_stop_bits":           {"es": "Bits de stop:",  "en": "Stop bits:",    "pt": "Bits de parada:"},
-    "mb_map_note":            {"es": "El mapa de registros vive en "
-                                     "system/modbus/register_map.yaml y no se edita desde acá.",
-                               "en": "The register map lives in "
-                                     "system/modbus/register_map.yaml and is not edited here.",
-                               "pt": "O mapa de registradores vive em "
-                                     "system/modbus/register_map.yaml e não se edita aqui."},
+    "mb_card_server":         {"es": "Esclavo Modbus", "en": "Modbus slave",  "pt": "Escravo Modbus"},
+    "mb_identity_section":    {"es": "Identificación", "en": "Identification", "pt": "Identificação"},
+    "mb_identity_description": {"es": "Cómo lo ve el PLC. El mapa de registros se edita en "
+                                      "register_map.yaml, no acá.",
+                                "en": "How the PLC sees it. The register map is edited in "
+                                      "register_map.yaml, not here.",
+                                "pt": "Como o CLP o vê. O mapa de registradores se edita em "
+                                      "register_map.yaml, não aqui."},
+    "mb_slave_id":            {"es": "Dirección de esclavo", "en": "Slave address",
+                               "pt": "Endereço do escravo"},
+    "mb_slave_id_hint":       {"es": "De 1 a 247",     "en": "From 1 to 247", "pt": "De 1 a 247"},
+    "mb_register_count":      {"es": "Registros expuestos",
+                               "en": "Exposed registers",
+                               "pt": "Registradores expostos"},
+    "mb_map_extent":          {"es": "El mapa cargado llega al {max_addr} ({plc_addr} en el PLC)",
+                               "en": "The loaded map reaches {max_addr} ({plc_addr} on the PLC)",
+                               "pt": "O mapa carregado vai até {max_addr} ({plc_addr} no CLP)"},
+    "mb_box_tcp":             {"es": "Modbus TCP",     "en": "Modbus TCP",    "pt": "Modbus TCP"},
+    "mb_tcp_description":     {"es": "El servidor en la red del PLC. Se aplica al reiniciar.",
+                               "en": "The server on the PLC network. Applied on restart.",
+                               "pt": "O servidor na rede do CLP. Aplicado ao reiniciar."},
+    "mb_tcp_enabled":         {"es": "Servidor TCP habilitado",
+                               "en": "TCP server enabled",
+                               "pt": "Servidor TCP habilitado"},
+    "mb_port_hint":           {"es": "502 es el estándar",
+                               "en": "502 is the standard",
+                               "pt": "502 é o padrão"},
+    "mb_box_rtu":             {"es": "Modbus RTU (RS-485)", "en": "Modbus RTU (RS-485)",
+                               "pt": "Modbus RTU (RS-485)"},
+    "mb_rtu_description":     {"es": "La línea serie: tiene que coincidir con la del maestro. Se "
+                                     "aplica al reiniciar.",
+                               "en": "The serial line: it has to match the master's. Applied on "
+                                     "restart.",
+                               "pt": "A linha serial: tem que coincidir com a do mestre. Aplicado "
+                                     "ao reiniciar."},
+    "mb_rtu_enabled":         {"es": "Servidor RTU habilitado",
+                               "en": "RTU server enabled",
+                               "pt": "Servidor RTU habilitado"},
+    "mb_serial_port":         {"es": "Puerto serie",   "en": "Serial port",   "pt": "Porta serial"},
+    "mb_baudrate":            {"es": "Velocidad",      "en": "Baud rate",     "pt": "Velocidade"},
+    "mb_baudrate_hint":       {"es": "En bps",         "en": "In bps",        "pt": "Em bps"},
+    "mb_parity":              {"es": "Paridad",        "en": "Parity",        "pt": "Paridade"},
+    "mb_parity_none":         {"es": "Ninguna",        "en": "None",          "pt": "Nenhuma"},
+    "mb_parity_even":         {"es": "Par",            "en": "Even",          "pt": "Par"},
+    "mb_parity_odd":          {"es": "Impar",          "en": "Odd",           "pt": "Ímpar"},
+    "mb_stop_bits":           {"es": "Bits de parada", "en": "Stop bits",     "pt": "Bits de parada"},
+    # La trama como la escribe un manual: «115200 bps · 8N1 · esclavo 1».
+    "mb_frame":               {"es": "Trama: {baudrate} bps · {data_bits}{parity}{stop_bits} · "
+                                     "esclavo {slave_id}",
+                               "en": "Frame: {baudrate} bps · {data_bits}{parity}{stop_bits} · "
+                                     "slave {slave_id}",
+                               "pt": "Trama: {baudrate} bps · {data_bits}{parity}{stop_bits} · "
+                                     "escravo {slave_id}"},
 
     # ── Sistema (configuración) ──────────────────────────────────────────────
     "sys_box_project":        {"es": "Proyecto",       "en": "Project",       "pt": "Projeto"},
@@ -780,32 +1063,70 @@ _TEXTS: dict[str, dict[str, str]] = {
     "sys_disk_path":          {"es": "Partición reportada:",
                                "en": "Reported partition:",
                                "pt": "Partição reportada:"},
-    "sys_net_interfaces":     {"es": "Interfaces medidas (vacío = todas):",
-                               "en": "Measured interfaces (empty = all):",
-                               "pt": "Interfaces medidas (vazio = todas):"},
+    "sys_net_interfaces":     {"es": "Interfaces medidas:",
+                               "en": "Measured interfaces:",
+                               "pt": "Interfaces medidas:"},
 
     # ── Diagnóstico ──────────────────────────────────────────────────────────
-    "diag_title":             {"es": "Diagnóstico del sistema",
-                               "en": "System diagnostics",
-                               "pt": "Diagnóstico do sistema"},
     "diag_box_cameras":       {"es": "FPS por cámara", "en": "FPS per camera","pt": "FPS por câmera"},
     "diag_box_network":       {"es": "Red (Mbps)",     "en": "Network (Mbps)","pt": "Rede (Mbps)"},
     "diag_chart_cpu":         {"es": "CPU [%]",        "en": "CPU [%]",       "pt": "CPU [%]"},
     "diag_chart_gpu":         {"es": "GPU [%]",        "en": "GPU [%]",       "pt": "GPU [%]"},
     "diag_chart_ram":         {"es": "RAM [MB]",       "en": "RAM [MB]",      "pt": "RAM [MB]"},
     "diag_chart_cpu_temp":    {"es": "Temp. CPU [°C]", "en": "CPU temp [°C]", "pt": "Temp. CPU [°C]"},
-    "diag_modbus_table_note": {"es": "Holding registers que publica el equipo.",
-                               "en": "Holding registers published by the device.",
-                               "pt": "Holding registers publicados pelo equipamento."},
+    "diag_modbus_table_note": {"es": "Holding registers del mapa, con su valor en vivo.",
+                               "en": "Holding registers of the map, with their live value.",
+                               "pt": "Holding registers do mapa, com seu valor ao vivo."},
+    "diag_modbus_copy_csv":   {"es": "Copiar CSV",     "en": "Copy CSV",      "pt": "Copiar CSV"},
+    "diag_modbus_copied":     {"es": "Copiado",        "en": "Copied",        "pt": "Copiado"},
+    "diag_modbus_bits_prompt": {"es": "Elegí una palabra de estado en la tabla para ver sus bits.",
+                                "en": "Pick a status word in the table to see its bits.",
+                                "pt": "Escolha uma palavra de estado na tabela para ver seus "
+                                      "bits."},
+    "diag_modbus_bit_undefined": {"es": "Sin significado definido", "en": "No defined meaning",
+                                  "pt": "Sem significado definido"},
     "diag_modbus_register":   {"es": "Registro",       "en": "Register",      "pt": "Registrador"},
     "diag_modbus_desc":       {"es": "Descripción",    "en": "Description",   "pt": "Descrição"},
     "diag_modbus_value":      {"es": "Valor",          "en": "Value",         "pt": "Valor"},
-    "diag_streams_http":      {"es": "HTTP — URLs de los streams",
-                               "en": "HTTP — stream URLs",
-                               "pt": "HTTP — URLs dos streams"},
-    "diag_streams_rtsp":      {"es": "RTSP — URLs de los streams",
-                               "en": "RTSP — stream URLs",
-                               "pt": "RTSP — URLs dos streams"},
+    "diag_stats_slave":       {"es": "esclavo {slave_id}", "en": "slave {slave_id}",
+                               "pt": "escravo {slave_id}"},
+    "diag_stats_rate":        {"es": "Consultas por minuto", "en": "Requests per minute",
+                               "pt": "Consultas por minuto"},
+    "diag_stats_requests":    {"es": "Consultas contestadas", "en": "Requests answered",
+                               "pt": "Consultas respondidas"},
+    "diag_stats_reads":       {"es": "Lecturas (FC03)", "en": "Reads (FC03)", "pt": "Leituras (FC03)"},
+    "diag_stats_writes":      {"es": "Escrituras (FC06/FC16)", "en": "Writes (FC06/FC16)",
+                               "pt": "Escritas (FC06/FC16)"},
+    "diag_stats_exceptions":  {"es": "Excepciones",    "en": "Exceptions",    "pt": "Exceções"},
+    "diag_stats_exceptions_last": {"es": "{count} · última 0x{code:02X}",
+                                   "en": "{count} · last 0x{code:02X}",
+                                   "pt": "{count} · última 0x{code:02X}"},
+    "diag_stats_clients":     {"es": "Clientes conectados", "en": "Connected clients",
+                               "pt": "Clientes conectados"},
+    "diag_stats_port":        {"es": "Puerto serie",   "en": "Serial port",   "pt": "Porta serial"},
+    "diag_stats_port_open":   {"es": "Abierto",        "en": "Open",          "pt": "Aberta"},
+    "diag_stats_port_closed": {"es": "Cerrado",        "en": "Closed",        "pt": "Fechada"},
+    "diag_stats_last_request": {"es": "Última consulta", "en": "Last request",
+                                "pt": "Última consulta"},
+    "diag_stats_age_s":       {"es": "hace {age} s",   "en": "{age} s ago",   "pt": "há {age} s"},
+    "diag_stats_age_min":     {"es": "hace {age} min", "en": "{age} min ago", "pt": "há {age} min"},
+    "diag_stats_reset":       {"es": "Reiniciar",      "en": "Reset",         "pt": "Reiniciar"},
+    "diag_streams_card":      {"es": "Servidores de video", "en": "Video servers",
+                               "pt": "Servidores de vídeo"},
+    "diag_streams_http":      {"es": "HTTP (MJPEG)",   "en": "HTTP (MJPEG)",  "pt": "HTTP (MJPEG)"},
+    "diag_streams_http_description": {"es": "Para mirar en el navegador: un stream crudo y uno "
+                                            "anotado por cámara.",
+                                      "en": "To watch in a browser: one raw and one annotated "
+                                            "stream per camera.",
+                                      "pt": "Para ver no navegador: um stream cru e um anotado "
+                                            "por câmera."},
+    "diag_streams_rtsp":      {"es": "RTSP",           "en": "RTSP",          "pt": "RTSP"},
+    "diag_streams_rtsp_description": {"es": "Los mismos streams a resolución completa, para un "
+                                            "NVR o un reproductor.",
+                                      "en": "The same streams at full resolution, for an NVR or "
+                                            "a player.",
+                                      "pt": "Os mesmos streams em resolução completa, para um "
+                                            "NVR ou um reprodutor."},
     "diag_streams_empty":     {"es": "Todavía no hay URLs publicadas.",
                                "en": "No URLs published yet.",
                                "pt": "Ainda não há URLs publicadas."},
@@ -937,9 +1258,12 @@ _TEXTS: dict[str, dict[str, str]] = {
     "roi_box_coords":         {"es": "Coordenadas (píxeles)",
                                "en": "Coordinates (pixels)",
                                "pt": "Coordenadas (pixels)"},
-    "roi_hint":               {"es": "Arrastrá con el mouse sobre la imagen para dibujar el ROI.",
-                               "en": "Drag on the image with the mouse to draw the ROI.",
-                               "pt": "Arraste com o mouse sobre a imagem para desenhar o ROI."},
+    "roi_hint":               {"es": "Arrastrá sobre la imagen para dibujar el ROI; desde un "
+                                     "borde o una esquina lo estirás y desde adentro lo movés.",
+                               "en": "Drag on the image to draw the ROI; drag an edge or a "
+                                     "corner to resize it, or its inside to move it.",
+                               "pt": "Arraste sobre a imagem para desenhar o ROI; por uma borda "
+                                     "ou um canto você o estica, e por dentro o move."},
     "roi_reset":              {"es": "Restablecer",    "en": "Reset",         "pt": "Restabelecer"},
     "roi_save":               {"es": "Guardar ROI",    "en": "Save ROI",      "pt": "Salvar ROI"},
     "level_title":            {"es": "Marcar altura",  "en": "Mark height",   "pt": "Marcar altura"},
@@ -987,10 +1311,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     "dialog_cancel":          {"es": "Cancelar",       "en": "Cancel",        "pt": "Cancelar"},
     "dialog_pause":           {"es": "Pausar video",   "en": "Pause video",   "pt": "Pausar vídeo"},
     "dialog_resume":          {"es": "Reanudar video", "en": "Resume video",  "pt": "Retomar vídeo"},
-    "dialog_close":           {"es": "Cerrar",         "en": "Close",         "pt": "Fechar"},
-    "gpio_title":             {"es": "Entradas y salidas digitales",
-                               "en": "Digital inputs and outputs",
-                               "pt": "Entradas e saídas digitais"},
     "gpio_box_inputs":        {"es": "Entradas digitales (DI)",
                                "en": "Digital inputs (DI)",
                                "pt": "Entradas digitais (DI)"},
@@ -1031,6 +1351,11 @@ def set_language(language: str):
             )
         code = _FALLBACK_LANGUAGE
     _language = code
+
+
+def has_text(key: str) -> bool:
+    """Si la clave está en la tabla: para un rótulo que puede no tenerla, sin el aviso de `tr()`."""
+    return key in _TEXTS
 
 
 def tr(key: str) -> str:

@@ -744,7 +744,8 @@ class TestEngines:
         app._camera_illumination = {}
         app._last_valid_by_pair = {}
         app._last_result_by_pair = {}
-        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._ui = types.SimpleNamespace(monitor_content=None,
+                                        update_inference_times=lambda *args: None)
         app._on_result_ready(InferenceResult(camera_slot="camera_1",
                                              pipeline_slot="pipeline_2", is_valid=False))
         assert app._last_valid_by_pair == {("camera_1", "pipeline_2"): False}
@@ -756,7 +757,8 @@ class TestEngines:
         app._camera_illumination = {}
         app._last_valid_by_pair = {}
         app._last_result_by_pair = {}
-        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._ui = types.SimpleNamespace(monitor_content=None,
+                                        update_inference_times=lambda *args: None)
         frame = np.zeros((4, 4, 3), np.uint8)
         app._on_result_ready(InferenceResult(
             camera_slot="camera_1", pipeline_slot="pipeline_3", source_bgr=frame,
@@ -850,6 +852,58 @@ class TestExpiringMetricRegisters:
         app = self._app(monkeypatch)
         self._store(app, monkeypatch, 100.0, grain_pct=40.0)
         assert self._build(app, monkeypatch, 1000.0)["grain_pct"] == 40.0
+
+
+class TestVerdictsForHome:
+    """Los veredictos de la página de inicio salen del mismo lugar que los registros y vencen igual."""
+
+    def _store(self, app, monkeypatch, now_s: float, pipeline_slot: str, **metrics):
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot=pipeline_slot,
+                                           metrics=metrics))
+
+    def _build(self, app, monkeypatch, now_s: float) -> dict:
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        return app._build_verdicts()
+
+    def test_only_the_verdicts_go_by_pair(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        self._store(app, monkeypatch, 100.0, "pipeline_1", flow_ok=1, grain_pct=40.0)
+        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=0)
+        assert self._build(app, monkeypatch, 100.5) == {
+            ("camera_3", "pipeline_1"): {"flow_ok": 1},
+            ("camera_3", "pipeline_2"): {"safety_ok": 0},
+        }
+
+    def test_a_verdict_expires_with_the_max_age_of_its_row(self, monkeypatch):
+        """El mismo vencimiento que el registro: la pantalla y el PLC no discrepan."""
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"flow_ok": 10.0})
+        self._store(app, monkeypatch, 100.0, "pipeline_1", flow_ok=1)
+        assert self._build(app, monkeypatch, 109.0) == {("camera_3", "pipeline_1"): {"flow_ok": 1}}
+        assert self._build(app, monkeypatch, 111.0) == \
+            {("camera_3", "pipeline_1"): {"flow_ok": None}}
+
+    def test_without_max_age_an_ok_does_not_stay_on_screen(self, monkeypatch):
+        """Sin fila en el mapa nadie lo renueva: un OK viejo de las personas no se ve en verde."""
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
+        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=1)
+        stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
+        assert self._build(app, monkeypatch, stale_s) == \
+            {("camera_3", "pipeline_2"): {"safety_ok": None}}
+
+    def test_an_unreliable_result_does_not_renew_a_verdict(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
+        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=1)
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: 102.5))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                                           metrics={"safety_ok": 1}, is_valid=False,
+                                           invalid_reason="low_confidence"))
+        stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
+        assert self._build(app, monkeypatch, stale_s) == \
+            {("camera_3", "pipeline_2"): {"safety_ok": None}}
 
 
 class _StatusEngine:
@@ -966,11 +1020,14 @@ class TestPipelineWords:
         app._build_clock_registers = lambda: {}
         app._build_camera_registers = lambda: {}
         app._build_gpio_registers = lambda: {}
+        app._build_verdicts = lambda: {}
         published: dict = {}
         app._mapped_only = lambda values: published.update(values) or {}
         app._modbus = types.SimpleNamespace(update_block=lambda registers: None,
                                             get_register=lambda addr: 0)
-        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
+        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None,
+                                        update_heartbeat=lambda count: None,
+                                        update_verdicts=lambda verdicts: None)
         app._on_registers_tick()
         assert published["pipeline_1_state_bitfield"] == 0
 

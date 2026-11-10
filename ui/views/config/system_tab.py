@@ -4,7 +4,7 @@ Pestaña de sistema: las secciones `project:`, `system:`, `ui:` y `system_monito
 `project:` y el nombre de la aplicación se muestran de sólo lectura: identifican la
 instalación y se escriben una vez, al armar el fork. Cambiarlos desde la UI de planta
 rompería la correspondencia entre el equipo y sus datos históricos —y el nombre, además,
-es el que aparece en el título de la ventana y en el header, que se arman al iniciar—.
+es el que aparece en el título de la ventana y en la barra lateral, que se arman al iniciar—.
 
 `system.device_id` también es de sólo lectura, por la misma razón: es una identidad que se
 fija en la puesta en marcha y no una preferencia de planta. Es el `client_id` de MQTT —dos
@@ -12,7 +12,7 @@ equipos con el mismo id se echan del broker— y el tag `device` de cada punto d
 así que cambiarlo parte la serie en dos. La licencia no lo compara: la ata la huella.
 
 El idioma y el tema son las dos únicas claves que la UI aplica sin reiniciar la app:
-las emite el ConfigView y las toma la ventana principal.
+las emite `ConfigTabs` y las toma la ventana principal.
 """
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -23,8 +23,9 @@ from ui.strings import LANGUAGES, tr
 from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
     add_check_row, add_form_row, add_hint_row, build_combo_box, build_group_box,
-    build_line_edit, build_readonly_line_edit, join_list, set_combo_value, split_list,
+    build_line_edit, build_readonly_line_edit, set_combo_value,
 )
+from ui.widgets.interface_picker import InterfaceChecklist
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -77,9 +78,7 @@ class SystemTab(AbstractConfigTab):
     def _build_monitor_box(self) -> QWidget:
         box, form = build_group_box(tr("sys_box_monitor"))
         self._disk_path = add_form_row(form, tr("sys_disk_path"), build_line_edit("", "."))
-        self._net_interfaces = add_form_row(
-            form, tr("sys_net_interfaces"), build_line_edit("", "eth0, eth1")
-        )
+        self._net_interfaces = add_form_row(form, tr("sys_net_interfaces"), InterfaceChecklist())
         return box
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
@@ -98,9 +97,7 @@ class SystemTab(AbstractConfigTab):
         self._dark_mode.setChecked(bool(self._config.get("ui.dark_mode", True)))
 
         self._disk_path.setText(str(self._config.get("system_monitor.disk_path", ".") or "."))
-        self._net_interfaces.setText(
-            join_list(self._config.get("system_monitor.net_interfaces", []))
-        )
+        self._net_interfaces.set_selected(self._config.get("system_monitor.net_interfaces", []))
 
     def save(self):
         # `app_name` y `device_id` no se guardan: son de sólo lectura. El `device_id` es
@@ -113,5 +110,4 @@ class SystemTab(AbstractConfigTab):
         self._config.set("ui.dark_mode", self._dark_mode.isChecked())
 
         self._config.set("system_monitor.disk_path", self._disk_path.text())
-        self._config.set("system_monitor.net_interfaces",
-                         split_list(self._net_interfaces.text()))
+        self._config.set("system_monitor.net_interfaces", self._net_interfaces.get_selected())

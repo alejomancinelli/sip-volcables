@@ -4,6 +4,10 @@ Chip de estado: una etiqueta con forma de píldora y cuatro colores semánticos.
 El color no se escribe acá: `set_state()` deja el estado en la propiedad Qt `state`
 y el QSS del tema lo pinta con `StatusChip[state="ok"]`. Así los cuatro colores viven
 con el resto de los colores del tema y el chip cambia solo al cambiar de tema.
+
+Con `pill=True` es la píldora del sistema de diseño —el color de estado sobre su mismo tono
+suave, más chica—, la que usa la página de inicio. Es el mismo widget con otro nombre de
+objeto, así que los estados y `set_state()` son los mismos.
 """
 
 from PySide6.QtCore import Qt
@@ -17,14 +21,17 @@ CHIP_ERROR = "error"
 CHIP_INFO = "info"
 
 _PROPERTY_STATE = "state"
+_PROPERTY_COMPACT = "compact"     # el QSS lo achica: para una fila que comparte con un título
 
 
 class StatusChip(QLabel):
     """Etiqueta de estado con color semántico. Arranca en ámbar."""
 
-    def __init__(self, text: str = "", parent: QLabel | None = None):
+    def __init__(self, text: str = "", parent: QLabel | None = None, *, compact: bool = False,
+                 pill: bool = False):
         super().__init__(text, parent)
-        self.setObjectName("statusChip")
+        self.setObjectName("statusPill" if pill else "statusChip")
+        self.setProperty(_PROPERTY_COMPACT, compact)
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.set_state(CHIP_WARNING)
 

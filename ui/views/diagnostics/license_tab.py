@@ -2,8 +2,9 @@
 Pestaña de licencia: qué licencia tiene el equipo, y los dos botones de la renovación.
 
 **No valida nada.** Recibe el dict de `LicenseManager.get_status()` por `update_license()`
-y lo muestra; quién decide si una licencia vale es el subsistema, no la pantalla. De acá
-sale un solo texto que no viene del estado: el que traduce cada valor a un color de chip.
+y lo muestra; quién decide si una licencia vale es el subsistema, no la pantalla. El color
+del chip de cada estado sale de `ui/service_status.py`, el mismo que usa la página de
+inicio.
 
 Los dos botones **no leen ni escriben archivos**: abren un diálogo para elegir una ruta
 —que es presentación, no I/O— y emiten la ruta por una señal. El que abre el archivo,
@@ -30,23 +31,11 @@ from system.config_manager import ConfigManager
 from system.license import manager
 from system.license.request import REQUEST_FILENAME
 
+from ui import service_status
 from ui.strings import tr
 from ui.views.diagnostics.abstract_tab import AbstractDiagnosticsTab
 from ui.widgets.form import add_form_row, add_hint_row, build_group_box
-from ui.widgets.status_chip import CHIP_ERROR, CHIP_INFO, CHIP_OK, CHIP_WARNING, StatusChip
-
-# Estado del subsistema -> color del chip. Un equipo sin licencia va en rojo y uno
-# corriendo desde fuentes en gris: el segundo no es una falla del equipo, es un build de
-# desarrollo, y pintarlo de rojo enseñaría a ignorar el rojo.
-_CHIP_BY_STATE = {
-    manager.STATE_VALID:            CHIP_OK,
-    manager.STATE_UNLICENSED_BUILD: CHIP_INFO,
-    manager.STATE_ABSENT:           CHIP_ERROR,
-    manager.STATE_INVALID:          CHIP_ERROR,
-    manager.STATE_FOREIGN:          CHIP_ERROR,
-    manager.STATE_EXPIRED:          CHIP_ERROR,
-    manager.STATE_TAMPERED:         CHIP_ERROR,
-}
+from ui.widgets.status_chip import CHIP_ERROR, CHIP_OK, CHIP_WARNING, StatusChip
 
 _EMPTY_VALUE = "—"
 
@@ -109,9 +98,8 @@ class LicenseTab(AbstractDiagnosticsTab):
         self._values["cameras"].setText(_format_cameras(status.get("max_cameras")))
         self._values["features"].setText(", ".join(status.get("features") or ()) or _EMPTY_VALUE)
 
-        state = str(status.get("state") or "")
-        self._state_chip.set_state(_CHIP_BY_STATE.get(state, CHIP_INFO),
-                                   tr(f"lic_state_{state}") if state else tr("lic_state_unknown"))
+        text, chip_state = service_status.describe_license(status)
+        self._state_chip.set_state(chip_state, text)
         self._update_expiry_chip(status)
 
         reason = str(status.get("reason") or "")

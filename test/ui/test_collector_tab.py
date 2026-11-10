@@ -101,6 +101,11 @@ class TestCameras:
         tab.save()
         assert config.written["image_collector.cameras"] == ["camera_1", "camera_9"]
 
+    def test_a_checkbox_shows_the_camera_name_and_falls_back_to_the_slot(self):
+        tab, _ = _tab(cameras={"camera_1": {"name": "Acoplado"}, "camera_2": {}})
+        assert [check.text() for check in tab._camera_checks.values()] == \
+            ["Acoplado", "camera_2"]
+
     def test_turning_collection_off_does_not_uncheck_them(self):
         """El toggle de recolección atenúa las cámaras, pero no las desmarca."""
         tab, config = _tab(**{"image_collector.cameras": ["camera_2"]})
@@ -108,6 +113,30 @@ class TestCameras:
         assert not tab._camera_checks["camera_2"].isEnabled()
         tab.save()
         assert config.written["image_collector.cameras"] == ["camera_2"]
+
+
+class TestIntervals:
+    def test_the_minimum_cannot_pass_the_maximum(self):
+        """Cada guardado cae al azar entre los dos."""
+        tab, _ = _tab(**{"image_collector.interval_min_s": 60,
+                         "image_collector.interval_max_s": 120})
+        tab._interval_min.setValue(500)
+        assert tab._interval_min.value() == 120
+
+    def test_both_go_back_as_they_were(self):
+        tab, config = _tab(**{"image_collector.interval_min_s": 30,
+                              "image_collector.interval_max_s": 90})
+        tab.save()
+        assert (config.written["image_collector.interval_min_s"],
+                config.written["image_collector.interval_max_s"]) == (30, 90)
+
+
+class TestPipelines:
+    def test_save_does_not_touch_the_pipeline_list(self):
+        """Se edita en el archivo: guardar la pestaña no la pisa."""
+        tab, config = _tab(**{"image_collector.pipelines": ["pipeline_1"]})
+        tab.save()
+        assert "image_collector.pipelines" not in config.written
 
 
 def _with_cycle(frames_per_cycle: int, mode: str) -> dict:

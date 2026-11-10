@@ -252,7 +252,7 @@ es maquinaria y se cross-portea; si describe qué se mide en esta planta, es del
 | `tools/camera/camera_catalog.py` | un modelo de cámara que falte en el catálogo |
 | el widget central del monitor | qué mira el operador; entra por `set_content()`. Una disposición propia —tres cámaras por pantalla, por ejemplo— son varias `CameraGrid(cfg, camera_slots=...)` dentro de ese widget |
 | `ui/views/config/process_tab.py` | los campos de `process:`; la pestaña ya está registrada y vacía |
-| `ui/views/config/<otra>_tab.py` | otra sección propia, más **una línea** en `_TAB_CLASSES` |
+| `ui/views/config/<otra>_tab.py` | otra sección propia, más **una línea** en la página que la muestra, en `ui/navigation.py` |
 | `test/` | un test por archivo nuevo, espejando el árbol |
 | `manual_test/<tema>/` | verificaciones con hardware, con su `config.yaml` al lado |
 | `calibration/<tool>/` | una herramienta de puesta en marcha que produce valores del config, con su `README.md` para quien calibra, más **una línea** en `calibration/registry.py`: con eso es un subcomando de `main.py` y un lanzador del entregable. La jerarquía y las reglas, en [calibration/README.md](calibration/README.md) |
@@ -278,7 +278,7 @@ lo que falta es un punto de extensión, no un parche.
 | dataset | `system/image_collector/collector.py`, `conditions.py` |
 | licencia | `system/license/*` entero. La clave pública no se edita en ningún fork: la genera el repositorio de firma al compilar, en un `_public_key.py` que no se versiona |
 | verificación | `ci/check.py`, `ci/suite_index.py`, `.githooks/*`, `pyproject.toml`, `requirements-dev.txt` |
-| interfaz | `ui/` entero salvo lo de arriba: `strings.py`, `theme.py`, `service_status.py`, `main_window.py`, las tres vistas, `views/config/*`, `views/diagnostics/*`, `widgets/*`, `dialogs/*`, `styles/*` |
+| interfaz | `ui/` entero salvo lo de arriba: `strings.py`, `theme.py`, `service_status.py`, `main_window.py`, `navigation.py`, las páginas, `views/config/*`, `views/diagnostics/*`, `widgets/*`, `dialogs/*`, `styles/*` |
 
 Tres excepciones acotadas: `model_factory.py`, `pipeline_factory.py` y `camera_factory.py`
 reciben **una línea** cada uno cuando el fork agrega una implementación. Eso es registro, no lógica.
@@ -408,12 +408,13 @@ local silencioso es justo donde esa suposición muerde.
 
 ## La interfaz
 
-`ui/` viene armada y andando: tres vistas —monitor, configuración, diagnóstico—, ocho
-pestañas que cubren todas las secciones genéricas del `config.yaml`, cuatro de
-diagnóstico, dos temas y los widgets reutilizables. Los dos huecos son a propósito: el
-área central del monitor la llena el fork, y la pestaña de proceso llega vacía porque sus
-campos cambian en cada instalación. El botón de GPIO del header aparece cuando
-`gpio.enabled` está prendido.
+`ui/` viene armada y andando: una barra lateral con las páginas agrupadas por subsistema
+—monitor, proceso, cámaras, inferencia, comunicación, sistema, logs—, las pestañas que
+cubren todas las secciones genéricas del `config.yaml` y las de diagnóstico, dos temas y
+los widgets reutilizables. Qué pestañas muestra cada página lo dice `ui/navigation.py`. Los
+dos huecos son a propósito: el área central del monitor la llena el fork, y la pestaña de
+proceso llega vacía porque sus campos cambian en cada instalación. La página de entradas y
+salidas aparece cuando `gpio.enabled` está prendido.
 
 Cómo se toca cada atributo —dónde vive un color, un texto, una medida; cómo se agrega
 una pestaña o un widget; qué cosas la UI **no** hace— está en [docs/ui.md](docs/ui.md).

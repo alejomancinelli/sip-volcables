@@ -1,26 +1,34 @@
 """
 Pestaña de video: la sección `video:` — HTTP, RTSP y el ajuste de visualización.
 
+Dos tarjetas con la forma de las de ajustes (`ui/widgets/settings_card.py`): «Servidores»,
+con una sección por servidor, y «Visualización», con el gamma y el contraste local.
+
 Los dos servidores son independientes y así se editan: cada uno con su checkbox de
-habilitado, que apaga y atenúa sus propios campos.
+habilitado, que apaga y atenúa sus propios campos. Se aplican al reiniciar. Por dónde
+escucha cada uno se elige entre las interfaces que tiene el equipo
+(`ui/widgets/interface_picker.py`): el HTTP en una dirección, el RTSP en una o varias
+interfaces, porque levanta un servidor por cada una.
 
 El ajuste de visualización está acá y no en la pestaña de inferencia a propósito: la
 gamma y el contraste local no mueven un píxel de lugar, así que van sólo al camino de
-visualización y el modelo y el dataset siguen viendo el frame crudo. La nota al pie lo
-dice en pantalla, que es donde hace falta.
+visualización y el modelo y el dataset siguen viendo el frame crudo. La descripción de la
+sección lo dice en pantalla, que es donde hace falta. Es lo único de esta pestaña que se
+aplica al guardar, sin reiniciar: se ajusta mirando la imagen.
 """
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QVBoxLayout, QWidget
 
 from system.config_manager import ConfigManager
 
 from ui.strings import tr
 from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
-    add_check_row, add_form_row, add_hint_row, build_double_spin_box, build_group_box,
-    build_line_edit, build_spin_box, build_value_combo_box, join_list, set_combo_data,
-    split_list, wire_enable_toggle,
+    build_double_spin_box, build_spin_box, build_value_combo_box, set_combo_data,
+    wire_enable_toggle,
 )
+from ui.widgets.interface_picker import ALL_ADDRESSES, InterfaceChecklist, build_address_combo
+from ui.widgets.settings_card import SettingsCard
 
 # Texto que ve el operador -> valor de `video.rtsp.codec`. Los `_hw` usan el encoder
 # de la Jetson y no existen en un x86; el texto lo dice para que no se elijan a ciegas.
@@ -41,6 +49,9 @@ _MAX_FPS = 240
 _MAX_CLAHE_CLIP = 8.0
 _MAX_GAMMA = 4.0
 
+_CARD_SPACING_PX = 24        # entre tarjetas, como la web
+_COLUMNS = 3
+
 
 class VideoTab(AbstractConfigTab):
     """Sección `video:` del config. Ver el contrato en `abstract_tab.py`."""
@@ -50,72 +61,79 @@ class VideoTab(AbstractConfigTab):
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.addWidget(self._build_http_box())
-        layout.addWidget(self._build_rtsp_box())
-        layout.addWidget(self._build_display_box())
+        # Sin margen propio: las tarjetas arrancan en el borde del encabezado de la página.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_CARD_SPACING_PX)
+        layout.addWidget(self._build_servers_card())
+        layout.addWidget(self._build_display_card())
         layout.addStretch()
         self.load()
 
     # ── Construcción ─────────────────────────────────────────────────────────
 
-    def _build_http_box(self) -> QWidget:
-        box, form = build_group_box(tr("video_box_http"))
-        self._http_enabled = add_check_row(form, tr("field_enabled"), True)
-        self._http_port = add_form_row(form, tr("field_port"), build_spin_box(1, _MAX_PORT, 8091))
-        self._http_quality = add_form_row(
-            form, tr("video_jpeg_quality"), build_spin_box(1, 100, 80)
-        )
-        self._http_width = add_form_row(
-            form, tr("video_frame_width"), build_spin_box(0, _MAX_FRAME_WIDTH_PX, 960)
-        )
-        self._http_log = add_check_row(form, tr("video_log_connections"), True)
-        wire_enable_toggle(self._http_enabled, [
-            self._http_port, self._http_quality, self._http_width, self._http_log,
-        ])
-        return box
+    def _build_servers_card(self) -> QWidget:
+        card = SettingsCard(tr("video_card_servers"))
 
-    def _build_rtsp_box(self) -> QWidget:
-        box, form = build_group_box(tr("video_box_rtsp"))
-        self._rtsp_enabled = add_check_row(form, tr("field_enabled"), False)
-        self._rtsp_port = add_form_row(form, tr("field_port"), build_spin_box(1, _MAX_PORT, 8554))
-        self._rtsp_codec = add_form_row(
-            form, tr("video_codec"), build_value_combo_box(_CODECS, _DEFAULT_CODEC)
-        )
-        self._rtsp_fps = add_form_row(form, tr("field_fps"), build_spin_box(1, _MAX_FPS, 15))
-        self._rtsp_width = add_form_row(
-            form, tr("video_frame_width"), build_spin_box(0, _MAX_FRAME_WIDTH_PX, 0)
-        )
-        self._rtsp_bitrate = add_form_row(
-            form, tr("video_bitrate"), build_spin_box(0, _MAX_BITRATE_KBPS, 4000)
-        )
-        self._rtsp_interfaces = add_form_row(
-            form, tr("video_net_interfaces"), build_line_edit("", "eth0, eth1")
-        )
-        self._rtsp_log = add_check_row(form, tr("video_log_connections"), True)
+        http = card.add_section(tr("video_box_http"), tr("video_http_description"), _COLUMNS)
+        self._http_enabled = http.add_row(QCheckBox(tr("video_http_enabled")))
+        self._http_host = http.add_field(
+            tr("net_listen_on"), build_address_combo(), hint=tr("net_listen_hint"))
+        self._http_port = http.add_field(tr("field_port"), build_spin_box(1, _MAX_PORT, 8091))
+        self._http_quality = http.add_field(
+            tr("video_jpeg_quality"), build_spin_box(1, 100, 80),
+            hint=tr("video_jpeg_quality_hint"))
+        self._http_width = http.add_field(
+            tr("video_frame_width"), build_spin_box(0, _MAX_FRAME_WIDTH_PX, 960),
+            hint=tr("video_frame_width_hint"))
+        self._http_log = http.add_row(QCheckBox(tr("video_log_connections")))
+        wire_enable_toggle(self._http_enabled, [
+            self._http_host, self._http_port, self._http_quality, self._http_width,
+            self._http_log,
+        ])
+
+        rtsp = card.add_section(tr("video_box_rtsp"), tr("video_rtsp_description"), _COLUMNS)
+        self._rtsp_enabled = rtsp.add_row(QCheckBox(tr("video_rtsp_enabled")))
+        self._rtsp_port = rtsp.add_field(tr("field_port"), build_spin_box(1, _MAX_PORT, 8554))
+        self._rtsp_codec = rtsp.add_field(
+            tr("video_codec"), build_value_combo_box(_CODECS, _DEFAULT_CODEC),
+            hint=tr("video_codec_hint"))
+        self._rtsp_fps = rtsp.add_field(
+            tr("field_fps"), build_spin_box(1, _MAX_FPS, 15), hint=tr("unit_fps"))
+        self._rtsp_width = rtsp.add_field(
+            tr("video_frame_width"), build_spin_box(0, _MAX_FRAME_WIDTH_PX, 0),
+            hint=tr("video_frame_width_hint"))
+        self._rtsp_bitrate = rtsp.add_field(
+            tr("video_bitrate"), build_spin_box(0, _MAX_BITRATE_KBPS, 4000),
+            hint=tr("video_bitrate_hint"))
+        self._rtsp_interfaces = rtsp.add_field(
+            tr("video_net_interfaces"), InterfaceChecklist(), hint=tr("net_interfaces_hint"),
+            span=_COLUMNS)
+        self._rtsp_log = rtsp.add_row(QCheckBox(tr("video_log_connections")))
         wire_enable_toggle(self._rtsp_enabled, [
             self._rtsp_port, self._rtsp_codec, self._rtsp_fps, self._rtsp_width,
             self._rtsp_bitrate, self._rtsp_interfaces, self._rtsp_log,
         ])
-        return box
+        return card
 
-    def _build_display_box(self) -> QWidget:
-        box, form = build_group_box(tr("video_box_display"))
-        self._gamma = add_form_row(
-            form, tr("video_gamma"),
+    def _build_display_card(self) -> QWidget:
+        card = SettingsCard(tr("video_card_display"))
+        display = card.add_section(tr("video_box_display"), tr("video_display_description"),
+                                   _COLUMNS)
+        self._gamma = display.add_field(
+            tr("video_gamma"),
             build_double_spin_box(0.1, _MAX_GAMMA, 1.0, decimals=2, step=0.05),
-        )
-        self._clahe_clip = add_form_row(
-            form, tr("video_clahe_clip"),
+            hint=tr("video_gamma_hint"))
+        self._clahe_clip = display.add_field(
+            tr("video_clahe_clip"),
             build_double_spin_box(0.0, _MAX_CLAHE_CLIP, 0.0, decimals=1, step=0.5),
-        )
-        add_hint_row(form, tr("video_display_note"))
-        return box
+            hint=tr("video_clahe_hint"))
+        return card
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
     def load(self):
         self._http_enabled.setChecked(bool(self._config.get("video.http.enabled", True)))
+        set_combo_data(self._http_host, str(self._config.get("video.http.host", ALL_ADDRESSES)))
         self._http_port.setValue(int(self._config.get("video.http.port", 8091)))
         self._http_quality.setValue(int(self._config.get("video.http.jpeg_quality", 80)))
         self._http_width.setValue(int(self._config.get("video.http.frame_width_px", 960)))
@@ -127,7 +145,7 @@ class VideoTab(AbstractConfigTab):
         self._rtsp_fps.setValue(int(self._config.get("video.rtsp.fps", 15)))
         self._rtsp_width.setValue(int(self._config.get("video.rtsp.frame_width_px", 0)))
         self._rtsp_bitrate.setValue(int(self._config.get("video.rtsp.bitrate_kbps", 0) or 0))
-        self._rtsp_interfaces.setText(join_list(self._config.get("video.rtsp.net_interfaces", [])))
+        self._rtsp_interfaces.set_selected(self._config.get("video.rtsp.net_interfaces", []))
         self._rtsp_log.setChecked(bool(self._config.get("video.rtsp.log_connections", True)))
 
         self._gamma.setValue(float(self._config.get("video.display.gamma", 1.0)))
@@ -135,6 +153,7 @@ class VideoTab(AbstractConfigTab):
 
     def save(self):
         self._config.set("video.http.enabled", self._http_enabled.isChecked())
+        self._config.set("video.http.host", self._http_host.currentData())
         self._config.set("video.http.port", self._http_port.value())
         self._config.set("video.http.jpeg_quality", self._http_quality.value())
         self._config.set("video.http.frame_width_px", self._http_width.value())
@@ -146,7 +165,7 @@ class VideoTab(AbstractConfigTab):
         self._config.set("video.rtsp.fps", self._rtsp_fps.value())
         self._config.set("video.rtsp.frame_width_px", self._rtsp_width.value())
         self._config.set("video.rtsp.bitrate_kbps", self._rtsp_bitrate.value())
-        self._config.set("video.rtsp.net_interfaces", split_list(self._rtsp_interfaces.text()))
+        self._config.set("video.rtsp.net_interfaces", self._rtsp_interfaces.get_selected())
         self._config.set("video.rtsp.log_connections", self._rtsp_log.isChecked())
 
         self._config.set("video.display.gamma", self._gamma.value())

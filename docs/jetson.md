@@ -368,7 +368,7 @@ decodificación**, así que la pantalla no avisa si se cambia. Al cambiar `decod
 a calibrar.
 
 La región donde se mide es `cameras.<slot>.lens_health.roi` (`enabled`, `x_px`, `y_px`,
-`width_px`, `height_px`), y se dibuja en la misma pestaña de óptica. No es la de ningún
+`width_px`, `height_px`), y se dibuja en la página Cámaras, en la sub-pestaña de esa cámara. No es la de ningún
 pipeline: lo que importa acá es dónde hay textura fija y nítida para medir el vidrio. Sin
 región se mide el frame entero.
 
@@ -392,6 +392,7 @@ decisión: `image_adjust`.
 ```yaml
 http:
   enabled: true
+  host: 0.0.0.0         # una sola dirección; 0.0.0.0 = todas las interfaces
   port: 8091
   jpeg_quality: 80
   frame_width_px: 960
@@ -402,6 +403,7 @@ rindió desde un array de numpy). Sin clientes conectados no se codifica nada.
 
 | Clave | Qué hace en la imagen |
 |---|---|
+| `host` | Nada en la imagen: por qué dirección se publica. `0.0.0.0` escucha en todas; la IP de una interfaz, sólo por ahí. La pestaña Video la ofrece de una lista. |
 | `jpeg_quality` | 0–100. Menos calidad, bloques visibles y menos bytes por frame. |
 | `frame_width_px` | Reduce el ancho antes de codificar (filtro por área, conserva el aspecto, **nunca amplía**); 0 = nativo. Cuesta CPU en proporción al tamaño codificado. |
 

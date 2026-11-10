@@ -29,7 +29,7 @@ hacer `main.py`, con los mismos métodos públicos. Ver `docs/ui.md`.
                                    escribe con los registros que muestra la pestaña
     hilo de telemetría             el `status` de los backends de InfluxDB y MQTT
     los packers de system/formats  las palabras de estado y de comunicaciones
-    el logger real                 puenteado al log de la barra lateral
+    el logger real                 puenteado a la página Logs
 
 Lo único sintético son los frames, que salen del `mock` driver, y el controlador de
 GPIO, porque el de verdad sin `gpiod` deja las entradas quietas. El servidor RTSP es el único que no
@@ -52,8 +52,9 @@ Qué mirar:
     llevarían sólo las cajas de `pipeline_3`. Las otras cámaras tienen un solo pipeline.
   - **El selector de foco** deja una cámara sola y en grande, y permite saltar directo a
     otra sin volver a la grilla; la primera opción vuelve a mostrarlas todas.
-  - **La barra lateral se colapsa** con la tira de la izquierda, que queda visible.
-  - **El log de la barra lateral y la pestaña Logs son el logger real.** Todo lo que
+  - **La barra lateral se contrae** a un riel de íconos con el botón de su pie, y ningún
+    ícono cambia de lugar.
+  - **La página Logs es el logger real.** Todo lo que
     logue cualquier subsistema aparece ahí, desde su propio hilo, sin que la GUI se
     trabe: cómo se hace está en `_UiLogHandler`.
   - **Pestaña Hardware**: los números son de este equipo. Cargarlo y ver subir CPU y
@@ -72,16 +73,20 @@ Qué mirar:
 
     El mapa es base-1 y el cliente habla en direcciones de PDU, que arrancan en 0: el
     registro 81 se pide como `address=80`.
-  - **Los chips de la barra lateral no están simulados**: cada uno dice lo que informó su
-    subsistema. Al arrancar, el de Modbus TCP pasa de «Iniciando» a «OK» un par de
-    segundos después del bind —ese margen es del servidor, no de la pantalla—, el de RTU
-    queda en «Deshabilitado» porque el config lo apaga, y los de telemetría también,
-    porque los dos backends están apagados. Prender InfluxDB en la pestaña Telemetría y
-    reiniciar la prueba es la forma de ver ese chip informar si conectó o no.
+  - **Los chips de Modbus › Estadísticas y › Registros, y de Video y telemetría › Streams,
+    no están simulados**: cada uno dice lo que informó su subsistema. Al arrancar, el de Modbus TCP pasa de «Iniciando»
+    a «OK» un par de segundos después del bind —ese margen es del servidor, no de la
+    pantalla—, y el de RTU queda en «Deshabilitado» porque el config lo apaga.
   - **La palabra de comunicaciones del registro 2 sale de los mismos estados que los
     chips**: si la pantalla dice que un canal está andando, su bit está prendido. Es a
-    propósito que sea una sola fuente.
-  - **Pestaña Video**: abrir en el navegador una de las URLs que muestra —son las del
+    propósito que sea una sola fuente. En Registros, elegir esa fila —o la del sistema,
+    o la de la cámara— muestra debajo qué dice cada bit, y «Copiar CSV» deja el mapa en
+    el portapapeles.
+  - **Pestaña Estadísticas**: con el cliente de arriba leyendo en un loop, las consultas
+    por minuto y las lecturas de la tarjeta TCP suben, y «Clientes conectados» pasa a 1.
+    Un `client.write_register(0, 1)` —el registro 1 no es del PLC— suma una excepción
+    0x02. «Reiniciar» pone en cero lo que se ve, no el servidor.
+  - **Pestaña Streams**: abrir en el navegador una de las URLs que muestra —son las del
     servidor que esta prueba levantó de verdad— y ver el contador de Clientes subir. Al
     cerrar la pestaña del navegador, bajar.
   - **Cambiar la configuración desde la pantalla**: editar cualquier campo, Guardar, y
@@ -102,10 +107,10 @@ Qué mirar:
     comentado y vale la pena recuperarlo con `git checkout manual_test/ui/config.yaml`
     después de probar el guardado. En un fork es lo mismo con el `config.yaml` de la app:
     la copia comentada es la que está en git.
-  - **Herramienta de ROI**: pestaña Cámaras → Cinta entrada → «Herramienta interactiva de
+  - **Herramienta de ROI**: página Cámaras → Cinta entrada → «Herramienta interactiva de
     ROI». Se dibuja con el mouse sobre el frame en vivo; al guardar, el recuadro azul
     aparece en el panel de la grilla, que lee el ROI del config.
-  - **El botón GPIO del header** aparece porque esta prueba inyecta un controlador doble:
+  - **La página «Entradas y salidas»** aparece porque esta prueba inyecta un controlador doble:
     el de verdad, sin `gpiod`, queda en simulado y con las entradas quietas. Las salidas
     conmutan y las entradas se mueven solas cada dos segundos.
   - **Sin licencia instalada, el equipo abre igual.** Correr con `--simulate-no-license`
@@ -279,7 +284,7 @@ class _MetricsPoller(QThread):
 
 class _FakeGpioController:
     """
-    Controlador de GPIO de mentira, con la interfaz que espera `ui/dialogs/gpio_dialog.py`.
+    Controlador de GPIO de mentira, con la interfaz que espera `ui/views/gpio_view.py`.
 
     Es un doble y no `system/gpio_control.py` porque el de verdad, sin `gpiod`, queda en
     simulado con las entradas quietas, y esta prueba las quiere ver moverse.
@@ -385,9 +390,9 @@ class _DemoApp(QObject):
 
         # ── Telemetría ───────────────────────────────────────────────────────
         # El hilo arma sus backends y cada uno deja su estado en `backend_status()`.
-        # Con los dos apagados en el config quedan en `disabled`, que es lo que los
-        # chips tienen que decir; prendiendo InfluxDB en la pestaña Telemetría y
-        # reiniciando, el mismo chip pasa a informar si conectó o no.
+        # Con los dos apagados en el config quedan en `disabled`, que es lo que el bit de
+        # su canal tiene que decir; prendiendo InfluxDB en la pestaña Telemetría y
+        # reiniciando, el mismo bit pasa a informar si conectó o no.
         self._telemetry = PersistenceThread(config)
         self._telemetry_tags = {"device": str(config.get("system.device_id", "") or "")}
         # Los resultados de cada par (cámara, pipeline) desde el último tick: se publican
@@ -429,7 +434,7 @@ class _DemoApp(QObject):
             # que va al PLC.
             thread.status_updated.connect(self._grid.update_status)
             thread.status_updated.connect(
-                self._window.diagnostics_view.update_camera_status
+                self._window.update_camera_status
             )
             thread.status_updated.connect(self._on_camera_status)
             self._capture_threads.append(thread)
@@ -513,6 +518,8 @@ class _DemoApp(QObject):
         """Un resultado del motor: el frame anotado a la grilla y al stream anotado."""
         self._camera_illumination[result.camera_slot] = result.illumination_pct
         self._grid.set_illumination_pct(result.camera_slot, result.illumination_pct)
+        self._window.update_inference_times(result.camera_slot, result.pipeline_slot,
+                                            result.cycle_time_ms, result.inference_time_ms)
         # Telemetría: al buzón, y la publica el tick. Sin los frames ni las máscaras, que
         # el tick no lee y retendrían megas por resultado; las detecciones quedan, porque
         # de ellas sale `detection_count`.
@@ -548,7 +555,7 @@ class _DemoApp(QObject):
     def _on_metrics_ready(self, metrics: dict):
         """Slot de `_MetricsPoller`: llega ya medido, desde el hilo del poller."""
         self._last_metrics = metrics
-        self._window.diagnostics_view.update_hardware_metrics(metrics)
+        self._window.update_hardware_metrics(metrics)
 
     def _on_telemetry_tick(self):
         """
@@ -582,6 +589,7 @@ class _DemoApp(QObject):
         if not metrics:
             return
         self._heartbeat = (self._heartbeat + 1) % _HEARTBEAT_MAX
+        self._window.update_heartbeat(self._heartbeat)
         statuses = self._get_service_statuses()
 
         values = {
@@ -638,7 +646,7 @@ class _DemoApp(QObject):
             {name: value for name, value in values.items() if name in _REGISTER_NAMES})
         registers.update(SCHEMA.mirror_batch(self._config))
         self._modbus.update_block(registers)
-        self._window.diagnostics_view.update_modbus_values(registers)
+        self._window.update_modbus_values(registers)
 
     def _on_status_tick(self):
         """
@@ -657,6 +665,7 @@ class _DemoApp(QObject):
         self._window.set_stream_urls(
             service_status.SERVICE_VIDEO_HTTP, self._build_http_urls()
         )
+        self._window.update_modbus_stats(self._modbus.get_stats())
 
     def _get_service_statuses(self) -> dict:
         """
@@ -688,7 +697,7 @@ class _DemoApp(QObject):
         self._config_mtime_s = mtime_s
         self._config.load()
         self._config_snapshot = _read_config_file()
-        self._window.reload_config_view()
+        self._window.reload_config()
         logger.info(f"[Demo] {_CONFIG_PATH.name} cambió por afuera: releído y panel recargado.")
 
     # ── Licencia ─────────────────────────────────────────────────────────────
