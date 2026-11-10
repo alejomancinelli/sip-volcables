@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**97 archivos, 573 grupos, 2944 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**98 archivos, 575 grupos, 2953 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -28,11 +28,12 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
+| [test/tools/](#testtools) | 1 | 5 |
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
 | [test/ui/](#testui) | 16 | 242 |
-| [test/video/](#testvideo) | 3 | 193 |
+| [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
 
@@ -3841,6 +3842,27 @@ Tests del backend MQTT: armado del cliente para las dos APIs de paho, puerto y c
 
 </details>
 
+## test/tools/
+
+### [test_net_interfaces.py](../test/tools/test_net_interfaces.py) — 5 tests
+
+Tests de la lista de interfaces de red: qué se ofrece y qué se deja afuera.
+
+| Grupo | Tests |
+|---|---:|
+| `TestListInterfaces` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestListInterfaces`
+  - `test_each_interface_comes_with_its_ipv4_and_link`
+  - `test_loopback_is_left_out`
+  - `test_an_interface_without_ipv4_is_kept_without_an_address`
+  - `test_they_come_sorted_by_name`
+  - `test_a_psutil_failure_is_an_empty_list`
+
+</details>
+
 ## test/tools/camera/
 
 ### [test_basler_driver.py](../test/tools/camera/test_basler_driver.py) — 28 tests
@@ -5070,7 +5092,7 @@ Tests del contrato de los servidores de video: qué tiene que implementar un tra
 
 </details>
 
-### [test_http_server.py](../test/video/test_http_server.py) — 86 tests
+### [test_http_server.py](../test/video/test_http_server.py) — 90 tests
 
 Tests del servidor HTTP de video: reducción de frame, gating por cliente conectado, espera por número de secuencia, ciclo de vida y endpoints.
 
@@ -5090,6 +5112,7 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
 | `TestClientDisconnect` | Cortar la conexión tiene que dejar de costar CPU y ancho de banda enseguida. | 5 |
 | `TestConnectionLogging` | Una línea por cliente que entra y sale es útil probando y ruido en producción, así que la decide el config. | 4 |
 | `TestStreamNames` | La ruta puede llevar un nombre distinto del slot. | 5 |
+| `TestHost` | `video.http.host`: por dónde escucha, y con qué dirección salen las URLs. | 4 |
 
 <details><summary>Tests</summary>
 
@@ -5193,6 +5216,11 @@ Tests del servidor HTTP de video: reducción de frame, gating por cliente conect
   - `test_without_the_key_the_route_is_the_slot`
   - `test_an_empty_name_is_ignored`
   - `test_a_stopped_server_publishes_no_urls`
+- `TestHost`
+  - `test_it_listens_on_the_configured_address`
+  - `test_the_urls_use_the_configured_address`
+  - `test_listening_on_every_interface_the_urls_point_to_this_device`
+  - `test_an_empty_address_listens_on_every_interface`
 
 </details>
 

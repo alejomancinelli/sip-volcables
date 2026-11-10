@@ -36,6 +36,7 @@ video:
     # La prueba levanta este servidor de verdad: las URLs que muestra la pestaña Video
     # se abren en el navegador y el contador de clientes se mueve.
     enabled: true
+    host: 0.0.0.0
     port: 8099                  # 8099 y no 8091 para no chocar con la app si está corriendo
     jpeg_quality: 80
     frame_width_px: 960
