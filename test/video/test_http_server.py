@@ -861,3 +861,35 @@ class TestStreamNames:
         server = self._server(monkeypatch)
         server.stop()
         assert server.get_stream_urls() == []
+
+
+class TestHost:
+    """`video.http.host`: por dónde escucha, y con qué dirección salen las URLs."""
+
+    def test_it_listens_on_the_configured_address(self):
+        server = HttpVideoServer(_MockConfig(**{"video.http.host": _LOOPBACK}))
+        server.start()
+        try:
+            assert server._server.server_address[0] == _LOOPBACK
+        finally:
+            server.stop()
+
+    def test_the_urls_use_the_configured_address(self):
+        """Escuchando en una sola dirección, 127.0.0.1 no la alcanzaría."""
+        server = HttpVideoServer(_MockConfig(**{"video.http.host": _LOOPBACK}))
+        server.start()
+        try:
+            urls = server.get_stream_urls()
+            assert urls and all(url.startswith(f"http://{_LOOPBACK}:") for url in urls)
+        finally:
+            server.stop()
+
+    def test_listening_on_every_interface_the_urls_point_to_this_device(self):
+        server = HttpVideoServer(_MockConfig())
+        server._status = hvs.STATUS_ACTIVE      # sin socket: sólo se arman las URLs
+        server._names_by_slot = {"camera_1": "camera_1"}
+        assert all(url.startswith("http://127.0.0.1:") for url in server.get_stream_urls())
+
+    def test_an_empty_address_listens_on_every_interface(self):
+        server = HttpVideoServer(_MockConfig(**{"video.http.host": ""}))
+        assert server._read_host() == hvs._HOST
