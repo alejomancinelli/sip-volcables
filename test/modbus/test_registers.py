@@ -9,6 +9,7 @@ convenciones que el integrador y el código dan por ciertas. Un fork que edite
 import os
 
 import main
+from system.formats import catalog
 from system.modbus.registers import MAP_PATH, REGISTERS, SCHEMA
 from system.modbus.schema import PRODUCERS, UINT16_MAX, write_range
 from system.modbus.server import DEFAULT_REGISTER_COUNT
@@ -219,3 +220,14 @@ class TestAMissingMapDoesNotKillTheImport:
         from system.modbus.registers import LOAD_ERROR
 
         assert LOAD_ERROR == ""
+
+
+class TestStatusWords:
+    def test_every_declared_word_exists_in_the_catalog(self):
+        """Un nombre mal escrito dejaría la palabra sin decodificar, sin ningún error."""
+        assert set(SCHEMA.bitfields().values()) <= set(catalog.WORDS)
+
+    def test_every_bitfield_row_declares_its_word(self):
+        """La convención del nombre: una fila `*_bitfield` es una palabra de estado."""
+        names = {reg.name for reg in REGISTERS if reg.bitfield}
+        assert names == {reg.name for reg in REGISTERS if reg.name.endswith("_bitfield")}

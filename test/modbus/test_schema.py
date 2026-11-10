@@ -637,3 +637,42 @@ class TestMirrorBatch:
     def test_encodes_booleans(self):
         config = _FakeConfig(**{"collector.enabled": True})
         assert self.schema.mirror_batch(config)[11] == 1
+
+
+class TestBitfield:
+    def test_a_row_declares_its_word(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: system_status_bitfield
+  desc: Estado del sistema
+  producer: health
+  bitfield: system_status
+""")
+        assert load_registers(path)[0].bitfield == "system_status"
+
+    def test_a_row_without_it_is_not_a_word(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: heartbeat
+  desc: Heartbeat
+  producer: health
+""")
+        assert load_registers(path)[0].bitfield == ""
+
+    def test_a_word_that_is_not_text_is_rejected(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: system_status_bitfield
+  desc: Estado del sistema
+  producer: health
+  bitfield: 3
+""")
+        with pytest.raises(ValueError, match="bitfield"):
+            load_registers(path)
+
+    def test_the_schema_lists_only_the_words(self):
+        schema = RegisterSchema([
+            Reg(1, "system_status_bitfield", "Estado", PRODUCER_HEALTH, bitfield="system_status"),
+            Reg(2, "heartbeat", "Latido", PRODUCER_HEALTH),
+        ])
+        assert schema.bitfields() == {1: "system_status"}

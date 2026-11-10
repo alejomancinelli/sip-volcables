@@ -1,6 +1,6 @@
 """Tests del servidor Modbus: lectura de config, direccionamiento base-1, el
-contexto —de sólo lectura salvo en las filas que escribe el PLC— y el ciclo de vida
-de los dos transportes.
+contexto —de sólo lectura salvo en las filas que escribe el PLC—, el ciclo de vida
+de los dos transportes y lo que cuenta cada uno.
 
 Nada de acá abre un socket ni un puerto serie: los `StartAsync*Server` de pymodbus
 se reemplazan por dobles. El datastore sí es el real —es lo que se está probando—
@@ -16,8 +16,10 @@ from pymodbus.constants import ExcCodes
 from pymodbus.datastore.simulator import Cell
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.pdu.register_message import (
+    ReadHoldingRegistersResponse,
     WriteMultipleRegistersRequest,
     WriteSingleRegisterRequest,
+    WriteSingleRegisterResponse,
 )
 
 from system.modbus import server as modbus_server
@@ -776,3 +778,118 @@ class TestSharedDatastore:
         server = _server(**{"modbus.slave_id": 17})
         with pytest.raises(NoSuchIdException):
             asyncio.run(server._context.async_getValues(18, _FC_READ_HOLDING, 0, 1))
+
+
+class _Clock:
+    """Reloj que avanza sólo cuando el test lo pide."""
+
+    def __init__(self, now_s: float = 1000.0):
+        self.now_s = now_s
+
+    def __call__(self) -> float:
+        return self.now_s
+
+
+def _answer(stats, response):
+    """Lo que hace pymodbus con cada respuesta: la pasa por `trace_pdu` antes de mandarla."""
+    return stats.trace_pdu(True, response)
+
+
+class TestTransportStats:
+    def test_it_starts_with_nothing_counted(self):
+        stats = modbus_server._TransportStats(_Clock()).get()
+        assert stats == {
+            "connections": 0, "requests": 0, "reads": 0, "writes": 0, "exceptions": 0,
+            "last_exception_code": 0, "requests_per_min": 0, "last_request_age_s": None,
+        }
+
+    def test_answers_are_counted_by_kind(self):
+        stats = modbus_server._TransportStats(_Clock())
+        _answer(stats, ReadHoldingRegistersResponse(registers=[0]))
+        _answer(stats, ReadHoldingRegistersResponse(registers=[0]))
+        _answer(stats, WriteSingleRegisterResponse(address=100, registers=[1]))
+        _answer(stats, ExceptionResponse(_FC_WRITE_SINGLE, ExcCodes.ILLEGAL_VALUE))
+        counted = stats.get()
+        assert counted["requests"] == 4
+        assert counted["reads"] == 2
+        assert counted["writes"] == 1
+        assert counted["exceptions"] == 1
+        assert counted["last_exception_code"] == int(ExcCodes.ILLEGAL_VALUE)
+
+    def test_a_request_is_not_counted_until_it_is_answered(self):
+        """En un bus compartido llegan consultas para otros esclavos: no son del equipo."""
+        stats = modbus_server._TransportStats(_Clock())
+        request = WriteSingleRegisterRequest(address=0, registers=[1])
+        assert stats.trace_pdu(False, request) is request
+        assert stats.get()["requests"] == 0
+
+    def test_the_pdu_goes_back_untouched(self):
+        stats = modbus_server._TransportStats(_Clock())
+        response = ReadHoldingRegistersResponse(registers=[7])
+        assert _answer(stats, response) is response
+
+    def test_the_rate_counts_only_the_last_minute(self):
+        clock = _Clock()
+        stats = modbus_server._TransportStats(clock)
+        for _ in range(3):
+            _answer(stats, ReadHoldingRegistersResponse(registers=[0]))
+        clock.now_s += 30
+        _answer(stats, ReadHoldingRegistersResponse(registers=[0]))
+        assert stats.get()["requests_per_min"] == 4
+        clock.now_s += 31
+        assert stats.get()["requests_per_min"] == 1
+        assert stats.get()["requests"] == 4
+
+    def test_the_age_is_measured_from_the_last_answer(self):
+        clock = _Clock()
+        stats = modbus_server._TransportStats(clock)
+        _answer(stats, ReadHoldingRegistersResponse(registers=[0]))
+        clock.now_s += 2.5
+        assert stats.get()["last_request_age_s"] == pytest.approx(2.5)
+
+    def test_connections_follow_connects_and_disconnects(self):
+        stats = modbus_server._TransportStats(_Clock())
+        stats.trace_connect(True)
+        stats.trace_connect(True)
+        stats.trace_connect(False)
+        assert stats.get()["connections"] == 1
+
+    def test_a_disconnect_never_goes_below_zero(self):
+        stats = modbus_server._TransportStats(_Clock())
+        stats.trace_connect(False)
+        assert stats.get()["connections"] == 0
+
+
+class TestServerStats:
+    def test_both_transports_are_reported(self):
+        stats = _server().get_stats()
+        assert set(stats) == {modbus_server.TRANSPORT_TCP, modbus_server.TRANSPORT_RTU}
+
+    @pytest.mark.parametrize("transport, starter, config_key", [
+        (modbus_server.TRANSPORT_TCP, "StartAsyncTcpServer", "modbus.tcp"),
+        (modbus_server.TRANSPORT_RTU, "StartAsyncSerialServer", "modbus.rtu"),
+    ])
+    def test_each_transport_hands_its_own_counters_to_pymodbus(
+            self, monkeypatch, transport, starter, config_key):
+        received = {}
+
+        def _capture(*args, **kwargs):
+            received.update(kwargs)
+            return _raise(OSError("fin de la prueba"))
+
+        monkeypatch.setattr(modbus_server, starter, _capture)
+        server = _server(**{config_key: {"enabled": True}})
+        run = (server.run_tcp_server if transport == modbus_server.TRANSPORT_TCP
+               else server.run_rtu_server)
+        asyncio.run(run())
+        received["trace_connect"](True)
+        received["trace_pdu"](True, ReadHoldingRegistersResponse(registers=[0]))
+        stats = server.get_stats()[transport]
+        assert stats["connections"] == 1
+        assert stats["reads"] == 1
+
+    def test_shutdown_leaves_nobody_connected(self, monkeypatch):
+        server = _server()
+        server._stats[modbus_server.TRANSPORT_TCP].trace_connect(True)
+        server.run()
+        assert server.get_stats()[modbus_server.TRANSPORT_TCP]["connections"] == 0
