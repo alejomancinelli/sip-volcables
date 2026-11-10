@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**111 archivos, 639 grupos, 3191 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**111 archivos, 639 grupos, 3192 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -32,7 +32,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 29 | 474 |
+| [test/ui/](#testui) | 29 | 475 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -5267,7 +5267,7 @@ Tests del diálogo de polígono: los vértices que se agregan, mueven y borran c
 
 </details>
 
-### [test_process_tab.py](../test/ui/test_process_tab.py) — 31 tests
+### [test_process_tab.py](../test/ui/test_process_tab.py) — 32 tests
 
 Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopper_check`, y que `load()`/`save()` lleven sus valores al config sin tocar la línea, que es de su diálogo.
 
@@ -5275,7 +5275,7 @@ Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopp
 |---|---|---:|
 | `TestCameraTabs` |  | 3 |
 | `TestRoundTrip` |  | 7 |
-| `TestPersonFilter` |  | 5 |
+| `TestPersonFilter` |  | 6 |
 | `TestPersonZone` |  | 6 |
 | `TestLevel` |  | 2 |
 | `TestLevelInspector` | En pausa, el diálogo de la altura mide sobre el último frame inferido: los píxeles de la calza sobre la línea y la distancia a la rueda, con las reglas del annotator. | 8 |
@@ -5297,6 +5297,7 @@ Tests de la pestaña de proceso: una sub-pestaña de calza por cámara de `stopp
 - `TestPersonFilter`
   - `test_without_person_pipelines_there_is_no_group`
   - `test_the_values_go_back_as_they_were`
+  - `test_a_release_with_decimals_is_shown_rounded`
   - `test_missing_values_show_the_defaults`
   - `test_the_hits_cannot_exceed_the_window`
   - `test_the_stopper_tabs_are_still_there`

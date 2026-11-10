@@ -14,7 +14,7 @@ dice `inference.pipelines`, y la regla para leerlo —habilitados, de ese `type`
 nueva en el pipeline aparece acá sola al reiniciar.
 
 La altura marcada sobre la imagen la escribe y la persiste su diálogo, como el ROI, y al
-cerrarse el ConfigView pide `reload_level()` para que el campo la muestre. Una altura o una
+cerrarse, `ConfigTabs` pide `reload_level()` para que el campo la muestre. Una altura o una
 distancia «sin calibrar» se guarda como null, que es lo que el annotator lee como ese
 veredicto sin dar.
 
@@ -32,7 +32,12 @@ verla la liberan—: es una política de seguridad y no una calibración del mon
 cada valor está en `system/inference/presence.py`. La zona de exclusión sí es de cada
 montaje: una sub-pestaña por cámara de personas dice si tiene zona y abre el diálogo que la
 dibuja sobre el frame en vivo (`ui/dialogs/polygon_dialog.py`). Esa zona la escribe y la
-persiste su diálogo, como la altura, y al cerrarse el ConfigView pide `reload_polygon()`.
+persiste su diálogo, como la altura, y al cerrarse, `ConfigTabs` pide `reload_polygon()`.
+
+La pantalla tiene la forma de las tarjetas de ajustes (`ui/widgets/settings_card.py`): una
+tarjeta por proceso, secciones con un título y una descripción de una línea, y los campos en
+columnas con el rótulo arriba. Qué hace cada valor en detalle está en los módulos que los
+usan, no en la pantalla.
 
 Dos cosas que **no** van acá: la validación de lo que tiene que frenar el arranque —es de
 quien lee la sección, `hooks.py`— y qué cámaras usa cada proceso, que es config.
@@ -63,9 +68,10 @@ from ui.dialogs.level_dialog import LevelSnapshot
 from ui.strings import tr
 from ui.views.config.abstract_tab import AbstractConfigTab
 from ui.widgets.form import (
-    add_form_row, add_hint_row, build_double_spin_box, build_form_page, build_group_box,
-    build_slot_tabs, build_spin_box, build_value_combo_box, set_combo_data,
+    build_inline_row, build_slot_tabs, build_spin_box,
+    build_value_combo_box, set_combo_data,
 )
+from ui.widgets.settings_card import FieldGrid, SettingsCard
 
 _STOPPER_SECTION = "process.stopper_check"
 # Clave de idioma -> valor de `wheel_side` en el config; el valor viaja en el item del combo.
@@ -78,7 +84,9 @@ _MAX_FRAME_SIDE_PX = 8192
 _MAX_RAISED_PX = 10_000_000
 _UNCALIBRATED = -1           # valor del spin que se muestra «sin calibrar» y se guarda null
 _MAX_CONFIRM_FRAMES = 60
-_MAX_RELEASE_S = 120.0
+_MAX_RELEASE_S = 120          # s, en enteros: una fracción de segundo no cambia lo que lee el PLC
+_CARD_SPACING_PX = 24        # entre tarjetas, como la web
+_TAB_PAGE_TOP_PX = 14         # aire entre la barra de cámaras y los campos de su página
 
 
 class ProcessTab(AbstractConfigTab):
@@ -101,7 +109,9 @@ class ProcessTab(AbstractConfigTab):
         self._person = None
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        # Sin margen propio: las tarjetas arrancan en el borde del encabezado de la página.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_CARD_SPACING_PX)
         _, person_cameras = read_pipelines(self._config, PERSON_PIPELINE_TYPE)
         if person_cameras:
             self._person = _PersonFields(self._config, person_cameras)
@@ -109,15 +119,17 @@ class ProcessTab(AbstractConfigTab):
             layout.addWidget(self._person)
         _, stopper_cameras = read_pipelines(self._config, STOPPER_PIPELINE_TYPE)
         if stopper_cameras:
-            box, form = build_group_box(tr("process_stopper_box"))
+            card = SettingsCard(tr("process_stopper_box"))
+            section = card.add_section(tr("process_stopper_section"),
+                                       tr("process_stopper_description"), columns=1)
             self._stopper_tabs = build_slot_tabs()
             for camera_slot in stopper_cameras:
                 fields = _StopperFields(self._config, camera_slot)
                 fields.open_level_requested.connect(self.open_level_requested)
                 self._stoppers[camera_slot] = fields
                 self._stopper_tabs.addTab(fields, fields.camera_name)
-            form.addRow(self._stopper_tabs)
-            layout.addWidget(box)
+            section.add_row(self._stopper_tabs)
+            layout.addWidget(card)
         if self._person is None and not stopper_cameras:
             note = QLabel(tr("process_empty_note"))
             note.setObjectName("hintLabel")
@@ -182,8 +194,8 @@ class ProcessTab(AbstractConfigTab):
 
 class _PersonFields(QWidget):
     """
-    El grupo de personas: el filtro —cuántos frames confirman y cuántos segundos liberan— y
-    una sub-pestaña por cámara con su zona de exclusión.
+    La tarjeta de personas: el filtro —cuántos frames confirman y cuántos segundos liberan—
+    y una sub-pestaña por cámara con su zona de exclusión, como las de calza.
     """
 
     open_polygon_requested = Signal(str, str, str)
@@ -192,40 +204,48 @@ class _PersonFields(QWidget):
         super().__init__(parent)
         self._config = config_manager
 
-        box, form = build_group_box(tr("process_person_box"))
-        self._confirm_hits_spin = add_form_row(
-            form, tr("process_person_confirm_hits"),
+        card = SettingsCard(tr("process_person_box"))
+        confirm = card.add_section(tr("process_person_filter"),
+                                   tr("process_person_filter_description"), columns=3)
+        self._confirm_hits_spin = confirm.add_field(
+            tr("process_person_confirm_hits"),
             build_spin_box(1, _MAX_CONFIRM_FRAMES, DEFAULT_CONFIRM_HITS))
-        self._confirm_window_spin = add_form_row(
-            form, tr("process_person_confirm_window"),
+        self._confirm_window_spin = confirm.add_field(
+            tr("process_person_confirm_window"),
             build_spin_box(1, _MAX_CONFIRM_FRAMES, DEFAULT_CONFIRM_WINDOW))
         # No se pueden pedir más aciertos que frames en la ventana: el filtro no arrancaría.
         self._confirm_window_spin.valueChanged.connect(self._confirm_hits_spin.setMaximum)
         self._confirm_hits_spin.setMaximum(self._confirm_window_spin.value())
-        self._release_spin = add_form_row(
-            form, tr("process_person_release"),
-            build_double_spin_box(0.0, _MAX_RELEASE_S, DEFAULT_RELEASE_S, decimals=1, step=0.5))
-        add_hint_row(form, tr("process_person_hint"))
+        self._release_spin = confirm.add_field(
+            tr("process_person_release"),
+            build_spin_box(0, _MAX_RELEASE_S, round(DEFAULT_RELEASE_S)),
+            hint=tr("process_person_release_hint"))
 
+        zones = card.add_section(tr("process_person_zone"),
+                                 tr("process_person_zone_description"), columns=1)
         self._zone_tabs = build_slot_tabs()
         self._zone_labels: dict[str, QLabel] = {}
         for camera_slot in camera_slots:
-            page, zone_form = build_form_page()
-            label = add_form_row(zone_form, tr("process_person_zone"), QLabel())
+            label = QLabel()
             button = QPushButton(tr("process_draw_zone"))
             button.clicked.connect(
                 lambda _=False, slot=camera_slot: self.open_polygon_requested.emit(
                     slot, _get_zone_key(slot), "process_person_zone"))
-            zone_form.addRow("", button)
             self._zone_labels[camera_slot] = label
+            page = QWidget()
+            grid = FieldGrid(columns=2)
+            grid.add_field(tr("process_person_zone_state"), build_inline_row(label, button))
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, _TAB_PAGE_TOP_PX, 0, 0)
+            page_layout.addWidget(grid)
             camera_name = str(self._config.get(f"cameras.{camera_slot}.name", "")
                               or camera_slot)
             self._zone_tabs.addTab(page, camera_name)
-        form.addRow(self._zone_tabs)
+        zones.add_row(self._zone_tabs)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(box)
+        layout.addWidget(card)
 
     def load(self):
         # La ventana primero: es el techo de los aciertos.
@@ -233,8 +253,9 @@ class _PersonFields(QWidget):
             f"{PERSON_SECTION}.confirm_window", DEFAULT_CONFIRM_WINDOW)))
         self._confirm_hits_spin.setValue(int(self._config.get(
             f"{PERSON_SECTION}.confirm_hits", DEFAULT_CONFIRM_HITS)))
-        self._release_spin.setValue(float(self._config.get(
-            f"{PERSON_SECTION}.release_s", DEFAULT_RELEASE_S)))
+        # Un valor con decimales escrito a mano en el config se muestra redondeado.
+        self._release_spin.setValue(round(float(self._config.get(
+            f"{PERSON_SECTION}.release_s", DEFAULT_RELEASE_S))))
         for camera_slot in self._zone_labels:
             self.load_zone(camera_slot)
 
@@ -270,33 +291,33 @@ class _StopperFields(QWidget):
         self.camera_name = str(self._config.get(f"cameras.{camera_slot}.name", "")
                                or camera_slot)
 
-        page, form = build_form_page()
-        self._raised_y_spin = add_form_row(
-            form, tr("process_stopper_level"),
-            build_spin_box(_UNCALIBRATED, _MAX_FRAME_SIDE_PX, _UNCALIBRATED))
+        grid = FieldGrid(columns=2)
+        self._raised_y_spin = build_spin_box(_UNCALIBRATED, _MAX_FRAME_SIDE_PX, _UNCALIBRATED)
         self._raised_y_spin.setSpecialValueText(tr("process_uncalibrated"))
         level_button = QPushButton(tr("process_draw_level"))
         level_button.clicked.connect(
             lambda: self.open_level_requested.emit(
                 self._camera_slot, f"{_STOPPER_SECTION}.raised_y_px.{self._camera_slot}",
                 "process_stopper_level"))
-        form.addRow("", level_button)
-        self._min_raised_spin = add_form_row(
-            form, tr("process_stopper_min_raised"),
-            build_spin_box(1, _MAX_RAISED_PX, DEFAULT_MIN_RAISED_PX))
-        self._max_gap_spin = add_form_row(
-            form, tr("process_stopper_max_gap"),
+        grid.add_field(tr("process_stopper_level"),
+                       build_inline_row(self._raised_y_spin, level_button))
+        self._min_raised_spin = grid.add_field(
+            tr("process_stopper_min_raised"),
+            build_spin_box(1, _MAX_RAISED_PX, DEFAULT_MIN_RAISED_PX),
+            hint=tr("process_stopper_min_raised_hint"))
+        self._max_gap_spin = grid.add_field(
+            tr("process_stopper_max_gap"),
             build_spin_box(_UNCALIBRATED, _MAX_FRAME_SIDE_PX, _UNCALIBRATED))
         self._max_gap_spin.setSpecialValueText(tr("process_uncalibrated"))
-        self._wheel_side_combo = add_form_row(
-            form, tr("process_wheel_side"),
+        self._wheel_side_combo = grid.add_field(
+            tr("process_wheel_side"),
             build_value_combo_box({tr(label_key): side for label_key, side in _WHEEL_SIDES},
-                                  WHEEL_SIDE_ANY))
-        add_hint_row(form, tr("process_stopper_hint"))
+                                  WHEEL_SIDE_ANY),
+            hint=tr("process_wheel_side_hint"))
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(page)
+        layout.setContentsMargins(0, _TAB_PAGE_TOP_PX, 0, 0)
+        layout.addWidget(grid)
 
     def load(self):
         self.load_level()

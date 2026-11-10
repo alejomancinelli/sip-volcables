@@ -134,11 +134,16 @@ class TestPersonFilter:
     def test_the_values_go_back_as_they_were(self):
         tab, config = _tab(**_WITH_PERSONS, **{f"{_PERSON_SECTION}.confirm_hits": 3,
                                                f"{_PERSON_SECTION}.confirm_window": 8,
-                                               f"{_PERSON_SECTION}.release_s": 7.5})
+                                               f"{_PERSON_SECTION}.release_s": 7})
         tab.save()
         assert config.written[f"{_PERSON_SECTION}.confirm_hits"] == 3
         assert config.written[f"{_PERSON_SECTION}.confirm_window"] == 8
-        assert config.written[f"{_PERSON_SECTION}.release_s"] == pytest.approx(7.5)
+        assert config.written[f"{_PERSON_SECTION}.release_s"] == 7
+
+    def test_a_release_with_decimals_is_shown_rounded(self):
+        """El campo es de segundos enteros: un valor con decimales escrito a mano se redondea."""
+        tab, _ = _tab(**_WITH_PERSONS, **{f"{_PERSON_SECTION}.release_s": 7.5})
+        assert tab._person._release_spin.value() == 8
 
     def test_missing_values_show_the_defaults(self):
         tab, config = _tab(**_WITH_PERSONS)
