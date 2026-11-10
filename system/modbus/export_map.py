@@ -5,7 +5,8 @@ El mapa se edita en `register_map.yaml` y se lee de ahí; esto genera las copias
 para quien no abre el repo:
 
   - `docs/modbus_map.md`  — tabla para leer y para pegar en una puesta en marcha
-  - `docs/modbus_map.csv` — la misma tabla para abrir en Excel y mandarla
+  - `docs/modbus_map.csv` — la misma tabla para abrir en Excel y mandarla; es también
+    lo que copia el botón «Copiar CSV» de la tabla de registros (`build_csv()`)
 
 Las dos son **generadas**: se regeneran cuando cambia el mapa y no se editan a
 mano, así que no hay dos versiones del mapa que puedan discrepar.
@@ -16,6 +17,7 @@ mano, así que no hay dos versiones del mapa que puedan discrepar.
 from __future__ import annotations
 
 import csv
+import io
 import os
 
 from system.modbus.registers import MAP_PATH, SCHEMA
@@ -92,6 +94,20 @@ def build_markdown() -> str:
     return "\n".join(lines)
 
 
+def build_csv() -> str:
+    """
+    La tabla en CSV, separada por `;` —lo que Excel espera con la configuración regional de
+    acá—. Es también lo que copia el botón de la tabla de registros, así que el
+    portapapeles y el archivo no pueden discrepar.
+    """
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+    writer.writerow(_COLUMNS)
+    for reg in sorted(SCHEMA.registers, key=lambda r: r.addr):
+        writer.writerow(_row(reg))
+    return buffer.getvalue()
+
+
 def write_exports() -> list[str]:
     """Escribe las dos copias y devuelve las rutas generadas."""
     os.makedirs(DOCS_DIR, exist_ok=True)
@@ -101,10 +117,7 @@ def write_exports() -> list[str]:
 
     # utf-8-sig: sin BOM, Excel abre las tildes como mojibake.
     with open(CSV_PATH, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f, delimiter=";")
-        writer.writerow(_COLUMNS)
-        for reg in sorted(SCHEMA.registers, key=lambda r: r.addr):
-            writer.writerow(_row(reg))
+        f.write(build_csv())
 
     return [MARKDOWN_PATH, CSV_PATH]
 

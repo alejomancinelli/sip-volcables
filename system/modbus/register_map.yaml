@@ -21,6 +21,9 @@
 #   min_value / max_value
 #             rango aceptado, en la unidad física; sólo en filas plc.
 #             Lo que el PLC escriba afuera se rechaza con la excepción 0x03.
+#   bitfield  la fila es una palabra de estado, y cuál: system_status, com_status,
+#             camera_health, pipeline_status, gpio_inputs o gpio_outputs (ver
+#             `system/formats/catalog.py`). La interfaz la decodifica bit por bit.
 #
 # Las filas `plc` son lo que escribe el PLC (bloque 101-150) y las `config`, la copia de
 # un valor de config.yaml que el equipo publica para el HMI (bloque de lectura); cada
@@ -34,11 +37,13 @@
   name: system_status_bitfield
   desc: Estado del sistema (bitfield)
   producer: health
+  bitfield: system_status
 
 - addr: 2
   name: com_status_bitfield
   desc: Canales de comunicación (bitfield)
   producer: health
+  bitfield: com_status
 
 # ── Resultados de inferencia (3-50) ──────────────────────────────────────────
 # Rango reservado, sin filas: el motor de inferencia ya corre, pero qué publica es lo
@@ -72,6 +77,7 @@
   name: camera_1_state_bitfield
   desc: Estado de la cámara 1 (bitfield)
   producer: health
+  bitfield: camera_health
 
 - addr: 52
   name: camera_1_temperature_c
@@ -162,11 +168,13 @@
   name: gpio_inputs_bitfield
   desc: Entradas digitales (bitfield)
   producer: health
+  bitfield: gpio_inputs
 
 - addr: 91
   name: gpio_outputs_bitfield
   desc: Salidas digitales comandadas (bitfield)
   producer: health
+  bitfield: gpio_outputs
 
 # ── Reloj del equipo (98-99) ─────────────────────────────────────────────────
 # El reloj del equipo como **segundos desde 1970-01-01 00:00 UTC**, en dos registros.

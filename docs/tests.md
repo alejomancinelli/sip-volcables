@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**92 archivos, 541 grupos, 2767 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**93 archivos, 548 grupos, 2794 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -19,12 +19,12 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/calibration/](#testcalibration) | 1 | 16 |
 | [test/camera/](#testcamera) | 3 | 173 |
 | [test/ci/](#testci) | 2 | 22 |
-| [test/formats/](#testformats) | 5 | 90 |
+| [test/formats/](#testformats) | 6 | 98 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
 | [test/inference/](#testinference) | 16 | 546 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
-| [test/modbus/](#testmodbus) | 5 | 211 |
+| [test/modbus/](#testmodbus) | 5 | 230 |
 | [test/setup/](#testsetup) | 1 | 29 |
 | [test/telemetry/](#testtelemetry) | 1 | 31 |
 | [test/telemetry/backends/](#testtelemetrybackends) | 3 | 85 |
@@ -1171,6 +1171,30 @@ Tests de la palabra de estado de cámara: exclusividad de los bits de adquisici�
   - `test_lists_both_groups`
   - `test_unknown_bit_reports_the_raw_word`
   - `test_every_bit_describes_itself`
+
+</details>
+
+### [test_catalog.py](../test/formats/test_catalog.py) — 8 tests
+
+Tests del catálogo de palabras de estado: qué bits devuelve para decodificar una palabra.
+
+| Grupo | Tests |
+|---|---:|
+| `TestListBits` | 5 |
+| `TestGpioWords` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestListBits`
+  - `test_an_unknown_word_is_none`
+  - `test_every_defined_bit_is_listed_even_when_off`
+  - `test_a_set_bit_is_marked_and_described`
+  - `test_a_set_bit_without_a_meaning_is_listed_without_a_description`
+  - `test_an_unset_bit_without_a_meaning_is_left_out`
+- `TestGpioWords`
+  - `test_the_input_word_has_a_state_and_an_error_bit_per_channel`
+  - `test_the_output_word_has_no_error_bits`
+  - `test_a_packed_input_word_decodes_to_the_channel_that_was_on`
 
 </details>
 
@@ -2983,7 +3007,7 @@ Tests del autocontrol del verificador: una librería editada no puede aceptar li
 
 ## test/modbus/
 
-### [test_export_map.py](../test/modbus/test_export_map.py) — 10 tests
+### [test_export_map.py](../test/modbus/test_export_map.py) — 12 tests
 
 Tests de la tabla que lee el integrador: qué filas escribe el PLC y con qué rango.
 
@@ -2992,6 +3016,7 @@ Tests de la tabla que lee el integrador: qué filas escribe el PLC y con qué ra
 | `TestAccess` | 3 |
 | `TestRange` | 5 |
 | `TestMarkdown` | 2 |
+| `TestCsv` | 2 |
 
 <details><summary>Tests</summary>
 
@@ -3008,6 +3033,9 @@ Tests de la tabla que lee el integrador: qué filas escribe el PLC y con qué ra
 - `TestMarkdown`
   - `test_it_no_longer_says_the_map_is_read_only`
   - `test_every_row_has_one_cell_per_column`
+- `TestCsv`
+  - `test_one_line_per_register_plus_the_header`
+  - `test_the_rows_go_in_address_order`
 
 </details>
 
@@ -3044,7 +3072,7 @@ Tests de las variables que escribe el PLC: la cola, el drenado y el log de los c
 
 </details>
 
-### [test_registers.py](../test/modbus/test_registers.py) — 22 tests
+### [test_registers.py](../test/modbus/test_registers.py) — 24 tests
 
 Tests del mapa de registros que se despacha con el repo.
 
@@ -3056,6 +3084,7 @@ Tests del mapa de registros que se despacha con el repo.
 | `TestScaledRangesAreUsable` |  | 1 |
 | `TestLookupsUsedByTheApp` |  | 4 |
 | `TestAMissingMapDoesNotKillTheImport` | Un mapa que falta deja el motivo y un mapa vacío, y no levanta. | 3 |
+| `TestStatusWords` |  | 2 |
 
 <details><summary>Tests</summary>
 
@@ -3087,10 +3116,13 @@ Tests del mapa de registros que se despacha con el repo.
   - `test_a_map_that_is_not_there_leaves_the_reason`
   - `test_a_broken_map_leaves_the_reason`
   - `test_a_map_that_loads_leaves_no_reason`
+- `TestStatusWords`
+  - `test_every_declared_word_exists_in_the_catalog`
+  - `test_every_bitfield_row_declares_its_word`
 
 </details>
 
-### [test_schema.py](../test/modbus/test_schema.py) — 82 tests
+### [test_schema.py](../test/modbus/test_schema.py) — 86 tests
 
 Tests de la maquinaria genérica del esquema de registros: carga del YAML, codificación con escala, la copia del config que se publica al PLC, y qué filas puede escribir el PLC y con qué rango.
 
@@ -3108,6 +3140,7 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
 | `TestIndexes` |  | 5 |
 | `TestEncode` |  | 9 |
 | `TestMirrorBatch` |  | 4 |
+| `TestBitfield` |  | 4 |
 
 <details><summary>Tests</summary>
 
@@ -3205,12 +3238,17 @@ Tests de la maquinaria genérica del esquema de registros: carga del YAML, codif
   - `test_uses_the_default_when_the_key_is_missing`
   - `test_applies_the_scale`
   - `test_encodes_booleans`
+- `TestBitfield`
+  - `test_a_row_declares_its_word`
+  - `test_a_row_without_it_is_not_a_word`
+  - `test_a_word_that_is_not_text_is_rejected`
+  - `test_the_schema_lists_only_the_words`
 
 </details>
 
-### [test_server.py](../test/modbus/test_server.py) — 82 tests
+### [test_server.py](../test/modbus/test_server.py) — 93 tests
 
-Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto —de sólo lectura salvo en las filas que escribe el PLC— y el ciclo de vida de los dos transportes.
+Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contexto —de sólo lectura salvo en las filas que escribe el PLC—, el ciclo de vida de los dos transportes y lo que cuenta cada uno.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
@@ -3228,6 +3266,8 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
 | `TestBecomingActive` |  | 3 |
 | `TestLifecycle` |  | 6 |
 | `TestSharedDatastore` |  | 2 |
+| `TestTransportStats` |  | 8 |
+| `TestServerStats` |  | 3 |
 
 <details><summary>Tests</summary>
 
@@ -3327,6 +3367,19 @@ Tests del servidor Modbus: lectura de config, direccionamiento base-1, el contex
 - `TestSharedDatastore`
   - `test_the_context_serves_the_registered_device`
   - `test_a_query_to_another_unit_id_finds_nothing`
+- `TestTransportStats`
+  - `test_it_starts_with_nothing_counted`
+  - `test_answers_are_counted_by_kind`
+  - `test_a_request_is_not_counted_until_it_is_answered`
+  - `test_the_pdu_goes_back_untouched`
+  - `test_the_rate_counts_only_the_last_minute`
+  - `test_the_age_is_measured_from_the_last_answer`
+  - `test_connections_follow_connects_and_disconnects`
+  - `test_a_disconnect_never_goes_below_zero`
+- `TestServerStats`
+  - `test_both_transports_are_reported`
+  - `test_each_transport_hands_its_own_counters_to_pymodbus`
+  - `test_shutdown_leaves_nobody_connected`
 
 </details>
 

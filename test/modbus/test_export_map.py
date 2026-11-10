@@ -57,3 +57,15 @@ class TestMarkdown:
     def test_every_row_has_one_cell_per_column(self):
         reg = Reg(105, "process_ok", "OK", PRODUCER_PLC, is_bool=True)
         assert len(export_map._row(reg)) == len(export_map._COLUMNS)
+
+
+class TestCsv:
+    def test_one_line_per_register_plus_the_header(self):
+        lines = export_map.build_csv().splitlines()
+        assert len(lines) == len(export_map.SCHEMA.registers) + 1
+        assert lines[0].split(";") == list(export_map._COLUMNS)
+
+    def test_the_rows_go_in_address_order(self):
+        lines = export_map.build_csv().splitlines()[1:]
+        addresses = [int(line.split(";")[0]) for line in lines]
+        assert addresses == sorted(addresses)

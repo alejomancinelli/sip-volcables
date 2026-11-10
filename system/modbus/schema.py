@@ -91,6 +91,11 @@ class Reg:
     la publique tras los cuales la fila vuelve a 0. Sin él la fila queda con su último
     valor, que es lo que conviene a una medición; con él, el 0 pasa a querer decir «sin
     dato», para un veredicto que el PLC no puede seguir creyendo con el pipeline caído.
+
+    `bitfield` dice que el registro es una palabra de estado y cuál: el nombre con el que
+    la lista `system/formats/catalog.py`. Con eso la interfaz muestra qué dice cada bit.
+    Este módulo no conoce las palabras: que el nombre exista lo prueba la suite, contra
+    el mapa del repo.
     """
     addr: int                          # dirección Modbus 1-based
     name: str                          # id corto y único: "cpu_usage_pct"
@@ -107,6 +112,8 @@ class Reg:
     max_value: float | None = None     # máximo aceptado, en la unidad física
     # ── Sólo filas producer="inference" ──
     max_age_s: float | None = None     # sin un resultado confiable en este tiempo, vuelve a 0
+    # ── Palabras de estado ──
+    bitfield: str = ""                 # qué palabra es: un nombre de system/formats/catalog.py
 
 
 # Campos que `load_registers` acepta en cada entrada del YAML.
@@ -230,6 +237,8 @@ def load_registers(map_path: str) -> list[Reg]:
             )
         if not isinstance(entry["addr"], int) or entry["addr"] < 1:
             raise ValueError(f"{location}: addr tiene que ser un entero >= 1 (base-1).")
+        if not isinstance(entry.get("bitfield", ""), str):
+            raise ValueError(f"{location}: bitfield es el nombre de una palabra, un texto.")
 
         problem = _check_plc_fields(entry) or _check_max_age(entry)
         if problem:
@@ -270,6 +279,10 @@ class RegisterSchema:
     def descriptions(self) -> dict[int, str]:
         """{addr: desc} — fuente única para la tabla de registros de la UI y los docs."""
         return {r.addr: r.desc for r in self.registers}
+
+    def bitfields(self) -> dict[int, str]:
+        """{addr: nombre de la palabra} de las filas que son una palabra de estado."""
+        return {r.addr: r.bitfield for r in self.registers if r.bitfield}
 
     def addr(self, name: str) -> int:
         """Dirección de un registro por su nombre corto. Ninguna dirección se escribe
