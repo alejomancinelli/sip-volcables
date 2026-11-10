@@ -47,9 +47,10 @@ Qué fija el contrato:
     motor descartó dejan el ciclo colgado para siempre mientras el heartbeat sigue latiendo.
   - **El scheduler no toca las cámaras**: pide por `capture_wanted` y el cableado aplica.
     Un subsistema de nivel 3 no llama a otro.
-  - **Qué es «tener ciclo» se decide en un solo lugar**: `has_measurement_cycle()`, que
-    también consulta sin un scheduler la pestaña de dataset, para no ofrecer un modo que no
-    guardaría nada. Es medir de a varios frames **o medir a pedido**.
+  - **Qué es «tener ciclo» se decide en un solo lugar**: `is_cycle()`, sobre la que se
+    apoya `has_measurement_cycle()`, que también consulta sin un scheduler la pestaña de
+    dataset, para no ofrecer un modo que no guardaría nada. Es medir de a varios frames **o
+    medir a pedido**.
   - **Una ronda también se puede pedir** con `request_round()`, cuando la planta lo dice —un
     contador del PLC, un flanco de GPIO—. Con `cycle_trigger: request` el pipeline mide
     **sólo** a pedido, y por eso tiene ciclo aunque sea de un frame: el permiso es lo que
@@ -94,10 +95,11 @@ REASON_EMPTY_CYCLE = "empty_cycle"
 _NO_REVISION = object()    # todavía no se leyó nada del config
 
 
-def _is_cycle(frames_per_cycle: object, cycle_trigger: object = CYCLE_TRIGGER_INTERVAL) -> bool:
+def is_cycle(frames_per_cycle: object, cycle_trigger: object = CYCLE_TRIGGER_INTERVAL) -> bool:
     """
     La regla de «tener ciclo»: más de un frame por medición, o medir a pedido. Un
-    `frames_per_cycle` vacío es 1.
+    `frames_per_cycle` vacío es 1. La consulta también la pestaña de inferencia, para
+    apagar los campos que el ciclo no lee mientras se edita.
     """
     return (max(1, int(frames_per_cycle or _DEFAULT_FRAMES_PER_CYCLE)) > 1
             or cycle_trigger == CYCLE_TRIGGER_REQUEST)
@@ -115,7 +117,7 @@ def has_measurement_cycle(config_manager: ConfigManager) -> bool:
         prefix = f"inference.pipelines.{pipeline_slot}"
         if not config_manager.get(f"{prefix}.enabled", True):
             continue
-        if _is_cycle(config_manager.get(f"{prefix}.frames_per_cycle",
+        if is_cycle(config_manager.get(f"{prefix}.frames_per_cycle",
                                         _DEFAULT_FRAMES_PER_CYCLE),
                      config_manager.get(f"{prefix}.cycle_trigger", CYCLE_TRIGGER_INTERVAL)):
             return True
@@ -238,7 +240,7 @@ class CaptureScheduler(QObject):
 
     def is_cycled(self, pipeline_slot: str) -> bool:
         """True si este pipeline mide de a varios frames o a pedido: el permiso es del ciclo."""
-        return _is_cycle(*self._cycle_settings(pipeline_slot))
+        return is_cycle(*self._cycle_settings(pipeline_slot))
 
     def is_on_request(self, pipeline_slot: str) -> bool:
         """True si este pipeline mide sólo cuando se lo piden (`cycle_trigger: request`)."""
