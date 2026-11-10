@@ -11,12 +11,16 @@ Para agregar un fabricante o modelo, editar CAMERA_CATALOG directamente:
   - "driver" debe ser uno de REGISTERED_DRIVERS (camera_factory.py).
   - "models" es la lista de modelos que se ofrecen para ese fabricante, y de ahí
     sale el valor de `model` en config.yaml.
+  - "sensor_settings" en True si el driver le aplica al sensor la exposición y la
+    ganancia de `acquisition`. Sin ella la UI no muestra esos campos: una cámara IP
+    o un video los ignoran, y se ajustan en la cámara misma.
 """
 
 CAMERA_CATALOG: dict[str, dict] = {
     "basler": {
         "label": "Basler",
         "driver": "basler_gige",
+        "sensor_settings": True,
         "models": [
             "a2A1920-51gcBAS",
             "acA4024-8gc",
@@ -25,6 +29,7 @@ CAMERA_CATALOG: dict[str, dict] = {
     "sentech": {
         "label": "Sentech",
         "driver": "st_gige",
+        "sensor_settings": True,
         "models": [
             "STC-MCA503POE-HS",
             "STC-MCS312POE",

@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**98 archivos, 575 grupos, 2953 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**98 archivos, 576 grupos, 2955 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 6 | 98 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 19 | 659 |
+| [test/inference/](#testinference) | 19 | 661 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 230 |
@@ -1501,7 +1501,7 @@ Tests de las condiciones de guardado del recolector de dataset.
 
 ## test/inference/
 
-### [test_analysis.py](../test/inference/test_analysis.py) — 42 tests
+### [test_analysis.py](../test/inference/test_analysis.py) — 44 tests
 
 Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de varios resultados: promedio, resumen con desvío y elección del frame representativo.
 
@@ -1512,6 +1512,7 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 | `TestCountAndArea` |  | 3 |
 | `TestClassFractions` |  | 3 |
 | `TestCoverage` |  | 3 |
+| `TestIsVerdictKey` |  | 2 |
 | `TestSummarizeMetrics` | El ciclo de N frames de un proyecto que responde con varias imágenes por medición: la media sola no dice si los N coincidieron. | 9 |
 | `TestPickRepresentative` | El promedio no tiene imagen: cuando N frames dan un solo número, hay que elegir cuál de los N se guarda y se muestra. | 9 |
 | `TestAverageMetrics` |  | 6 |
@@ -1538,6 +1539,9 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
   - `test_it_measures_the_analyzed_area`
   - `test_it_saturates_at_one_hundred`
   - `test_an_invalid_area_gives_zero`
+- `TestIsVerdictKey`
+  - `test_a_metric_ending_in_ok_is_a_verdict`
+  - `test_a_measurement_or_its_summary_is_not`
 - `TestSummarizeMetrics`
   - `test_it_reports_mean_std_and_range`
   - `test_the_output_is_flat`
