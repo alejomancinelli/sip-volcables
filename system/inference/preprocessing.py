@@ -60,13 +60,13 @@ def build_preprocessor(config: ConfigManager) -> Preprocessor | None:
     """
     camera_slots = tuple(config.get("cameras", {}) or {})
     undistorter = build_undistorter({
-        camera_slot: config.get(f"cameras.{camera_slot}.calibration", {}) or {}
+        camera_slot: _read_optional(config, camera_slot, "calibration")
         for camera_slot in camera_slots
     })
     if undistorter is not None:
         logger.info("[Inference] Corrección de lente activa: el frame de referencia va corregido.")
     image_adjust = build_image_adjust({
-        camera_slot: config.get(f"cameras.{camera_slot}.image_adjust", {}) or {}
+        camera_slot: _read_optional(config, camera_slot, "image_adjust")
         for camera_slot in camera_slots
     })
     if image_adjust is not None:
@@ -162,10 +162,22 @@ def _warn_if_not_native(config: ConfigManager, pipeline_slot: str, section: obje
 
 def is_preprocessed(config: ConfigManager, camera_slot: str) -> bool:
     """True si el preprocessor le cambia algo al frame de esa cámara."""
-    calibration = config.get(f"cameras.{camera_slot}.calibration", {}) or {}
-    image_adjust = config.get(f"cameras.{camera_slot}.image_adjust", {}) or {}
+    calibration = _read_optional(config, camera_slot, "calibration")
+    image_adjust = _read_optional(config, camera_slot, "image_adjust")
     return (build_undistorter({camera_slot: calibration}) is not None
             or build_image_adjust({camera_slot: image_adjust}) is not None)
+
+
+def _read_optional(config: ConfigManager, camera_slot: str, key: str) -> dict:
+    """
+    Una sección opcional de la cámara —`calibration`, `image_adjust`—, o {} si no está.
+
+    Se lee desde la sección de la cámara y no por la ruta entera: un proyecto que no las usa
+    las saca del config, y pedirlas por ruta llenaría el arranque de avisos de clave ausente.
+    """
+    section = config.get(f"cameras.{camera_slot}", {}) or {}
+    value = section.get(key) if isinstance(section, dict) else None
+    return value if isinstance(value, dict) else {}
 
 
 def _chain_preprocessors(*preprocessors: Preprocessor | None) -> Preprocessor | None:

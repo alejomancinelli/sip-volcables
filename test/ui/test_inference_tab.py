@@ -208,14 +208,14 @@ class TestRegionRows:
 
     def test_a_video_camera_with_an_adjustment_says_the_region_is_not_native(self):
         tab, _ = _tab(**_with_roi(self._OWN),
-                      **{"cameras.camera_1": {"driver": "rtsp"},
-                         "cameras.camera_1.image_adjust": {"brightness_factor": 2.0}})
+                      **{"cameras.camera_1": {"driver": "rtsp",
+                                              "image_adjust": {"brightness_factor": 2.0}}})
         assert self._texts(tab)[1] == tr("regions_problem_native_preprocessed")
 
     def test_a_gige_camera_with_an_adjustment_has_nothing_to_flag(self):
         tab, _ = _tab(**_with_roi(self._OWN),
-                      **{"cameras.camera_1": {"driver": "basler_gige"},
-                         "cameras.camera_1.image_adjust": {"brightness_factor": 2.0}})
+                      **{"cameras.camera_1": {"driver": "basler_gige",
+                                              "image_adjust": {"brightness_factor": 2.0}}})
         assert self._texts(tab)[1] == ""
 
     def test_a_region_too_small_to_cut_from_the_native_is_flagged(self):
