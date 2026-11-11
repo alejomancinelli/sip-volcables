@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**107 archivos, 614 grupos, 3041 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**111 archivos, 630 grupos, 3099 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -32,7 +32,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 28 | 443 |
+| [test/ui/](#testui) | 32 | 501 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -4488,6 +4488,34 @@ Tests de la pestaña de dataset: qué modos ofrece según haya ciclo de medició
 
 </details>
 
+### [test_command_palette.py](../test/ui/test_command_palette.py) — 12 tests
+
+Tests de la paleta de búsqueda: la regla con la que filtra y ordena, y cómo se mueve y elige con el teclado.
+
+| Grupo | Tests |
+|---|---:|
+| `TestFilter` | 7 |
+| `TestPalette` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestFilter`
+  - `test_case_and_accents_are_ignored`
+  - `test_every_word_has_to_appear`
+  - `test_the_path_and_the_hint_are_searched_too`
+  - `test_a_title_match_goes_before_a_path_match`
+  - `test_a_title_that_starts_with_the_query_goes_first`
+  - `test_an_empty_query_finds_nothing`
+  - `test_groups_keep_the_order_of_their_best_entry`
+- `TestPalette`
+  - `test_with_an_empty_field_it_shows_the_idle_entries`
+  - `test_typing_filters_the_list`
+  - `test_enter_chooses_the_first_entry_and_not_the_group_label`
+  - `test_down_skips_to_the_next_entry`
+  - `test_without_matches_it_says_so`
+
+</details>
+
 ### [test_config_tabs.py](../test/ui/test_config_tabs.py) — 14 tests
 
 Tests de las pestañas de configuración: qué cuenta como un cambio sin guardar y cuándo deja de contar, y la barra de guardar que se muestra según eso.
@@ -4517,6 +4545,29 @@ Tests de las pestañas de configuración: qué cuenta como un cambio sin guardar
   - `test_it_appears_with_a_change_and_names_the_tabs`
   - `test_it_hides_again_when_nothing_is_pending`
   - `test_a_page_that_does_not_edit_has_no_bar`
+
+</details>
+
+### [test_field_search.py](../test/ui/test_field_search.py) — 7 tests
+
+Tests de la búsqueda de ajustes en una pestaña: qué campos y secciones encuentra, con qué camino, qué deja afuera, y que llegar a uno elija las sub-pestañas que lo contienen.
+
+| Grupo | Tests |
+|---|---:|
+| `TestCollect` | 5 |
+| `TestReveal` | 2 |
+
+<details><summary>Tests</summary>
+
+- `TestCollect`
+  - `test_a_field_carries_its_section_and_hint`
+  - `test_a_section_is_found_by_its_title`
+  - `test_a_field_in_a_sub_tab_carries_the_sub_tab_name`
+  - `test_a_field_its_tab_hides_is_left_out`
+  - `test_a_hidden_sub_tab_is_left_out`
+- `TestReveal`
+  - `test_reaching_a_field_selects_its_sub_tab`
+  - `test_reaching_a_field_marks_its_cell`
 
 </details>
 
@@ -4560,6 +4611,41 @@ Tests de los constructores del formulario: la tarjeta de una pestaña no depende
 - `TestFitToCurrent`
   - `test_the_bar_measures_the_page_on_view`
   - `test_without_it_qt_measures_the_tallest_page_even_hidden`
+
+</details>
+
+### [test_hardware_tab.py](../test/ui/test_hardware_tab.py) — 15 tests
+
+Tests de la pestaña de hardware: qué muestra de cada métrica, de cada cámara y de cada interfaz, y que lo que el equipo no expone se vea como «—» y no como un cero medido.
+
+| Grupo | Tests |
+|---|---:|
+| `TestTiles` | 5 |
+| `TestThermalZonesAndEngines` | 3 |
+| `TestCameras` | 4 |
+| `TestNetwork` | 3 |
+
+<details><summary>Tests</summary>
+
+- `TestTiles`
+  - `test_usage_is_shown_with_its_unit`
+  - `test_memory_is_shown_in_gb_with_the_share_in_use`
+  - `test_a_missing_temperature_sensor_is_not_shown_as_zero`
+  - `test_no_power_sensor_shows_a_dash`
+  - `test_overcurrent_events_are_counted_in_the_power_foot`
+- `TestThermalZonesAndEngines`
+  - `test_every_zone_gets_its_temperature`
+  - `test_the_engines_card_is_hidden_without_engines`
+  - `test_an_idle_engine_shows_no_clock`
+- `TestCameras`
+  - `test_every_configured_camera_has_a_row_before_it_reports`
+  - `test_fps_temperature_and_missed_views_are_shown`
+  - `test_a_camera_without_sensor_or_views_shows_dashes`
+  - `test_a_camera_that_is_not_configured_is_ignored`
+- `TestNetwork`
+  - `test_an_interface_shows_its_address_and_traffic`
+  - `test_an_interface_without_address_shows_a_dash`
+  - `test_a_row_is_created_once_per_interface`
 
 </details>
 
@@ -4794,7 +4880,7 @@ Tests del diálogo de nivel: qué guarda, dónde, y que lo marcado con el mouse 
 
 </details>
 
-### [test_log_table.py](../test/ui/test_log_table.py) — 6 tests
+### [test_log_table.py](../test/ui/test_log_table.py) — 12 tests
 
 Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una línea nueva no reconstruya la tabla entera.
 
@@ -4802,6 +4888,9 @@ Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una lín
 |---|---:|
 | `TestAppend` | 3 |
 | `TestFilter` | 3 |
+| `TestLevels` | 3 |
+| `TestSearch` | 2 |
+| `TestPause` | 1 |
 
 <details><summary>Tests</summary>
 
@@ -4813,24 +4902,36 @@ Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una lín
   - `test_a_filtered_out_line_is_kept_but_not_shown`
   - `test_dropping_a_hidden_line_does_not_remove_a_shown_one`
   - `test_dropping_a_shown_line_removes_it`
+- `TestLevels`
+  - `test_critical_is_filtered_with_the_errors`
+  - `test_the_counts_follow_the_buffer`
+  - `test_clearing_resets_the_counts`
+- `TestSearch`
+  - `test_it_matches_the_message_or_the_module_ignoring_case`
+  - `test_a_new_line_that_does_not_match_is_not_shown`
+- `TestPause`
+  - `test_lines_that_arrive_paused_are_kept_and_shown_on_resume`
 
 </details>
 
-### [test_modbus_registers_tab.py](../test/ui/test_modbus_registers_tab.py) — 7 tests
+### [test_modbus_registers_tab.py](../test/ui/test_modbus_registers_tab.py) — 13 tests
 
-Tests de la pestaña de registros: el valor de una palabra de estado en hexadecimal, sus bits al elegirla y el CSV que copia.
+Tests de la pestaña de registros: el valor crudo y convertido de cada fila, el de una palabra de estado en hexadecimal, sus bits al elegirla, el filtro y la búsqueda, y el CSV que copia.
 
 | Grupo | Tests |
 |---|---:|
-| `TestValues` | 3 |
+| `TestValues` | 5 |
 | `TestBits` | 3 |
 | `TestCopyCsv` | 1 |
+| `TestFilter` | 4 |
 
 <details><summary>Tests</summary>
 
 - `TestValues`
   - `test_a_status_word_is_shown_in_hex`
   - `test_a_plain_register_is_shown_in_decimal`
+  - `test_a_scaled_register_shows_the_raw_value_and_its_physical_value`
+  - `test_the_unit_column_names_the_scale`
   - `test_only_a_status_word_can_be_selected`
 - `TestBits`
   - `test_selecting_a_word_lists_its_bits`
@@ -4838,6 +4939,11 @@ Tests de la pestaña de registros: el valor de una palabra de estado en hexadeci
   - `test_without_a_selection_it_asks_for_one`
 - `TestCopyCsv`
   - `test_it_copies_the_integrator_csv`
+- `TestFilter`
+  - `test_the_plc_filter_shows_only_what_the_plc_writes`
+  - `test_the_words_filter_shows_only_status_words`
+  - `test_the_search_finds_a_register_by_its_plc_address`
+  - `test_the_search_finds_a_register_by_its_name_ignoring_case`
 
 </details>
 
@@ -5171,13 +5277,13 @@ Tests de la traducción de estados a texto y color: la de un servicio, la de una
 
 </details>
 
-### [test_settings_card.py](../test/ui/test_settings_card.py) — 14 tests
+### [test_settings_card.py](../test/ui/test_settings_card.py) — 15 tests
 
 Tests de la tarjeta de ajustes: cómo se reparten los campos en columnas y dónde van los filetes entre secciones.
 
 | Grupo | Tests |
 |---|---:|
-| `TestFieldGrid` | 5 |
+| `TestFieldGrid` | 6 |
 | `TestSettingsCard` | 5 |
 | `TestSectionStack` | 2 |
 | `TestSettingsList` | 2 |
@@ -5189,6 +5295,7 @@ Tests de la tarjeta de ajustes: cómo se reparten los campos en columnas y dónd
   - `test_each_field_carries_its_label_above`
   - `test_a_hint_goes_under_the_field`
   - `test_a_field_that_does_not_fit_starts_a_new_row`
+  - `test_the_fields_are_listed_in_the_order_they_were_added`
   - `test_a_full_width_row_takes_a_line_of_its_own`
 - `TestSettingsCard`
   - `test_the_eyebrow_is_in_capitals`
@@ -5240,19 +5347,23 @@ Tests de la barra lateral: la navegación que publica, la vista activa y el riel
 
 </details>
 
-### [test_system_tab.py](../test/ui/test_system_tab.py) — 2 tests
+### [test_system_tab.py](../test/ui/test_system_tab.py) — 4 tests
 
-Tests de la pestaña de sistema: lo que identifica al equipo se muestra pero no se edita.
+Tests de la pestaña de sistema: lo que identifica al equipo se muestra pero no se edita, el idioma se guarda por su código y el tema no es de esta pestaña.
 
 | Grupo | Tests |
 |---|---:|
 | `TestDeviceId` | 2 |
+| `TestInterface` | 2 |
 
 <details><summary>Tests</summary>
 
 - `TestDeviceId`
   - `test_it_is_shown_but_not_editable`
   - `test_save_does_not_write_it`
+- `TestInterface`
+  - `test_the_language_is_saved_by_its_code_and_not_its_name`
+  - `test_save_does_not_write_the_theme`
 
 </details>
 
@@ -5300,6 +5411,33 @@ Tests de la paleta: que los dos temas definan lo mismo.
   - `test_the_themes_render_different_stylesheets`
   - `test_a_palette_role_can_be_used_as_a_token`
   - `test_an_unknown_token_keeps_the_rest_of_the_sheet`
+
+</details>
+
+### [test_video_streams_tab.py](../test/ui/test_video_streams_tab.py) — 9 tests
+
+Tests de la pestaña de streams: qué muestra de cada servidor de video, que la lista de URLs se rearme sólo cuando cambia y que copiar deje la URL entera en el portapapeles.
+
+| Grupo | Tests |
+|---|---:|
+| `TestHeader` | 3 |
+| `TestUrls` | 5 |
+| `TestClients` | 1 |
+
+<details><summary>Tests</summary>
+
+- `TestHeader`
+  - `test_http_says_where_it_listens_and_what_it_sends`
+  - `test_rtsp_without_bitrate_leaves_it_to_the_encoder`
+  - `test_a_status_for_another_service_is_ignored`
+- `TestUrls`
+  - `test_every_url_gets_a_row_and_is_counted`
+  - `test_without_urls_the_empty_line_is_shown`
+  - `test_the_same_urls_do_not_rebuild_the_rows`
+  - `test_only_http_rows_can_be_opened_in_the_browser`
+  - `test_copy_puts_the_whole_url_in_the_clipboard`
+- `TestClients`
+  - `test_the_client_count_is_shown_per_server`
 
 </details>
 

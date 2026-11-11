@@ -59,6 +59,15 @@ class TestFieldGrid:
         wide = grid.add_field("ancho", QLineEdit(), span=2)
         assert _cell_of(grid, wide) == (1, 0, 1, 2)
 
+    def test_the_fields_are_listed_in_the_order_they_were_added(self):
+        grid = FieldGrid(columns=2)
+        first = grid.add_field("Puerto", QLineEdit(), hint="502 es el estándar")
+        second = grid.add_field("Host", QLineEdit())
+        fields = grid.get_fields()
+        assert [(field.label, field.hint, field.widget) for field in fields] == [
+            ("Puerto", "502 es el estándar", first), ("Host", "", second)]
+        assert fields[0].cell.isAncestorOf(first)
+
     def test_a_full_width_row_takes_a_line_of_its_own(self):
         grid = FieldGrid(columns=3)
         grid.add_field("uno", QLineEdit())

@@ -5,6 +5,10 @@ Dice si algo sube, baja o se cortó, no cuánto: el número va al lado, en grand
 tiene ejes ni grilla, y la escala vertical es la de los valores que muestra —de su mínimo a
 su máximo—. Una serie plana se dibuja a media altura.
 
+Con `low` y `high` la escala es fija: un porcentaje que va de 20 a 21 se ve casi plano, que
+es lo que es, en vez de ocupar todo el alto como si se hubiera disparado. Un valor fuera del
+rango se dibuja contra el borde.
+
 Se pinta con QPainter, así que el QSS no la alcanza: el color sale de la paleta del tema y
 cambia con `apply_theme()`. Debajo de la línea va el mismo color, que se desvanece hacia
 abajo.
@@ -27,11 +31,15 @@ _HEIGHT_PX = 48
 class Sparkline(QWidget):
     """Tendencia de los últimos `max_points` valores. Se le empujan con `push()`."""
 
-    def __init__(self, max_points: int = 60, parent=None):
+    def __init__(self, max_points: int = 60, parent=None, *, low: float | None = None,
+                 high: float | None = None, height_px: int = _HEIGHT_PX):
         super().__init__(parent)
         self._values: deque = deque(maxlen=max_points)
+        # La escala fija vale sólo con los dos extremos y en orden; si no, la de los valores.
+        self._fixed_range = ((float(low), float(high))
+                             if low is not None and high is not None and high > low else None)
         self._color = theme.get_color("sparkline", True)
-        self.setFixedHeight(_HEIGHT_PX)
+        self.setFixedHeight(height_px)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def push(self, value: float):
@@ -51,7 +59,7 @@ class Sparkline(QWidget):
             return
         width = self.width()
         height = self.height() - 2 * _PADDING_PX
-        low, high = min(self._values), max(self._values)
+        low, high = self._fixed_range or (min(self._values), max(self._values))
         span = high - low
         step = width / (self._values.maxlen - 1)
         # Los puntos se alinean a la derecha: la serie entra por ahí mientras se llena.
@@ -59,7 +67,7 @@ class Sparkline(QWidget):
 
         line = QPainterPath()
         for index, value in enumerate(self._values):
-            ratio = (value - low) / span if span else 0.5
+            ratio = min(1.0, max(0.0, (value - low) / span)) if span else 0.5
             point = QPointF(offset + index * step, _PADDING_PX + height * (1 - ratio))
             if index == 0:
                 line.moveTo(point)

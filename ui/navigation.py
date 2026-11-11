@@ -73,7 +73,9 @@ NAVIGATION: tuple[tuple[str, tuple[Page, ...]], ...] = (
              (VideoStreamsTab, VideoTab, TelemetryTab), "nav_video_telemetry_description"),
     )),
     ("nav_group_device", (
-        Page("system", "nav_system", "cpu", (SystemTab, HardwareTab, LicenseTab),
+        # Como el Modbus: primero si anda —el hardware, las cámaras, la red y la licencia—
+        # y al final cómo se configura.
+        Page("system", "nav_system", "cpu", (HardwareTab, LicenseTab, SystemTab),
              "nav_system_description"),
         Page("logs", "nav_logs", "list-details", (LogsTab,), "nav_logs_description"),
         Page(PAGE_GPIO, "nav_gpio", "plug-connected", description_key="nav_gpio_description"),

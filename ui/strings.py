@@ -72,13 +72,18 @@ _TEXTS: dict[str, dict[str, str]] = {
                                               "to InfluxDB and MQTT.",
                                         "pt": "Streams de vídeo para acompanhar a linha e "
                                               "telemetria para InfluxDB e MQTT."},
-    "nav_system_description": {"es": "Identidad del equipo, interfaz, hardware y licencia.",
-                               "en": "Device identity, interface, hardware and licence.",
-                               "pt": "Identidade do equipamento, interface, hardware e "
-                                     "licença."},
-    "nav_logs_description":   {"es": "Lo que registra cada subsistema, con filtro por nivel.",
-                               "en": "What every subsystem logs, filtered by level.",
-                               "pt": "O que cada subsistema registra, com filtro por nível."},
+    "nav_system_description": {"es": "Hardware, cámaras y red en vivo, la licencia y la "
+                                     "identidad del equipo.",
+                               "en": "Live hardware, cameras and network, the licence and "
+                                     "the device identity.",
+                               "pt": "Hardware, câmeras e rede ao vivo, a licença e a "
+                                     "identidade do equipamento."},
+    "nav_logs_description":   {"es": "Lo que registra cada subsistema, con filtro por nivel "
+                                     "y búsqueda.",
+                               "en": "What every subsystem logs, filtered by level and "
+                                     "searchable.",
+                               "pt": "O que cada subsistema registra, com filtro por nível "
+                                     "e busca."},
     "nav_gpio_description":   {"es": "Estado de las entradas digitales y comando de las "
                                      "salidas.",
                                "en": "State of the digital inputs and control of the outputs.",
@@ -100,6 +105,27 @@ _TEXTS: dict[str, dict[str, str]] = {
     "status_config_saved":    {"es": "Configuración guardada.",
                                "en": "Settings saved.",
                                "pt": "Configuração salva."},
+    "status_theme_not_saved": {"es": "El tema se aplicó, pero no se pudo guardar en config.yaml.",
+                               "en": "The theme was applied but could not be saved to "
+                                     "config.yaml.",
+                               "pt": "O tema foi aplicado, mas não pôde ser salvo em "
+                                     "config.yaml."},
+    "search_button":          {"es": "Buscar ajustes, páginas…", "en": "Search settings, pages…",
+                               "pt": "Buscar ajustes, páginas…"},
+    "search_placeholder":     {"es": "Buscar páginas, pestañas o ajustes…",
+                               "en": "Search pages, tabs or settings…",
+                               "pt": "Buscar páginas, abas ou ajustes…"},
+    "search_group_pages":     {"es": "Ir a",           "en": "Go to",         "pt": "Ir para"},
+    "search_group_settings":  {"es": "Ajustes",        "en": "Settings",      "pt": "Ajustes"},
+    "search_group_actions":   {"es": "Acciones",       "en": "Actions",       "pt": "Ações"},
+    "search_empty":           {"es": "Sin resultados.", "en": "No results.",  "pt": "Sem resultados."},
+    "search_footer":          {"es": "↑↓ para moverse · Enter para abrir · Esc para cerrar",
+                               "en": "↑↓ to move · Enter to open · Esc to close",
+                               "pt": "↑↓ para mover · Enter para abrir · Esc para fechar"},
+    "theme_to_light":         {"es": "Pasar al tema claro", "en": "Switch to light theme",
+                               "pt": "Mudar para o tema claro"},
+    "theme_to_dark":          {"es": "Pasar al tema oscuro", "en": "Switch to dark theme",
+                               "pt": "Mudar para o tema escuro"},
     # El id del proyecto y la versión del programa, abajo a la derecha. El separador va
     # en la tabla y no en el widget para que un proyecto pueda darlo vuelta.
     "footer_version":         {"es": "{project_id}  ·  v{version}",
@@ -934,62 +960,178 @@ _TEXTS: dict[str, dict[str, str]] = {
                                      "escravo {slave_id}"},
 
     # ── Sistema (configuración) ──────────────────────────────────────────────
-    "sys_box_project":        {"es": "Proyecto",       "en": "Project",       "pt": "Projeto"},
-    "sys_box_general":        {"es": "General",        "en": "General",       "pt": "Geral"},
+    "sys_card":               {"es": "Equipo",         "en": "Device",        "pt": "Equipamento"},
+    "sys_box_project":        {"es": "Identidad",      "en": "Identity",      "pt": "Identidade"},
+    "sys_project_description": {"es": "Qué instalación es. Se fija al armar el equipo y no se "
+                                      "edita desde acá.",
+                                "en": "Which installation this is. Set when the device is built "
+                                      "and not edited here.",
+                                "pt": "Qual instalação é esta. Definida ao montar o "
+                                      "equipamento e não editada aqui."},
+    "sys_box_general":        {"es": "Registro y carpetas", "en": "Logging and folders",
+                               "pt": "Registro e pastas"},
+    "sys_general_description": {"es": "Cuánto detalle va al log y dónde se guardan los logs y "
+                                      "el dataset. Toma efecto al reiniciar.",
+                                "en": "How much detail goes to the log and where logs and the "
+                                      "dataset are stored. Takes effect on restart.",
+                                "pt": "Quanto detalhe vai para o log e onde ficam os logs e o "
+                                      "dataset. Tem efeito ao reiniciar."},
     "sys_box_interface":      {"es": "Interfaz",       "en": "Interface",     "pt": "Interface"},
+    "sys_interface_description": {"es": "El idioma de la pantalla. El tema se cambia desde la "
+                                        "barra superior.",
+                                  "en": "The screen language. The theme is switched from the "
+                                        "top bar.",
+                                  "pt": "O idioma da tela. O tema é trocado na barra "
+                                        "superior."},
     "sys_box_monitor":        {"es": "Monitor de hardware",
                                "en": "Hardware monitor",
                                "pt": "Monitor de hardware"},
-    "sys_client":             {"es": "Cliente:",       "en": "Client:",       "pt": "Cliente:"},
-    "sys_project_id":         {"es": "Id de proyecto:","en": "Project id:",   "pt": "Id do projeto:"},
-    "sys_app_name":           {"es": "Nombre de la app:",
-                               "en": "Application name:",
-                               "pt": "Nome da aplicação:"},
-    "sys_device_id":          {"es": "Id del equipo:", "en": "Device id:",    "pt": "Id do equipamento:"},
-    "sys_device_id_note":     {"es": "El nombre de la app y el id del equipo se cambian en "
-                                     "config.yaml. El id identifica al equipo en la telemetría: "
-                                     "cambiarlo puede partir la historia en dos series, y dos "
-                                     "equipos con el mismo id se echan del broker MQTT.",
-                               "en": "The application name and the device id are changed in "
-                                     "config.yaml. The id identifies the device in telemetry: "
-                                     "changing it can split the history into two series, and "
-                                     "two devices with the same id kick each other off the "
-                                     "MQTT broker.",
-                               "pt": "O nome da aplicação e o id do equipamento são alterados "
-                                     "em config.yaml. O id identifica o equipamento na "
-                                     "telemetria: alterá-lo pode dividir o histórico em duas "
-                                     "séries, e dois equipamentos com o mesmo id se derrubam "
-                                     "do broker MQTT."},
-    "sys_log_level":          {"es": "Nivel de log:",  "en": "Log level:",    "pt": "Nível de log:"},
-    "sys_logs_path":          {"es": "Carpeta de logs:",
-                               "en": "Logs folder:",   "pt": "Pasta de logs:"},
-    "sys_dataset_path":       {"es": "Carpeta del dataset:",
-                               "en": "Dataset folder:","pt": "Pasta do dataset:"},
-    "sys_language":           {"es": "Idioma:",        "en": "Language:",     "pt": "Idioma:"},
-    "sys_dark_mode":          {"es": "Modo oscuro",    "en": "Dark mode",     "pt": "Modo escuro"},
-    "sys_interface_note":     {"es": "El tema se aplica al guardar. El idioma toma "
-                                     "efecto al reiniciar la aplicación.",
-                               "en": "The theme is applied on save. The language takes "
-                                     "effect when the application restarts.",
-                               "pt": "O tema é aplicado ao salvar. O idioma tem efeito "
-                                     "ao reiniciar a aplicação."},
-    "sys_disk_path":          {"es": "Partición reportada:",
-                               "en": "Reported partition:",
-                               "pt": "Partição reportada:"},
-    "sys_net_interfaces":     {"es": "Interfaces medidas:",
-                               "en": "Measured interfaces:",
-                               "pt": "Interfaces medidas:"},
+    "sys_monitor_description": {"es": "Qué disco y qué interfaces de red mide la pestaña "
+                                      "Hardware y la telemetría.",
+                                "en": "Which disk and network interfaces the Hardware tab and "
+                                      "telemetry measure.",
+                                "pt": "Qual disco e quais interfaces de rede a aba Hardware e "
+                                      "a telemetria medem."},
+    "sys_client":             {"es": "Cliente",        "en": "Client",        "pt": "Cliente"},
+    "sys_project_id":         {"es": "Id de proyecto", "en": "Project id",    "pt": "Id do projeto"},
+    "sys_app_name":           {"es": "Nombre de la aplicación",
+                               "en": "Application name",
+                               "pt": "Nome da aplicação"},
+    "sys_device_id":          {"es": "Id del equipo",  "en": "Device id",     "pt": "Id do equipamento"},
+    "sys_device_id_note":     {"es": "Se cambia en config.yaml. Identifica al equipo en la "
+                                     "telemetría: cambiarlo parte la historia en dos series.",
+                               "en": "Changed in config.yaml. It identifies the device in "
+                                     "telemetry: changing it splits the history in two series.",
+                               "pt": "Alterado em config.yaml. Identifica o equipamento na "
+                                     "telemetria: alterá-lo divide o histórico em duas séries."},
+    "sys_log_level":          {"es": "Nivel de log",   "en": "Log level",     "pt": "Nível de log"},
+    "sys_log_level_hint":     {"es": "DEBUG sólo para buscar una falla: llena el disco.",
+                               "en": "DEBUG only to chase a fault: it fills the disk.",
+                               "pt": "DEBUG só para procurar uma falha: enche o disco."},
+    "sys_logs_path":          {"es": "Carpeta de logs", "en": "Logs folder",  "pt": "Pasta de logs"},
+    "sys_dataset_path":       {"es": "Carpeta del dataset",
+                               "en": "Dataset folder", "pt": "Pasta do dataset"},
+    "sys_language":           {"es": "Idioma",         "en": "Language",      "pt": "Idioma"},
+    "sys_interface_note":     {"es": "Toma efecto al reiniciar la aplicación.",
+                               "en": "Takes effect when the application restarts.",
+                               "pt": "Tem efeito ao reiniciar a aplicação."},
+    # El nombre de cada idioma en su propio idioma: quien no entiende el actual reconoce el suyo.
+    "language_es":            {"es": "Español",        "en": "Español",       "pt": "Español"},
+    "language_en":            {"es": "English",        "en": "English",       "pt": "English"},
+    "language_pt":            {"es": "Português",      "en": "Português",     "pt": "Português"},
+    "sys_disk_path":          {"es": "Partición medida", "en": "Measured partition",
+                               "pt": "Partição medida"},
+    "sys_disk_path_hint":     {"es": "Una carpeta de esa partición. Con un punto, la de la "
+                                     "aplicación.",
+                               "en": "A folder on that partition. A dot is the application's.",
+                               "pt": "Uma pasta dessa partição. Com um ponto, a da "
+                                     "aplicação."},
+    "sys_net_interfaces":     {"es": "Interfaces medidas",
+                               "en": "Measured interfaces",
+                               "pt": "Interfaces medidas"},
+    "sys_net_interfaces_hint": {"es": "Toman efecto al reiniciar.",
+                                "en": "Take effect on restart.",
+                                "pt": "Têm efeito ao reiniciar."},
+
+    # ── Hardware (diagnóstico) ───────────────────────────────────────────────
+    "hw_waiting":             {"es": "Esperando la primera medición.",
+                               "en": "Waiting for the first reading.",
+                               "pt": "Aguardando a primeira medição."},
+    "hw_card_hardware":       {"es": "Hardware",       "en": "Hardware",      "pt": "Hardware"},
+    "hw_card_hardware_description": {"es": "Uso del equipo en los últimos dos minutos, medido "
+                                           "una vez por segundo.",
+                                     "en": "Device usage over the last two minutes, measured "
+                                           "once a second.",
+                                     "pt": "Uso do equipamento nos últimos dois minutos, "
+                                           "medido uma vez por segundo."},
+    "hw_cpu":                 {"es": "CPU",            "en": "CPU",           "pt": "CPU"},
+    "hw_gpu":                 {"es": "GPU",            "en": "GPU",           "pt": "GPU"},
+    "hw_memory":              {"es": "Memoria",        "en": "Memory",        "pt": "Memória"},
+    "hw_disk":                {"es": "Disco",          "en": "Disk",          "pt": "Disco"},
+    "hw_power":               {"es": "Potencia",       "en": "Power",         "pt": "Potência"},
+    "hw_temperature_foot":    {"es": "Temperatura {value} °C", "en": "Temperature {value} °C",
+                               "pt": "Temperatura {value} °C"},
+    "hw_no_temperature":      {"es": "Sin sensor de temperatura",
+                               "en": "No temperature sensor",
+                               "pt": "Sem sensor de temperatura"},
+    "hw_memory_unit":         {"es": "/ {total} GB",   "en": "/ {total} GB",  "pt": "/ {total} GB"},
+    "hw_memory_foot":         {"es": "{pct} % en uso", "en": "{pct} % in use", "pt": "{pct} % em uso"},
+    "hw_disk_unit":           {"es": "GB libres",      "en": "GB free",       "pt": "GB livres"},
+    "hw_disk_foot":           {"es": "En la partición de {path}",
+                               "en": "On the partition of {path}",
+                               "pt": "Na partição de {path}"},
+    "hw_disk_foot_app":       {"es": "En la partición de la aplicación",
+                               "en": "On the application's partition",
+                               "pt": "Na partição da aplicação"},
+    "hw_overcurrent_none":    {"es": "Sin sobrecorriente", "en": "No overcurrent",
+                               "pt": "Sem sobrecorrente"},
+    "hw_overcurrent":         {"es": "{count} eventos de sobrecorriente",
+                               "en": "{count} overcurrent events",
+                               "pt": "{count} eventos de sobrecorrente"},
+    "hw_card_temperatures":   {"es": "Temperaturas",   "en": "Temperatures",  "pt": "Temperaturas"},
+    "hw_card_temperatures_description": {"es": "Cada zona térmica que publica el equipo, con "
+                                               "el nombre que le da la plataforma.",
+                                         "en": "Every thermal zone the device publishes, "
+                                               "named as the platform names it.",
+                                         "pt": "Cada zona térmica que o equipamento publica, "
+                                               "com o nome que a plataforma lhe dá."},
+    "hw_temperatures_empty":  {"es": "El equipo no publica zonas térmicas.",
+                               "en": "The device publishes no thermal zones.",
+                               "pt": "O equipamento não publica zonas térmicas."},
+    "hw_card_engines":        {"es": "Aceleradores",   "en": "Accelerators",  "pt": "Aceleradores"},
+    "hw_card_engines_description": {"es": "Los motores de la Jetson usados en los últimos "
+                                          "segundos, y a qué frecuencia.",
+                                    "en": "The Jetson engines used in the last seconds, and "
+                                          "at which clock.",
+                                    "pt": "Os motores da Jetson usados nos últimos segundos, "
+                                          "e em qual frequência."},
+    "hw_engine":              {"es": "Motor",          "en": "Engine",        "pt": "Motor"},
+    "hw_engine_state":        {"es": "Estado",         "en": "State",         "pt": "Estado"},
+    "hw_engine_clock":        {"es": "Frecuencia",     "en": "Clock",         "pt": "Frequência"},
+    "hw_engine_active":       {"es": "En uso",         "en": "In use",        "pt": "Em uso"},
+    "hw_engine_idle":         {"es": "En reposo",      "en": "Idle",          "pt": "Em repouso"},
+    "hw_card_cameras":        {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
+    "hw_card_cameras_description": {"es": "Lo que informa cada cámara: su estado, los cuadros "
+                                          "por segundo contra su límite y la temperatura del "
+                                          "sensor.",
+                                    "en": "What every camera reports: its state, frames per "
+                                          "second against its limit and the sensor "
+                                          "temperature.",
+                                    "pt": "O que cada câmera informa: seu estado, os quadros "
+                                          "por segundo contra seu limite e a temperatura do "
+                                          "sensor."},
+    "hw_camera":              {"es": "Cámara",         "en": "Camera",        "pt": "Câmera"},
+    "hw_camera_state":        {"es": "Estado",         "en": "State",         "pt": "Estado"},
+    "hw_camera_fps":          {"es": "FPS",            "en": "FPS",           "pt": "FPS"},
+    "hw_camera_trend":        {"es": "Últimos dos minutos", "en": "Last two minutes",
+                               "pt": "Últimos dois minutos"},
+    "hw_camera_temperature":  {"es": "Temperatura",    "en": "Temperature",   "pt": "Temperatura"},
+    "hw_camera_view_misses":  {"es": "Vistas perdidas", "en": "Missed views", "pt": "Vistas perdidas"},
+    "hw_card_network":        {"es": "Red",            "en": "Network",       "pt": "Rede"},
+    "hw_card_network_description": {"es": "Las interfaces que mide el monitor, con su dirección "
+                                          "y el tráfico de cada sentido.",
+                                    "en": "The interfaces the monitor measures, with their "
+                                          "address and the traffic each way.",
+                                    "pt": "As interfaces que o monitor mede, com seu endereço "
+                                          "e o tráfego em cada sentido."},
+    "hw_network_empty":       {"es": "El monitor no mide ninguna interfaz.",
+                               "en": "The monitor measures no interface.",
+                               "pt": "O monitor não mede nenhuma interface."},
+    "hw_net_interface":       {"es": "Interfaz",       "en": "Interface",     "pt": "Interface"},
+    "hw_net_address":         {"es": "Dirección IPv4", "en": "IPv4 address",  "pt": "Endereço IPv4"},
+    "hw_net_link":            {"es": "Enlace",         "en": "Link",          "pt": "Enlace"},
+    "hw_net_rx":              {"es": "Recibe",         "en": "Receives",      "pt": "Recebe"},
+    "hw_net_tx":              {"es": "Envía",          "en": "Sends",         "pt": "Envia"},
+    "hw_net_up":              {"es": "Con enlace",     "en": "Link up",       "pt": "Com enlace"},
+    "hw_net_down":            {"es": "Sin enlace",     "en": "No link",       "pt": "Sem enlace"},
 
     # ── Diagnóstico ──────────────────────────────────────────────────────────
-    "diag_box_cameras":       {"es": "FPS por cámara", "en": "FPS per camera","pt": "FPS por câmera"},
-    "diag_box_network":       {"es": "Red (Mbps)",     "en": "Network (Mbps)","pt": "Rede (Mbps)"},
-    "diag_chart_cpu":         {"es": "CPU [%]",        "en": "CPU [%]",       "pt": "CPU [%]"},
-    "diag_chart_gpu":         {"es": "GPU [%]",        "en": "GPU [%]",       "pt": "GPU [%]"},
-    "diag_chart_ram":         {"es": "RAM [MB]",       "en": "RAM [MB]",      "pt": "RAM [MB]"},
-    "diag_chart_cpu_temp":    {"es": "Temp. CPU [°C]", "en": "CPU temp [°C]", "pt": "Temp. CPU [°C]"},
-    "diag_modbus_table_note": {"es": "Holding registers del mapa, con su valor en vivo.",
-                               "en": "Holding registers of the map, with their live value.",
-                               "pt": "Holding registers do mapa, com seu valor ao vivo."},
+    "diag_modbus_table_note": {"es": "Mapa de registros para integrar el equipo con el PLC. Los "
+                                     "valores se actualizan en vivo.",
+                               "en": "Register map to integrate the device with the PLC. "
+                                     "Values update live.",
+                               "pt": "Mapa de registradores para integrar o equipamento ao "
+                                     "CLP. Os valores são atualizados ao vivo."},
     "diag_modbus_copy_csv":   {"es": "Copiar CSV",     "en": "Copy CSV",      "pt": "Copiar CSV"},
     "diag_modbus_copied":     {"es": "Copiado",        "en": "Copied",        "pt": "Copiado"},
     "diag_modbus_bits_prompt": {"es": "Elegí una palabra de estado en la tabla para ver sus bits.",
@@ -1001,6 +1143,22 @@ _TEXTS: dict[str, dict[str, str]] = {
     "diag_modbus_register":   {"es": "Registro",       "en": "Register",      "pt": "Registrador"},
     "diag_modbus_desc":       {"es": "Descripción",    "en": "Description",   "pt": "Descrição"},
     "diag_modbus_value":      {"es": "Valor",          "en": "Value",         "pt": "Valor"},
+    "diag_modbus_type":       {"es": "Tipo",           "en": "Type",          "pt": "Tipo"},
+    "diag_modbus_unit":       {"es": "Unidad",         "en": "Unit",          "pt": "Unidade"},
+    "diag_modbus_raw":        {"es": "Crudo",          "en": "Raw",           "pt": "Bruto"},
+    "diag_modbus_type_read":  {"es": "Lectura",        "en": "Read",          "pt": "Leitura"},
+    "diag_modbus_type_write": {"es": "Escribe el PLC", "en": "PLC writes",    "pt": "O CLP escreve"},
+    "diag_modbus_filter_all": {"es": "Todos",          "en": "All",           "pt": "Todos"},
+    "diag_modbus_filter_words": {"es": "Palabras de estado", "en": "Status words",
+                                 "pt": "Palavras de estado"},
+    "diag_modbus_search":     {"es": "Buscar por registro, nombre o descripción",
+                               "en": "Search by register, name or description",
+                               "pt": "Buscar por registrador, nome ou descrição"},
+    "diag_modbus_true":       {"es": "Sí",             "en": "Yes",           "pt": "Sim"},
+    "diag_modbus_false":      {"es": "No",             "en": "No",            "pt": "Não"},
+    # Un botón de un control segmentado: el rótulo y cuántas filas hay de ese tipo.
+    "diag_filter_count":      {"es": "{label} · {count}", "en": "{label} · {count}",
+                               "pt": "{label} · {count}"},
     "diag_stats_slave":       {"es": "esclavo {slave_id}", "en": "slave {slave_id}",
                                "pt": "escravo {slave_id}"},
     "diag_stats_rate":        {"es": "Consultas por minuto", "en": "Requests per minute",
@@ -1024,8 +1182,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     "diag_stats_age_s":       {"es": "hace {age} s",   "en": "{age} s ago",   "pt": "há {age} s"},
     "diag_stats_age_min":     {"es": "hace {age} min", "en": "{age} min ago", "pt": "há {age} min"},
     "diag_stats_reset":       {"es": "Reiniciar",      "en": "Reset",         "pt": "Reiniciar"},
-    "diag_streams_card":      {"es": "Servidores de video", "en": "Video servers",
-                               "pt": "Servidores de vídeo"},
     "diag_streams_http":      {"es": "HTTP (MJPEG)",   "en": "HTTP (MJPEG)",  "pt": "HTTP (MJPEG)"},
     "diag_streams_http_description": {"es": "Para mirar en el navegador: un stream crudo y uno "
                                             "anotado por cámara.",
@@ -1040,16 +1196,43 @@ _TEXTS: dict[str, dict[str, str]] = {
                                             "a player.",
                                       "pt": "Os mesmos streams em resolução completa, para um "
                                             "NVR ou um reprodutor."},
-    "diag_streams_empty":     {"es": "Todavía no hay URLs publicadas.",
-                               "en": "No URLs published yet.",
-                               "pt": "Ainda não há URLs publicadas."},
-    "diag_clients":           {"es": "Clientes",       "en": "Clients",       "pt": "Clientes"},
+    "diag_streams_empty":     {"es": "Sin URLs: el servidor no está publicando.",
+                               "en": "No URLs: the server is not publishing.",
+                               "pt": "Sem URLs: o servidor não está publicando."},
+    "diag_streams_clients":   {"es": "Clientes conectados", "en": "Connected clients",
+                               "pt": "Clientes conectados"},
+    "diag_streams_count":     {"es": "Streams publicados", "en": "Published streams",
+                               "pt": "Streams publicados"},
+    "diag_streams_copy":      {"es": "Copiar URL",     "en": "Copy URL",      "pt": "Copiar URL"},
+    "diag_streams_open":      {"es": "Abrir en el navegador", "en": "Open in the browser",
+                               "pt": "Abrir no navegador"},
+    "diag_streams_port":      {"es": "puerto {port}",  "en": "port {port}",   "pt": "porta {port}"},
+    "diag_streams_native_width": {"es": "ancho de la cámara", "en": "camera width",
+                                  "pt": "largura da câmera"},
     "diag_log_all":           {"es": "Todos",          "en": "All",           "pt": "Todos"},
     "diag_log_clear":         {"es": "Limpiar",        "en": "Clear",         "pt": "Limpar"},
     "diag_log_time":          {"es": "Hora",           "en": "Time",          "pt": "Hora"},
     "diag_log_module":        {"es": "Módulo",         "en": "Module",        "pt": "Módulo"},
     "diag_log_level":         {"es": "Nivel",          "en": "Level",         "pt": "Nível"},
     "diag_log_message":       {"es": "Mensaje",        "en": "Message",       "pt": "Mensagem"},
+    "diag_log_debug":         {"es": "Depuración",     "en": "Debug",         "pt": "Depuração"},
+    "diag_log_info":          {"es": "Información",    "en": "Info",          "pt": "Informação"},
+    "diag_log_warning":       {"es": "Avisos",         "en": "Warnings",      "pt": "Avisos"},
+    "diag_log_error":         {"es": "Errores",        "en": "Errors",        "pt": "Erros"},
+    "diag_log_search":        {"es": "Buscar en el mensaje o el módulo",
+                               "en": "Search the message or the module",
+                               "pt": "Buscar na mensagem ou no módulo"},
+    "diag_log_pause":         {"es": "Pausar",         "en": "Pause",         "pt": "Pausar"},
+    "diag_log_resume":        {"es": "Reanudar",       "en": "Resume",        "pt": "Retomar"},
+    "diag_log_shown":         {"es": "{shown} de {total} líneas guardadas (máximo {max_rows}) · "
+                                     "la más nueva arriba",
+                               "en": "{shown} of {total} stored lines (up to {max_rows}) · "
+                                     "newest on top",
+                               "pt": "{shown} de {total} linhas guardadas (máximo {max_rows}) · "
+                                     "a mais nova em cima"},
+    "diag_log_paused":        {"es": "En pausa · {count} líneas nuevas sin mostrar",
+                               "en": "Paused · {count} new lines not shown",
+                               "pt": "Em pausa · {count} linhas novas não exibidas"},
 
     # ── Licencia ─────────────────────────────────────────────────────────────
     # Los estados espejan el vocabulario STATE_* de system/license/manager.py: la clave
@@ -1076,15 +1259,35 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Running from sources",
                                "pt": "Execução a partir das fontes"},
     "lic_state_unknown":      {"es": "Sin datos",      "en": "No data",       "pt": "Sem dados"},
+    "lic_card":               {"es": "Licencia",       "en": "Licence",       "pt": "Licença"},
+    "lic_box_state":          {"es": "Estado",         "en": "State",         "pt": "Estado"},
+    "lic_state_description":  {"es": "Si el equipo puede medir y publicar, y hasta cuándo.",
+                               "en": "Whether the device may measure and publish, and until "
+                                     "when.",
+                               "pt": "Se o equipamento pode medir e publicar, e até quando."},
+    "lic_license_description": {"es": "El archivo instalado: para quién y para qué proyecto se "
+                                      "emitió.",
+                                "en": "The installed file: whom and which project it was "
+                                      "issued for.",
+                                "pt": "O arquivo instalado: para quem e para qual projeto foi "
+                                      "emitido."},
+    "lic_machine_description": {"es": "Cuántas piezas del hardware coinciden con las de la "
+                                      "licencia.",
+                                "en": "How many hardware parts match the licence.",
+                                "pt": "Quantas peças do hardware coincidem com as da "
+                                      "licença."},
+    "lic_entitlements_description": {"es": "Cuántas cámaras y qué módulos se compraron.",
+                                     "en": "How many cameras and which modules were bought.",
+                                     "pt": "Quantas câmeras e quais módulos foram comprados."},
     "lic_box_license":        {"es": "Licencia",       "en": "Licence",       "pt": "Licença"},
     "lic_box_machine":        {"es": "Equipo",         "en": "Device",        "pt": "Equipamento"},
     "lic_box_entitlements":   {"es": "Qué habilita",   "en": "What it grants","pt": "O que habilita"},
     "lic_box_renewal":        {"es": "Renovación",     "en": "Renewal",       "pt": "Renovação"},
-    "lic_id":                 {"es": "Identificador:", "en": "Identifier:",   "pt": "Identificador:"},
-    "lic_client":             {"es": "Cliente:",       "en": "Client:",       "pt": "Cliente:"},
-    "lic_project":            {"es": "Proyecto:",      "en": "Project:",      "pt": "Projeto:"},
-    "lic_issued":             {"es": "Emitida:",       "en": "Issued:",       "pt": "Emitida:"},
-    "lic_expires":            {"es": "Vence:",         "en": "Expires:",      "pt": "Vence:"},
+    "lic_id":                 {"es": "Identificador",  "en": "Identifier",    "pt": "Identificador"},
+    "lic_client":             {"es": "Cliente",        "en": "Client",        "pt": "Cliente"},
+    "lic_project":            {"es": "Proyecto",       "en": "Project",       "pt": "Projeto"},
+    "lic_issued":             {"es": "Emitida",        "en": "Issued",        "pt": "Emitida"},
+    "lic_expires":            {"es": "Vence",          "en": "Expires",       "pt": "Vence"},
     "lic_perpetual":          {"es": "Perpetua",       "en": "Perpetual",     "pt": "Perpétua"},
     "lic_expired":            {"es": "Vencida",        "en": "Expired",       "pt": "Vencida"},
     # Dos claves y no una con «día(s)»: el chip lo lee el operador todos los días y un
@@ -1095,21 +1298,21 @@ _TEXTS: dict[str, dict[str, str]] = {
     "lic_days_left_one":      {"es": "Vence mañana",
                                "en": "Expires tomorrow",
                                "pt": "Vence amanhã"},
-    "lic_fingerprint":        {"es": "Huella del equipo:",
-                               "en": "Device fingerprint:",
-                               "pt": "Impressão do equipamento:"},
+    "lic_fingerprint":        {"es": "Huella del equipo",
+                               "en": "Device fingerprint",
+                               "pt": "Impressão do equipamento"},
     "lic_fingerprint_value":  {"es": "{matches} de {required} exigidas",
                                "en": "{matches} of {required} required",
                                "pt": "{matches} de {required} exigidas"},
-    "lic_sources":            {"es": "Fuentes leídas:","en": "Sources read:", "pt": "Fontes lidas:"},
-    "lic_build":              {"es": "Build:",         "en": "Build:",        "pt": "Build:"},
+    "lic_sources":            {"es": "Fuentes leídas", "en": "Sources read", "pt": "Fontes lidas"},
+    "lic_build":              {"es": "Build",          "en": "Build",         "pt": "Build"},
     "lic_build_compiled":     {"es": "Compilado",      "en": "Compiled",      "pt": "Compilado"},
     "lic_build_sources":      {"es": "Desde fuentes (no se verifica)",
                                "en": "From sources (not enforced)",
                                "pt": "A partir das fontes (não verificado)"},
-    "lic_max_cameras":        {"es": "Cámaras:",       "en": "Cameras:",      "pt": "Câmeras:"},
+    "lic_max_cameras":        {"es": "Cámaras",        "en": "Cameras",       "pt": "Câmeras"},
     "lic_cameras_unlimited":  {"es": "Sin cupo",       "en": "No limit",      "pt": "Sem cota"},
-    "lic_features":           {"es": "Módulos:",       "en": "Modules:",      "pt": "Módulos:"},
+    "lic_features":           {"es": "Módulos",        "en": "Modules",       "pt": "Módulos"},
     "lic_renewal_hint":       {"es": "Para renovar: exportar la solicitud, enviarla al "
                                      "proveedor e instalar el archivo que devuelve.",
                                "en": "To renew: export the request, send it to the "
