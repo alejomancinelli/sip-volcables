@@ -15,10 +15,17 @@ en los dos temas—, la barra superior dice dónde se está y el área de trabaj
 limpia para los datos. Las tipografías y los íconos los registra y los pinta
 `ui/theme.py`.
 
+La barra superior lleva además la búsqueda de la web —el campo y `Ctrl+K`—, que abre la
+paleta (`ui/widgets/command_palette.py`) con las páginas, sus pestañas, cada campo y cada
+sección de las pestañas de configuración, y el cambio de tema. Elegir un ajuste lleva a su
+página, elige su pestaña y su sub-pestaña y lo deja a la vista con el foco; los campos los
+lee `ui/widgets/field_search.py` de lo que cada pestaña ya armó, así que ninguna declara
+nada para aparecer.
+
 Tres cosas que no son obvias:
 
   - **Las pestañas de configuración se arman la primera vez que se abre una página que
-    tenga alguna.** Son nueve pestañas con cientos de campos y el arranque de la
+    tenga alguna**, o la búsqueda, que tiene que poder encontrar sus campos. Son nueve pestañas con cientos de campos y el arranque de la
     aplicación no las necesita. Se arman todas juntas porque se guardan todas juntas. Las
     de diagnóstico, en cambio, existen desde el arranque: reciben datos desde el primer
     segundo, aunque su página no se haya abierto.
@@ -38,12 +45,13 @@ través de `ConfigTabs`.
 """
 
 import os
+from dataclasses import dataclass
 
-from PySide6.QtCore import QTime, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import QSize, QTime, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout,
-    QWidget,
+    QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QStackedWidget,
+    QVBoxLayout, QWidget,
 )
 
 from system.config_manager import ConfigManager
@@ -60,12 +68,22 @@ from ui.views.gpio_view import GpioView
 from ui.views.home_view import HomeView
 from ui.views.monitor_view import MonitorView
 from ui.views.page_view import PageView
+from ui.widgets import field_search
+from ui.widgets.command_palette import CommandPalette, PaletteEntry
 from ui.widgets.form import WheelGuard
 from ui.widgets.sidebar import Sidebar
 
 _TOP_BAR_HEIGHT_PX = 56
 _TOP_BAR_MARGIN_PX = 24       # el mismo aire que las vistas dejan contra la barra lateral
 _BREADCRUMB_SPACING_PX = 8
+_TOP_BAR_ICON_PX = 18
+_TOP_BAR_BUTTON_PX = 32
+_SEARCH_WIDTH_PX = 256
+_SEARCH_ICON_PX = 15
+_SEARCH_SHORTCUT = "Ctrl+K"
+_SEARCH_SHORTCUT_TEXT = "Ctrl K"
+_SETTING_ICON = "adjustments-horizontal"
+_PATH_SEPARATOR = " › "
 _FOOTER_HEIGHT_PX = 28
 _FOOTER_SPACING_PX = 18       # aire entre los datos del lado derecho de la barra de estado
 _WINDOW_WIDTH_PX = 1920
@@ -84,6 +102,19 @@ _FLASH_INTERVAL_MS = 50
 
 # Propiedad Qt que marca la barra de estado sin licencia válida; la pinta el QSS.
 _ALERT_PROPERTY = "alert"
+
+_ACTION_TOGGLE_THEME = "toggle_theme"
+
+
+@dataclass(frozen=True)
+class _SearchTarget:
+    """Adónde lleva una entrada de la búsqueda: una página y, adentro, un widget; o una acción."""
+
+    page_key: str = ""
+    widget: QWidget | None = None       # una pestaña, un campo o una sección
+    highlight: QWidget | None = None    # lo que se resalta al llegar
+    hit: str = ""
+    action: str = ""
 
 
 class MainWindow(QMainWindow):
@@ -149,6 +180,11 @@ class MainWindow(QMainWindow):
         self._sidebar.set_item_visible(PAGE_GPIO, False)
 
         column.addWidget(self._build_footer())
+
+        self._palette = CommandPalette(self)
+        self._palette.entry_chosen.connect(self._on_search_chosen)
+        QShortcut(QKeySequence(_SEARCH_SHORTCUT), self, activated=self._open_search)
+
         self._navigate(PAGE_HOME)
         self.apply_theme()
         self.set_status_message(tr("status_started"))
@@ -294,6 +330,14 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(theme.load_stylesheet(dark))
         self._home.apply_theme(dark)
         self._diagnostics.apply_theme(dark)
+        # El ícono dice a qué tema se pasa, como en la web: el sol en el oscuro.
+        self._theme_button.setIcon(theme.get_icon(
+            "sun" if dark else "moon", theme.get_palette(dark)["hint_text"]))
+        self._theme_button.setToolTip(tr("theme_to_light" if dark else "theme_to_dark"))
+        self._search_icon.setPixmap(theme.get_icon(
+            "search", theme.get_palette(dark)["hint_text"]).pixmap(_SEARCH_ICON_PX,
+                                                                   _SEARCH_ICON_PX))
+        self._palette.apply_theme(dark)
 
     # ── Barra lateral ────────────────────────────────────────────────────────
 
@@ -317,7 +361,11 @@ class MainWindow(QMainWindow):
     # ── Barra superior ───────────────────────────────────────────────────────
 
     def _build_top_bar(self) -> QWidget:
-        """La miga de pan: aplicación › página."""
+        """
+        La miga de pan —aplicación › página— y, a la derecha, el cambio de tema. Es lo único
+        de la configuración que se aplica sin reiniciar, así que va acá, a mano desde
+        cualquier página, y no en la pestaña Sistema. El idioma no: queda fijo por corrida.
+        """
         bar = QWidget()
         bar.setObjectName("appTopBar")
         bar.setAttribute(Qt.WA_StyledBackground, True)
@@ -336,7 +384,52 @@ class MainWindow(QMainWindow):
         self._breadcrumb_current.setObjectName("breadcrumbCurrent")
         layout.addWidget(self._breadcrumb_current)
         layout.addStretch()
+        layout.addWidget(self._build_search_button())
+
+        self._theme_button = QPushButton()
+        self._theme_button.setObjectName("topBarIconButton")
+        self._theme_button.setCursor(Qt.PointingHandCursor)
+        self._theme_button.setFixedSize(_TOP_BAR_BUTTON_PX, _TOP_BAR_BUTTON_PX)
+        self._theme_button.setIconSize(QSize(_TOP_BAR_ICON_PX, _TOP_BAR_ICON_PX))
+        self._theme_button.clicked.connect(self._toggle_theme)
+        layout.addWidget(self._theme_button)
         return bar
+
+    def _build_search_button(self) -> QPushButton:
+        """El campo de la web: parece un buscador, y abre la paleta. Dice su atajo a la derecha."""
+        button = QPushButton()
+        button.setObjectName("topBarSearch")
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedSize(_SEARCH_WIDTH_PX, _TOP_BAR_BUTTON_PX)
+        button.clicked.connect(self._open_search)
+        row = QHBoxLayout(button)
+        row.setContentsMargins(10, 0, 8, 0)
+        row.setSpacing(8)
+        self._search_icon = QLabel()
+        self._search_icon.setFixedSize(_SEARCH_ICON_PX, _SEARCH_ICON_PX)
+        text = QLabel(tr("search_button"))
+        text.setObjectName("topBarSearchText")
+        shortcut = QLabel(_SEARCH_SHORTCUT_TEXT)
+        shortcut.setObjectName("kbd")
+        for label in (self._search_icon, text, shortcut):
+            label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        row.addWidget(self._search_icon)
+        row.addWidget(text)
+        row.addStretch()
+        row.addWidget(shortcut)
+        return button
+
+    def _toggle_theme(self):
+        """
+        Pasa al otro tema y lo guarda en `ui.dark_mode`, para que el próximo arranque abra
+        igual. Se persiste solo esa clave: lo que esté editado y sin guardar en las pestañas
+        de configuración vive en sus campos, no en el config, así que no se escribe con esto.
+        """
+        dark = not self._is_dark
+        self.apply_theme(dark)
+        self._config.set("ui.dark_mode", dark)
+        if not self._config.save():
+            self.set_status_message(tr("status_theme_not_saved"))
 
     def _build_footer(self) -> QWidget:
         """
@@ -450,6 +543,72 @@ class MainWindow(QMainWindow):
         )
         self._flash_step += 1
 
+    # ── Búsqueda ─────────────────────────────────────────────────────────────
+
+    def _open_search(self):
+        """
+        Abre la paleta con lo que hay ahora. Se rearma en cada apertura: lo que se ve de cada
+        pestaña cambia con lo que se edita —un campo que aparece con otro driver—, y recorrer
+        unos cientos de campos no se nota.
+        """
+        self._ensure_config_tabs()
+        pages, tabs, settings = self._build_search_entries()
+        actions = [PaletteEntry(
+            tr("search_group_actions"),
+            tr("theme_to_light" if self._is_dark else "theme_to_dark"),
+            icon="sun" if self._is_dark else "moon",
+            target=_SearchTarget(action=_ACTION_TOGGLE_THEME))]
+        # Con el campo vacío, las páginas y las acciones: las pestañas, que repetirían el
+        # nombre de su página, aparecen al escribir.
+        self._palette.set_entries(pages + tabs + settings + actions, pages + actions)
+        self._palette.open_over(self)
+
+    def _build_search_entries(self) -> tuple[list[PaletteEntry], list[PaletteEntry],
+                                             list[PaletteEntry]]:
+        """(páginas, pestañas, ajustes), en el orden de la barra lateral."""
+        pages, tab_entries, settings = [], [], []
+        group_pages = tr("search_group_pages")
+        group_settings = tr("search_group_settings")
+        for entry in navigation.get_pages():
+            if entry.key == PAGE_GPIO and PAGE_GPIO not in self._pages:
+                continue
+            title = tr(entry.title_key)
+            pages.append(PaletteEntry(
+                group_pages, title,
+                tr(entry.description_key) if entry.description_key else "", entry.icon,
+                target=_SearchTarget(entry.key)))
+            tabs = [self._get_tab(tab_class) for tab_class in entry.tabs]
+            # Una página con una sola pestaña no muestra la barra: su rótulo no es un camino.
+            has_tab_bar = len(tabs) > 1
+            for tab in tabs:
+                tab_title = tr(tab.TITLE_KEY)
+                if has_tab_bar:
+                    tab_entries.append(PaletteEntry(group_pages, tab_title, title, entry.icon,
+                                                    target=_SearchTarget(entry.key, tab)))
+                if not isinstance(tab, AbstractConfigTab):
+                    continue
+                prefix = (title, tab_title) if has_tab_bar else (title,)
+                for ref in field_search.collect_settings(tab):
+                    settings.append(PaletteEntry(
+                        group_settings, ref.title, _PATH_SEPARATOR.join(prefix + ref.path),
+                        _SETTING_ICON, keywords=ref.hint,
+                        target=_SearchTarget(entry.key, ref.widget, ref.highlight, ref.hit)))
+        return pages, tab_entries, settings
+
+    def _get_tab(self, tab_class: type) -> QWidget:
+        owner = (self._config_tabs if issubclass(tab_class, AbstractConfigTab)
+                 else self._diagnostics)
+        return owner.get_tab(tab_class)
+
+    def _on_search_chosen(self, entry: PaletteEntry):
+        target: _SearchTarget = entry.target
+        if target.action == _ACTION_TOGGLE_THEME:
+            self._toggle_theme()
+            return
+        self._navigate(target.page_key)
+        if target.widget is not None:
+            field_search.reveal(target.widget, highlight=target.highlight, hit=target.hit)
+
     # ── Navegación ───────────────────────────────────────────────────────────
 
     def _navigate(self, key: str):
@@ -482,8 +641,7 @@ class MainWindow(QMainWindow):
         has_config = any(issubclass(tab_class, AbstractConfigTab) for tab_class in entry.tabs)
         if has_config:
             self._ensure_config_tabs()
-        tabs = [(self._config_tabs if issubclass(tab_class, AbstractConfigTab)
-                 else self._diagnostics).get_tab(tab_class) for tab_class in entry.tabs]
+        tabs = [self._get_tab(tab_class) for tab_class in entry.tabs]
         page = PageView(**self._get_header(key), tabs=tabs, can_save=has_config)
         if has_config:
             page.save_requested.connect(lambda: self._config_tabs.save(self))

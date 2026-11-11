@@ -8,6 +8,10 @@ con el resto de los colores del tema y el chip cambia solo al cambiar de tema.
 Con `pill=True` es la píldora del sistema de diseño —el color de estado sobre su mismo tono
 suave, más chica—, la que usa la página de inicio. Es el mismo widget con otro nombre de
 objeto, así que los estados y `set_state()` son los mismos.
+
+`fix_width()` deja la píldora del ancho de su texto más largo: en una columna, pasar de
+«Conectada» a «Desconectada» no corre lo que está al lado. Se mide con la tipografía y el
+relleno del QSS, así que se llama con el widget ya a la vista.
 """
 
 from PySide6.QtCore import Qt
@@ -19,6 +23,7 @@ CHIP_OK = "ok"
 CHIP_WARNING = "warning"
 CHIP_ERROR = "error"
 CHIP_INFO = "info"
+CHIP_NEUTRAL = "neutral"      # ni bien ni mal: un motor en reposo, una interfaz sin enlace
 
 _PROPERTY_STATE = "state"
 _PROPERTY_COMPACT = "compact"     # el QSS lo achica: para una fila que comparte con un título
@@ -45,3 +50,19 @@ class StatusChip(QLabel):
         # Qt no reevalúa el QSS al cambiar una propiedad: hay que pedirlo.
         self.style().unpolish(self)
         self.style().polish(self)
+
+    def measure(self, texts: list[str]) -> int:
+        """El ancho que pide la píldora con el más largo de esos textos."""
+        self.ensurePolished()
+        current = self.text()
+        widths = []
+        for text in texts:
+            self.setText(text)
+            widths.append(self.sizeHint().width())
+        self.setText(current)
+        return max(widths, default=self.sizeHint().width())
+
+    def fix_width(self, texts: list[str], width: int = 0):
+        """Fija el ancho —el de `measure(texts)`, o `width` si es mayor— y centra el texto."""
+        self.setFixedWidth(max(width, self.measure(texts)))
+        self.setAlignment(Qt.AlignCenter)

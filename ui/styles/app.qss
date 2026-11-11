@@ -119,6 +119,97 @@ QLabel#breadcrumbRoot, QLabel#breadcrumbSeparator {
 QLabel#breadcrumbCurrent {
     font-weight: 500;
 }
+/* El cambio de tema: un ícono sin contorno hasta pasar el mouse, como el de la web. */
+QPushButton#topBarIconButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 0;
+}
+QPushButton#topBarIconButton:hover {
+    background-color: $accent;
+}
+/* La búsqueda de la barra superior: parece un campo y abre la paleta. */
+QPushButton#topBarSearch {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 0;
+}
+QPushButton#topBarSearch:hover {
+    border-color: $input;
+}
+QLabel#topBarSearchText {
+    color: $muted_foreground;
+    font-size: 9.5pt;
+}
+QPushButton#topBarSearch:hover QLabel#topBarSearchText {
+    color: $foreground;
+}
+/* Una tecla, como el <Kbd> de la web. */
+QLabel#kbd {
+    color: $muted_foreground;
+    background-color: $muted;
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-family: "$font_mono";
+    font-size: 8pt;
+}
+
+/* La paleta de búsqueda (ui/widgets/command_palette.py). */
+QFrame#commandPalette {
+    background-color: $popover;
+    border: 1px solid $input;
+    border-radius: 12px;
+}
+QLineEdit#commandInput {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 12px 10px;
+    font-size: 10.5pt;
+}
+QListWidget#commandList {
+    background-color: transparent;
+    border: none;
+    outline: none;
+    padding: 4px 6px;
+}
+QListWidget#commandList::item {
+    border-radius: 6px;
+}
+QListWidget#commandList::item:selected {
+    background-color: $accent;
+}
+QLabel#commandGroup {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 8pt;
+    font-weight: bold;
+    padding: 8px 12px 0 12px;
+}
+QLabel#commandTitle {
+    font-size: 10pt;
+}
+QLabel#commandDetail {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+QLabel#commandEmpty {
+    color: $muted_foreground;
+    padding: 28px;
+}
+QLabel#commandFooter {
+    color: $muted_foreground;
+    font-size: 8.5pt;
+    padding: 8px 14px;
+}
+/* Lo que se encontró con la búsqueda: su rótulo en el color de marca, unos segundos. */
+QWidget[searchHit="field"] QLabel#settingsFieldLabel,
+QWidget[searchHit="section"] QLabel#settingsSectionTitle {
+    color: $primary;
+}
 QWidget#appFooter {
     background-color: $footer_background;
     border-top: 1px solid $border;
@@ -285,11 +376,23 @@ QLabel#settingsSummary {
     border-radius: 8px;
     padding: 6px 12px;
 }
-/* La URL de un stream, en una fila de la lista: monoespaciada y en el color de un enlace. */
+/* Una fila de URLs de la pestaña de streams: la URL monoespaciada, en el color de un enlace. */
+QWidget#streamRow {
+    border-top: 1px solid $border;
+}
+QWidget#streamRow:hover {
+    background-color: $accent;
+}
 QLabel#streamUrl {
     color: $primary;
     font-family: "$font_mono";
     font-size: 9.5pt;
+}
+QLabel#streamEmpty {
+    color: $muted_foreground;
+    font-size: 9pt;
+    border-top: 1px solid $border;
+    padding: 12px 20px;
 }
 
 /* ── Comunicación: bits de una palabra y estadísticas de Modbus ── */
@@ -358,6 +461,38 @@ QLabel#statsValue[warn="true"] {
     color: $warn;
 }
 
+/* ── Hardware (ui/views/diagnostics/hardware_tab.py) ─────────── */
+
+/* Las métricas de la fila de arriba: un filete arriba de todas y otro entre una y otra. */
+QWidget#metricTile {
+    border-top: 1px solid $border;
+}
+QWidget#metricTile[first="false"] {
+    border-left: 1px solid $border;
+}
+QLabel#metricValue {
+    font-family: "$font_heading";
+    font-size: 20pt;
+    font-weight: 600;
+}
+QLabel#metricUnit {
+    color: $muted_foreground;
+    font-family: "$font_heading";
+    font-size: 10pt;
+    font-weight: 500;
+}
+QLabel#metricFoot {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+QLabel#metricFoot[warn="true"], QLabel#tableValue[warn="true"], QLabel#hintLabel[warn="true"] {
+    color: $warn;
+}
+/* El resultado de instalar una licencia que no se pudo instalar. */
+QLabel#licenseResult[error="true"] {
+    color: $crit;
+}
+
 /* ── Página de inicio (ui/views/home_view.py) ────────────────── */
 
 /* La placa: «noche IEA» en los dos temas. La textura, la órbita y el anillo los dibuja
@@ -424,25 +559,27 @@ QLabel#homeRowDetail {
     color: $muted_foreground;
     font-size: 9pt;
 }
+/* Las tablas livianas de una tarjeta —las de inicio y las de hardware— comparten la forma:
+   rótulos chicos y apagados, el nombre en el texto de la interfaz y los números en mono. */
 QLabel#homeCardTitle {
     font-family: "$font_heading";
     font-size: 11.5pt;
     font-weight: 600;
 }
-QLabel#homeCardDetail {
+QLabel#homeCardDetail, QLabel#tableDetail {
     color: $muted_foreground;
     font-family: "$font_mono";
     font-size: 9pt;
 }
-QLabel#homeFieldLabel {
+QLabel#homeFieldLabel, QLabel#tableHeader {
     color: $muted_foreground;
     font-size: 8.5pt;
 }
-QLabel#homeFieldValue {
+QLabel#homeFieldValue, QLabel#tableValue {
     font-family: "$font_mono";
     font-size: 10pt;
 }
-QLabel#homeRowLabel {
+QLabel#homeRowLabel, QLabel#tableCell {
     font-size: 10pt;
 }
 /* «Ver monitor»: un enlace con forma de botón, sin contorno hasta pasar el mouse. */
@@ -470,6 +607,7 @@ QLabel#statusPill[state="ok"]      { color: $ok;      background-color: $ok_soft
 QLabel#statusPill[state="error"]   { color: $crit;    background-color: $crit_soft; }
 QLabel#statusPill[state="info"]    { color: $primary; background-color: $brand_soft; }
 QLabel#statusPill[state="warning"] { color: $warn;    background-color: $warn_soft; }
+QLabel#statusPill[state="neutral"] { color: $muted_foreground; background-color: $muted; }
 
 /* ── Chips de estado (se revisan aparte) ────────────────────── */
 
@@ -484,6 +622,7 @@ QLabel#statusChip[state="ok"]      { background-color: rgba(190,255,190,120); }
 QLabel#statusChip[state="error"]   { background-color: rgba(255,190,190,120); }
 QLabel#statusChip[state="info"]    { background-color: rgb(169,215,255); }
 QLabel#statusChip[state="warning"] { background-color: rgba(255,252,160,150); }
+QLabel#statusChip[state="neutral"] { background-color: $muted; color: $muted_foreground; }
 /* La versión chica, para compartir la fila con un título: la de cada cámara. */
 QLabel#statusChip[compact="true"] {
     border-radius: 6px;
@@ -565,17 +704,22 @@ QPushButton#topBarButton {
     padding: 5px 12px;
 }
 
-/* Filtro del log: control segmentado, el elegido es una tarjeta. */
-QPushButton#logFilterButton {
+/* Control segmentado —el filtro del log y el de los registros—: el elegido es una tarjeta
+   sobre el fondo apagado. */
+QWidget#segmentedControl {
+    background-color: $muted;
+    border-radius: 7px;
+}
+QPushButton#segmentButton {
     background-color: transparent;
     color: $muted_foreground;
     border: 1px solid transparent;
     border-radius: 5px;
-    padding: 2px 10px;
+    padding: 4px 12px;
     font-size: 9pt;
 }
-QPushButton#logFilterButton:hover { color: $foreground; }
-QPushButton#logFilterButton[selected="true"] {
+QPushButton#segmentButton:hover { color: $foreground; }
+QPushButton#segmentButton[selected="true"] {
     background-color: $card;
     color: $foreground;
     border-color: $border;
@@ -817,6 +961,9 @@ QTableWidget#cardTable QHeaderView::section {
 QTableWidget#cardTable::item {
     padding: 0px 9px;
     border-bottom: 1px solid $border;
+}
+QTableWidget#cardTable::item:hover {
+    background-color: $accent;
 }
 QHeaderView {
     background-color: transparent;

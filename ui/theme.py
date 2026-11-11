@@ -237,13 +237,16 @@ SERIES_COLORS = {
 
 # (texto, fondo) por nivel de log. Los items de una QTableWidget se pintan por
 # código, así que el QSS no llega. El fondo de INFO es el de la tarjeta, y los de aviso
-# y error son el ámbar y el rojo de estado a baja opacidad sobre ella.
+# y error son el ámbar y el rojo de estado a baja opacidad sobre ella. DEBUG va apagado:
+# es detalle, no un aviso. Las claves son las de `log_table.LEVELS`.
 _LOG_COLORS_DARK = {
+    "DEBUG":   ("#8597ae", "#0b1727"),
     "INFO":    ("#e4edf6", "#0b1727"),
     "WARNING": ("#f0a531", "#2d2c28"),
     "ERROR":   ("#f0575c", "#291f2e"),
 }
 _LOG_COLORS_LIGHT = {
+    "DEBUG":   ("#5a6b7e", "#ffffff"),
     "INFO":    ("#0a1a2c", "#ffffff"),
     "WARNING": ("#a16205", "#f7ebda"),
     "ERROR":   ("#b83136", "#fae5e6"),

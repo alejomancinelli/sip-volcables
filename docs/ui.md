@@ -66,8 +66,17 @@ difieren, manda la web. Lo que se lleva a Qt:
   porque el QSS no tiene degradés radiales ni máscaras. El botón del pie la contrae a un
   riel de íconos, con la esfera del logo arriba y el texto de cada ítem en su tooltip; lo
   que se esconde deja su lugar, así que ningún ícono se mueve. El área de trabajo queda
-  limpia: sin degradés ni pies corporativos. La barra superior lleva la miga de pan; la de
-  estado, en Ubuntu Mono, el mensaje, la versión y el reloj.
+  limpia: sin degradés ni pies corporativos. La barra superior lleva la miga de pan y, a la
+  derecha, la búsqueda y el cambio de tema —un sol en el oscuro, una luna en el claro, como la
+  web—; la de estado, en Ubuntu Mono, el mensaje, la versión y el reloj.
+- **La búsqueda es la paleta de la web.** El campo de la barra superior —o `Ctrl+K`— abre
+  `ui/widgets/command_palette.py` sobre la ventana: con el campo vacío, las páginas y el
+  cambio de tema; al escribir, también las pestañas y cada sección y campo de las pestañas
+  de configuración, sin mayúsculas ni tildes. Elegir un ajuste va a su página, elige su
+  pestaña y su sub-pestaña, lo trae a la vista con el foco y pinta su rótulo del color de
+  marca unos segundos. Los campos no se declaran en ningún lado: `ui/widgets/field_search.py`
+  los lee de cada `FieldGrid` y cada `SettingsSection` ya armados, así que **un campo nuevo
+  aparece en la búsqueda si se agrega con `add_field()`**, y uno que la pestaña esconde no.
 - **Tres tipografías, empaquetadas en `ui/fonts/`** porque un equipo de planta no las
   tiene ni tiene internet: Exo para títulos y valores medidos, Ubuntu para la interfaz,
   Ubuntu Mono para datos técnicos. Las registra `theme.load_fonts()` al armar la ventana.
@@ -131,8 +140,11 @@ self.style().polish(self)
 QLabel#statusChip[state="ok"] { background-color: rgba(190,255,190,120); }
 ```
 
-Las propiedades en uso son `state` (chips, indicadores de GPIO), `selected` (filtro de
-log elegido) y `alert` (la barra de estado sin licencia válida). La vista activa de la
+Las propiedades en uso son `state` (chips, indicadores de GPIO), `selected` (el botón
+elegido de un control segmentado), `alert` (la barra de estado sin licencia válida), `warn` (un valor que pide
+atención: excepciones del Modbus, sobrecorriente, vistas perdidas, el log en pausa),
+`error` (el resultado de instalar una licencia que falló) y `first` (la primera métrica de
+la fila de Hardware, que no lleva filete a la izquierda). La vista activa de la
 barra lateral no usa una propiedad: sus botones son *checkable* y el QSS pinta
 `:checked`. Agregar un estado es una regla en `app.qss`.
 
@@ -155,7 +167,13 @@ label = QLabel(tr("cam_box_roi"))
 - El idioma sale de `ui.language` del config y **queda fijo por corrida**: cada widget
   resuelve su texto al construirse, así que cambiarlo con la aplicación andando dejaría
   la pantalla partida en dos idiomas. El panel lo guarda como cualquier otra clave y la
-  nota al pie del grupo «Interfaz» avisa que toma efecto al reiniciar. `set_language()`
+  aclaración del campo, en la sección «Interfaz» de la pestaña Sistema, avisa que toma efecto
+  al reiniciar. El combo muestra cada idioma en su propio idioma (`language_<código>`) y
+  guarda el código.
+- **El tema sí se cambia en caliente, y por eso no está en la pestaña Sistema**: es el botón
+  de la barra superior, a mano desde cualquier página. Lo aplica `MainWindow.apply_theme()` y
+  lo persiste en `ui.dark_mode` en el momento —sólo esa clave: lo editado y sin guardar en
+  las pestañas vive en sus campos, no en el config—, así que el próximo arranque abre igual. `set_language()`
   queda para las pruebas y para quien arme la UI antes de mostrarla.
 - Para agregar un idioma: sumar su código a `LANGUAGES` y su entrada a cada texto.
 
@@ -200,6 +218,8 @@ ui/
     camera_grid.py      N paneles, con foco y modo crudo/anotado
     region_canvas.py    el frame con las regiones de varios pipelines, una editable con el mouse
     pause_button.py     pausar y reanudar el video de un diálogo de dibujo
+    command_palette.py  la paleta de búsqueda: el campo, la lista agrupada y la regla del filtro
+    field_search.py     los campos y secciones de una pestaña, y llegar a uno: pestaña, scroll y foco
   dialogs/
     roi_dialog.py       dibujar UN rectángulo con el mouse sobre el frame en vivo (la región de la óptica)
     pipeline_regions_dialog.py  las regiones de todos los pipelines de una cámara, una pestaña
@@ -437,7 +457,7 @@ La barra lateral agrupa las páginas por **subsistema**, no por tipo de pantalla
 | | Inferencia | Inferencia · Dataset |
 | Integración | Modbus | Estadísticas · Registros · Configuración |
 | | Video y telemetría | Streams · Video · Telemetría |
-| Equipo | Sistema | Sistema · Hardware · Licencia |
+| Equipo | Sistema | Hardware · Licencia · Sistema |
 | | Logs | Logs |
 | | Entradas y salidas | — (sólo con controlador de GPIO) |
 
@@ -499,7 +519,7 @@ class MiTab(AbstractConfigTab):
 
 Una pestaña con la forma del sistema de diseño se arma con `SettingsCard`
 (`ui/widgets/settings_card.py`), y es la que usan todas las de configuración —Cámaras, Inferencia, Dataset, Proceso,
-Modbus, Video y Telemetría— y la de Streams: una tarjeta por tema, con un rótulo
+Modbus, Video y Telemetría—: una tarjeta por tema, con un rótulo
 chico arriba; secciones separadas por un filete, cada una con un título y una descripción de
 **una o dos líneas** a la izquierda; y los campos a la derecha, en columnas, con el rótulo
 arriba de cada uno y, si hace falta, una aclaración corta debajo («En milisegundos»).
@@ -646,12 +666,36 @@ crece. `IS_CENTERED = False` es para las que tienen que ocupar todo el ancho.
 
 Una pestaña de diagnóstico tampoco pone margen propio: su tarjeta arranca en el borde del
 encabezado, como las de configuración. Si muestra estado y detalle, usa la misma
-`SettingsCard` —la de Streams: una sección por servidor, con sus chips y la lista de URLs—;
-si es una tabla, la tabla va adentro de una tarjeta con `objectName` `cardTable`, que le saca
+`SettingsCard`; si es una tabla, la tabla va adentro de una tarjeta con `objectName` `cardTable`, que le saca
 el borde y el fondo propios, y arriba una franja con los chips y qué es la tabla —la de
 Registros, como el mapa Modbus de la web—. Varias tarjetas lado a lado, una por cosa que se
-compara —la de Estadísticas, una por transporte—, van en una fila, cada una con su
-`settingsCard`; una tendencia chica sin ejes es un `Sparkline`.
+compara —la de Estadísticas, una por transporte; la de Streams, una por servidor, con sus
+URLs en filas que se copian con un botón—, van en una fila, cada una con su
+`settingsCard`; una tendencia chica sin ejes es un `Sparkline` —con `low` y `high` cuando la
+escala es fija, como un porcentaje—.
+
+Hardware es el ejemplo de una pestaña que apila secciones, una tarjeta por tema: arriba la
+fila de métricas del equipo —CPU, GPU, memoria, disco y potencia, cada una con su número
+grande, su tendencia y una línea al pie—, después las temperaturas por zona junto a los
+aceleradores de la Jetson —que no aparecen fuera de una—, y debajo las cámaras y las
+interfaces de red, cada una en una tabla liviana con un filete entre filas. Un valor que el
+equipo no expone —el monitor y el driver lo informan como 0— se ve como «—», no como un cero
+que parece medido. Las filas de zonas, motores e interfaces se arman con la primera medición:
+cuáles hay depende del equipo.
+
+Logs es el ejemplo de una tabla con controles: la tarjeta lleva arriba el filtro —un control
+segmentado, `segmentedControl`, con cuántas líneas guardadas hay de cada nivel—, la búsqueda
+y «Pausar»; la tabla en el medio y al pie cuántas líneas se ven de cuántas. CRITICAL se
+filtra y se pinta con los errores, y en pausa el buffer sigue llenándose.
+
+Registros sigue al mapa Modbus de la web y dice de cada fila lo mismo que la tabla del
+integrador: la dirección, el tipo —una píldora, «Lectura» apagada o «Escribe el PLC» en el
+color de la marca—, la descripción con el nombre del registro debajo, la unidad con su escala
+y el valor dos veces: crudo, el entero que lee el PLC, y convertido a su unidad con
+`SCHEMA.decode()`, que es el dueño de la escala; la pantalla no multiplica ni divide nada.
+Arriba, el mismo control segmentado que el log —todos, lectura, lo que escribe el PLC y las
+palabras de estado, con cuántas hay de cada uno— y una búsqueda por dirección, nombre o
+descripción, para un mapa de fork con decenas de filas.
 
 Registros decodifica una palabra de estado sin correr un bit: la fila declara en el mapa
 qué palabra es (`bitfield`), y qué dice cada bit lo contesta `system/formats/catalog.py`,

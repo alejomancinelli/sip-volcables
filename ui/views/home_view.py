@@ -457,10 +457,9 @@ class HomeView(QWidget):
         Se rehace cuando aparece un veredicto nuevo, que puede traer un rótulo más largo.
         """
         samples = [sample for row in self._verdict_rows.values() for sample in row.get_samples()]
-        width = max((_measure_pill(pill, texts) for pill, texts in samples), default=0)
+        width = max((pill.measure(texts) for pill, texts in samples), default=0)
         for pill, _ in samples:
-            pill.setFixedWidth(width)
-            pill.setAlignment(Qt.AlignCenter)
+            pill.fix_width([], width)
 
     def _refresh_overall(self):
         rows = [row for row in self._camera_rows.values() if row.is_enabled]
@@ -790,7 +789,7 @@ class _CameraRow:
         return self._fps.text().strip()
 
     def fix_widths(self):
-        _fix_pill_width(self._pill, [tr(key) for key in _CAMERA_STATE_KEYS])
+        self._pill.fix_width([tr(key) for key in _CAMERA_STATE_KEYS])
 
     def update_status(self, status: dict):
         """Claves de `AbstractCameraDriver.get_status()`."""
@@ -905,28 +904,6 @@ def _new_fixed_label(text: str) -> QLabel:
     label = _new_label(text, "homeFieldValue")
     label.setTextFormat(Qt.PlainText)
     return label
-
-
-def _fix_pill_width(pill: StatusChip, texts: list[str]):
-    """El ancho de la píldora, el de su texto más largo: cambiar de estado no corre la columna."""
-    pill.setFixedWidth(_measure_pill(pill, texts))
-    pill.setAlignment(Qt.AlignCenter)
-
-
-def _measure_pill(pill: StatusChip, texts: list[str]) -> int:
-    """
-    El ancho que pide la píldora con el más largo de esos textos. Se mide con su tipografía
-    y su relleno del QSS, así que se llama con la página ya a la vista.
-    """
-    pill.ensurePolished()
-    current = pill.text()
-    widths = []
-    for text in texts:
-        pill.setText(text)
-        widths.append(pill.sizeHint().width())
-    pill.setText(current)
-    return max(widths)
-
 
 
 def _new_label(text: str, object_name: str) -> QLabel:

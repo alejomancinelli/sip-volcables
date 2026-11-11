@@ -24,9 +24,15 @@ sub-pestañas (`SettingsCard.add_row()`) y cada página es una pila de secciones
 es la lista de la web —filas dentro de un borde fino, con un filete entre una y otra— para
 varios ítems del mismo tipo dentro de una sección.
 
+Cada grilla sabe qué campos tiene (`FieldGrid.get_fields()`) y cada sección su título y su
+descripción: es lo que lee la búsqueda de la barra superior (`ui/widgets/field_search.py`),
+sin que ninguna pestaña declare nada aparte.
+
 Módulo de presentación: no lee ni escribe el config. Los campos entran ya construidos —con
 los constructores de `ui/widgets/form.py`— y quien los carga y los guarda es la pestaña.
 """
+
+from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -51,6 +57,16 @@ _FIELD_MIN_HEIGHT_PX = 30
 _EYEBROW_SPACING_PCT = 116.0  # el rótulo de la tarjeta va espaciado, como en la web
 
 
+@dataclass(frozen=True)
+class Field:
+    """Un campo de una grilla: su rótulo, su aclaración, el campo y la celda que los junta."""
+
+    label: str
+    hint: str
+    widget: QWidget
+    cell: QWidget
+
+
 class FieldGrid(QWidget):
     """
     Campos en `columns` columnas, cada uno con su rótulo arriba. Se llenan de izquierda a
@@ -63,6 +79,7 @@ class FieldGrid(QWidget):
         self._row = 0
         self._column = 0
         self._cells: dict[QWidget, QWidget] = {}     # campo -> su celda, con rótulo y aclaración
+        self._fields: list[Field] = []
         self._grid = QGridLayout(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setHorizontalSpacing(_COLUMN_GAP_PX)
@@ -77,6 +94,7 @@ class FieldGrid(QWidget):
         if self._column + span > self._columns:
             self._next_row()
         cell = QWidget()
+        cell.setObjectName("settingsFieldCell")
         layout = QVBoxLayout(cell)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(_LABEL_GAP_PX)
@@ -93,10 +111,15 @@ class FieldGrid(QWidget):
         layout.addStretch()
         self._grid.addWidget(cell, self._row, self._column, 1, span)
         self._cells[widget] = cell
+        self._fields.append(Field(label, hint, widget, cell))
         self._column += span
         if self._column >= self._columns:
             self._next_row()
         return widget
+
+    def get_fields(self) -> list[Field]:
+        """Los campos agregados con `add_field()`, en orden."""
+        return list(self._fields)
 
     def add_row(self, widget: QWidget) -> QWidget:
         """Agrega un widget a todo el ancho, en una fila propia: una barra de sub-pestañas."""
@@ -126,6 +149,8 @@ class SettingsSection(QWidget):
     def __init__(self, title: str, description: str = "", columns: int = 2, *,
                  top_padding_px: int = _SECTION_PADDING_PX, parent=None):
         super().__init__(parent)
+        self.title = title
+        self.description = description
         row = QHBoxLayout(self)
         row.setContentsMargins(0, top_padding_px, 0, _SECTION_PADDING_PX)
         row.setSpacing(_ASIDE_GAP_PX)

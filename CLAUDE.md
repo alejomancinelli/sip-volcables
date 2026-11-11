@@ -167,7 +167,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
                               region_canvas (el frame con las regiones de los pipelines),
                               pause_button (congela el video de un diálogo de dibujo),
                               interface_picker (por qué interfaz escucha un servidor),
-                              sparkline (la tendencia chica, sin ejes)
+                              sparkline (la tendencia chica, sin ejes),
+                              command_palette (la búsqueda de la barra superior, Ctrl+K),
+                              field_search (los campos de una pestaña, y llegar a uno)
       dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog,
                               polygon_dialog (una zona con vértices)
       styles/                 app.qss: una plantilla para los dos temas, con los tokens de theme.py
@@ -351,7 +353,8 @@ Lo que no se deduce leyendo un archivo suelto:
   abajo a la derecha, junto al `project_id`, y se sube en el commit que cierra el cambio.
 - **En las cámaras no se ajusta nada en caliente.** Exposición, ganancia, fps y
   `enabled` se cambian en `config.yaml` —desde la UI o a mano— y se reinicia la app. Lo
-  único que la UI aplica sin reiniciar es el tema.
+  único que la UI aplica sin reiniciar es el tema, y por eso se cambia desde la barra
+  superior y no desde una pestaña de configuración.
 - **El idioma queda fijo por corrida.** Cada widget resuelve su texto con `tr()` cuando
   se construye, así que cambiarlo en caliente sólo alcanzaba a lo que se armaba después y
   dejaba la pantalla partida en dos idiomas —y con un combo cuyas opciones quedaban en el
