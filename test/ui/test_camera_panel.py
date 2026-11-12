@@ -170,6 +170,20 @@ class TestRegions:
         panel.update_frame(_frame())
         assert _blue_pixels(panel, self._BLUE) > 0
 
+    def test_draw_roi_off_hides_them_like_in_the_annotated_view(self):
+        panel, config = self._panel({"pipeline_1": {"roi": {_SLOT: _OWN_ROI}}})
+        config.values["inference.overlay.draw_roi"] = False
+        panel.update_frame(_frame())
+        assert _blue_pixels(panel, self._BLUE) == 0
+
+    def test_without_the_label_the_box_stays_and_the_name_goes(self):
+        """`draw_roi_label` saca la etiqueta —con su cuadrado del color del pipeline— y no el borde."""
+        panel, config = self._panel({"pipeline_1": {"roi": {_SLOT: _OWN_ROI}}})
+        with_label = _blue_pixels(panel, self._BLUE)
+        config.values["inference.overlay.draw_roi_label"] = False
+        panel.update_frame(_frame())
+        assert 0 < _blue_pixels(panel, self._BLUE) < with_label
+
     def test_without_a_revision_the_config_is_read_once(self):
         """Un doble de test sin `revision` no puede hacer que se relea el config por frame."""
         panel = CameraPanel(_SLOT, _MockConfig())

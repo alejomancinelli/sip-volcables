@@ -24,6 +24,12 @@ para títulos y valores medidos, Ubuntu para la interfaz y Ubuntu Mono para los 
 técnicos. Los íconos son de Tabler, los mismos de la guía visual, y se colorean al
 cargarlos con `get_icon()`.
 
+**El ícono de la aplicación es del fork y es opcional**, en `ui/icons/app/`: `icon.svg` —y
+`icon_16.svg`, el dibujo simplificado para 16 y 24 px— es el ícono de la ventana y el que va
+al lado del nombre en la placa de inicio. Lo leen `get_app_icon()` y `render_app_icon()`;
+sin él la ventana lleva el ícono de IEA y la placa sólo el nombre. El `icon.ico` de la misma
+carpeta es el del ejecutable, que declara `build/build.py`.
+
 Los colores de las detecciones NO están acá: los tiene `system/inference/overlay.py`,
 que es el que dibuja el resultado, y el frame anotado llega a la UI ya pintado.
 """
@@ -46,6 +52,11 @@ _ICONS_DIR = os.path.join(_UI_DIR, "icons", "tabler")
 # también en Windows.
 _QSS_ICONS_DIR = os.path.join(_UI_DIR, "icons", "qss").replace("\\", "/")
 _ICON_RENDER_PX = 64          # se rasteriza grande y Qt lo achica: nítido en cualquier tamaño
+_APP_ICONS_DIR = os.path.join(_UI_DIR, "icons", "app")
+_APP_ICON_FILENAME = "icon.svg"
+_APP_ICON_SMALL_FILENAME = "icon_16.svg"
+_APP_ICON_SIZES_PX = (16, 24, 32, 48, 64, 128, 256)
+_APP_ICON_SMALL_MAX_PX = 24   # hasta acá, el dibujo simplificado: la órbita no se distingue
 
 FONT_UI = "Ubuntu"
 FONT_HEADING = "Exo"
@@ -364,6 +375,42 @@ def get_icon(name: str, color: str, checked_color: str = "") -> QIcon:
     if checked_color:
         icon.addPixmap(_render_svg(svg, checked_color), QIcon.Normal, QIcon.On)
     return icon
+
+
+def get_app_icon() -> QIcon:
+    """
+    El ícono de la aplicación en todos sus tamaños, o un `QIcon` vacío si el fork no lo
+    declara. Se rasteriza acá y no se le pasa el SVG a Qt: así no depende del plugin de
+    íconos SVG, que el ejecutable compilado puede no llevar.
+    """
+    icon = QIcon()
+    for size_px in _APP_ICON_SIZES_PX:
+        pixmap = render_app_icon(size_px)
+        if pixmap is not None:
+            icon.addPixmap(pixmap)
+    return icon
+
+
+def render_app_icon(size_px: int, device_pixel_ratio: float = 1.0) -> QPixmap | None:
+    """El ícono de la aplicación a ese tamaño en pantalla, o None si el fork no lo declara."""
+    small = os.path.join(_APP_ICONS_DIR, _APP_ICON_SMALL_FILENAME)
+    path = (small if size_px <= _APP_ICON_SMALL_MAX_PX and os.path.isfile(small)
+            else os.path.join(_APP_ICONS_DIR, _APP_ICON_FILENAME))
+    if not os.path.isfile(path):
+        return None
+    renderer = QSvgRenderer(path)
+    if not renderer.isValid():
+        logger.warning(f"[UI] El ícono de la aplicación no se pudo leer: {path}")
+        return None
+    pixels = max(1, round(size_px * device_pixel_ratio))
+    pixmap = QPixmap(pixels, pixels)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    renderer.render(painter, QRectF(0, 0, pixels, pixels))
+    painter.end()
+    pixmap.setDevicePixelRatio(device_pixel_ratio)
+    return pixmap
 
 
 def _render_svg(svg: str, color: str) -> QPixmap:

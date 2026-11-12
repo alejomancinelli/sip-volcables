@@ -93,6 +93,8 @@ _REFRESH_INTERVAL_MS = 1000       # tiempos de inferencia, su edad y el tiempo e
 
 _NAMEPLATE_MARGINS_PX = (32, 28, 28, 28)
 _DOT_PX = 6
+_APP_TILE_PX = 52             # el ícono de la aplicación al lado del nombre
+_APP_TILE_GAP_PX = 16
 _EYEBROW_SPACING_PCT = 116.0
 _SPEC_COLUMN_GAP_PX = 36
 _RING_PX = 104
@@ -474,6 +476,9 @@ class _Nameplate(QWidget):
     La placa del equipo: estado general, nombre, una línea de qué hace, los datos de
     identidad y el anillo de cámaras en línea. Oscura en los dos temas, con la textura de la
     web dibujada encima del fondo del QSS.
+
+    Si el fork declara el ícono de la aplicación (`ui/icons/app/`, ver `ui/theme.py`), va al
+    lado del nombre.
     """
 
     def __init__(self, config: ConfigManager, pipeline_count: int, parent=None):
@@ -512,10 +517,23 @@ class _Nameplate(QWidget):
         identity.addLayout(eyebrow_row)
         identity.addSpacing(12)
 
-        identity.addWidget(_new_label(str(config.get("system.app_name", "") or ""),
-                                      "homeNameplateTitle"))
+        title_row = QHBoxLayout()
+        title_row.setSpacing(_APP_TILE_GAP_PX)
+        app_icon = theme.render_app_icon(_APP_TILE_PX, self.devicePixelRatioF())
+        if app_icon is not None:
+            tile = QLabel()
+            tile.setObjectName("homeAppIcon")
+            tile.setPixmap(app_icon)
+            tile.setFixedSize(_APP_TILE_PX, _APP_TILE_PX)
+            title_row.addWidget(tile, alignment=Qt.AlignVCenter)
+        title_row.addWidget(_new_label(str(config.get("system.app_name", "") or ""),
+                                       "homeNameplateTitle"), alignment=Qt.AlignVCenter)
+        title_row.addStretch()
+        identity.addLayout(title_row)
         identity.addSpacing(10)
-        tagline = _new_label(tr("home_tagline"), "homeNameplateTagline")
+        # La línea de la instalación, si la declara; si no, la genérica del template.
+        tagline = _new_label(str(config.get("system.app_description", "") or "").strip()
+                             or tr("home_tagline"), "homeNameplateTagline")
         tagline.setWordWrap(True)
         identity.addWidget(tagline)
         identity.addSpacing(24)

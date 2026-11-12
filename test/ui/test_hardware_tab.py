@@ -11,7 +11,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication                              # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel                      # noqa: E402
 
 from tools.net_interfaces import NetInterface                           # noqa: E402
 from ui.views.diagnostics import hardware_tab                           # noqa: E402
@@ -96,6 +96,29 @@ class TestThermalZonesAndEngines:
         tab.update_metrics(_metrics(temps_c={"cpu-thermal": 51.0, "gpu-thermal": 48.5}))
         assert tab._temperature_cells["cpu-thermal"].text() == "51.0 °C"
         assert tab._temperature_cells["gpu-thermal"].text() == "48.5 °C"
+
+    def test_a_zone_shows_its_short_name_and_keeps_the_full_one_in_the_tooltip(self):
+        tab = HardwareTab(_MockConfig())
+        tab.update_metrics(_metrics(temps_c={"soc1-thermal": 61.9}))
+        tile = tab._temperature_cells["soc1-thermal"].parentWidget()
+        assert tile.toolTip() == "soc1-thermal"
+        assert "SOC1" in [label.text() for label in tile.findChildren(QLabel)]
+
+    def test_a_zone_without_the_suffix_keeps_its_name(self):
+        assert hardware_tab._short_zone_name("\\_TZ.TZ00") == "\\_TZ.TZ00"
+
+    def test_the_bar_follows_the_temperature(self):
+        tab = HardwareTab(_MockConfig())
+        tab.update_metrics(_metrics(temps_c={"cpu-thermal": 60.4}))
+        assert tab._temperature_bars["cpu-thermal"].value() == 60
+
+    def test_a_hot_zone_turns_amber_and_a_normal_one_does_not(self):
+        tab = HardwareTab(_MockConfig())
+        hot_c = hardware_tab._TEMPERATURE_WARN_C
+        tab.update_metrics(_metrics(temps_c={"tj-thermal": hot_c, "cpu-thermal": hot_c - 1}))
+        assert tab._temperature_cells["tj-thermal"].property("warn") is True
+        assert tab._temperature_bars["tj-thermal"].property("warn") is True
+        assert not tab._temperature_cells["cpu-thermal"].property("warn")
 
     def test_the_engines_card_is_hidden_without_engines(self):
         """Fuera de una Jetson `engines` viene vacío: una tarjeta vacía no dice nada."""

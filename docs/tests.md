@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**115 archivos, 655 grupos, 3250 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**117 archivos, 662 grupos, 3283 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 6 | 98 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 19 | 661 |
+| [test/inference/](#testinference) | 19 | 670 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 230 |
@@ -32,7 +32,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 33 | 533 |
+| [test/ui/](#testui) | 35 | 557 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -1717,7 +1717,7 @@ Tests del composer: qué resultado pone el frame de una cámara y qué overlays 
 
 </details>
 
-### [test_engine.py](../test/inference/test_engine.py) — 148 tests
+### [test_engine.py](../test/inference/test_engine.py) — 149 tests
 
 Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámara, recorte del ROI, compuertas de validez, analyzer inyectado y parada limpia.
 
@@ -1741,7 +1741,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
 | `TestCycleTime` | `cycle_time_ms`: del arranque de un frame al arranque del siguiente de la misma cámara. | 3 |
 | `TestSynchronousProcess` | `process()` corre el ciclo del hilo sobre un frame suelto, sin arrancarlo. | 6 |
 | `TestMissingKeys` |  | 1 |
-| `TestRegionDrawing` | Cada pipeline dibuja su ROI con su color y su nombre, y avisa del frame que cambió. | 8 |
+| `TestRegionDrawing` | Cada pipeline dibuja su ROI con su color y su nombre, y avisa del frame que cambió. | 9 |
 | `TestRoiState` |  | 6 |
 | `TestNoCameraRoi` | `cameras.<slot>.roi` ya no lo lee nadie: sin región propia el pipeline ve todo el frame. | 5 |
 | `TestWhereTheRegionIsNative` | La región se corta del nativo sólo donde hay un decodificador que lo haga, y se decide por config. | 7 |
@@ -1893,6 +1893,7 @@ Tests del hilo de inferencia: fan-in de varias cámaras, always-fresh por cámar
   - `test_the_color_comes_from_the_place_in_the_config_even_if_another_is_off`
   - `test_the_roi_carries_the_name_the_operator_gave_the_pipeline`
   - `test_without_a_name_the_roi_carries_the_slot`
+  - `test_with_draw_roi_label_off_the_roi_carries_no_name`
   - `test_draw_onto_uses_the_same_style`
   - `test_a_frame_of_another_size_than_the_drawn_one_is_warned`
   - `test_the_same_size_does_not_warn`
@@ -2066,7 +2067,7 @@ Tests del runner offline: los pipelines del config corridos sobre una imagen sue
 
 </details>
 
-### [test_overlay.py](../test/inference/test_overlay.py) — 76 tests
+### [test_overlay.py](../test/inference/test_overlay.py) — 84 tests
 
 Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de cámara nunca se toque.
 
@@ -2083,8 +2084,10 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
 | `TestTextThickness` | El grosor del trazo acompaña al tamaño: un texto grande con trazo de 1 px se ve pálido y roto, que es lo que pasaba después de escalarlo con el ancho del frame. | 3 |
 | `TestOverlappingFill` | El relleno se pinta por unión de la clase, no por instancia. | 6 |
 | `TestPipelineStyle` |  | 6 |
-| `TestDrawRoi` |  | 9 |
+| `TestDrawRoi` |  | 12 |
 | `TestRoiState` | El borde del ROI se pinta por el veredicto, y un resultado inválido nunca de estado. | 13 |
+| `TestStatusPanel` | Un renglón por veredicto, con el texto en una píldora de su color, y todas del mismo ancho. | 3 |
+| `TestDrawingCost` | Lo que se repite frame a frame se arma una sola vez. Rasterizar cada texto y cada tarjeta en cada frame costaba diez veces el overlay viejo en la Jetson, y con tres pipelines y la GUI dibujando a la vez los resultados se acumulaban en la cola de la GUI hasta llenar la memoria. | 2 |
 
 <details><summary>Tests</summary>
 
@@ -2157,7 +2160,10 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_it_draws_the_border_in_the_pipeline_color`
   - `test_it_leaves_the_inside_alone`
   - `test_a_label_names_the_pipeline_on_the_corner`
-  - `test_an_accented_name_is_drawn_without_its_accents`
+  - `test_an_accented_name_keeps_its_accents`
+  - `test_without_the_fonts_an_accented_name_is_drawn_without_its_accents`
+  - `test_the_label_can_be_hidden_and_the_border_stays`
+  - `test_a_hidden_label_hides_the_verdict_text_too`
   - `test_without_options_it_is_the_old_grey_box_without_a_name`
   - `test_a_dashed_border_leaves_gaps_a_solid_one_does_not`
   - `test_an_empty_frame_is_ignored`
@@ -2177,6 +2183,13 @@ Tests del dibujado: qué respeta cada flag, qué colores usa y que el frame de c
   - `test_with_draw_roi_off_the_state_is_not_drawn_either`
   - `test_the_options_of_a_result_without_state_paint_as_before`
   - `test_a_state_outside_the_vocabulary_is_drawn_as_none`
+- `TestStatusPanel`
+  - `test_each_verdict_is_written_in_its_color`
+  - `test_a_verdict_that_changes_does_not_move_the_panel`
+  - `test_an_empty_frame_is_ignored`
+- `TestDrawingCost`
+  - `test_a_repeated_text_is_rasterized_once`
+  - `test_a_repeated_card_shape_is_built_once`
 
 </details>
 
@@ -4542,14 +4555,14 @@ Tests de la grilla de cámaras: lo que reparte a sus paneles al cambiar el modo.
 
 </details>
 
-### [test_camera_panel.py](../test/ui/test_camera_panel.py) — 14 tests
+### [test_camera_panel.py](../test/ui/test_camera_panel.py) — 16 tests
 
 Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
 
 | Grupo | Qué prueba | Tests |
 |---|---|---:|
 | `TestPainting` |  | 4 |
-| `TestRegions` | El panel dibuja las regiones de los pipelines sólo en crudo: en anotado las dibuja el overlay. | 9 |
+| `TestRegions` | El panel dibuja las regiones de los pipelines sólo en crudo: en anotado las dibuja el overlay. | 11 |
 | `TestNoCameraRoi` |  | 1 |
 
 <details><summary>Tests</summary>
@@ -4568,6 +4581,8 @@ Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
   - `test_a_pipeline_of_another_camera_draws_nothing`
   - `test_each_pipeline_has_its_own_color`
   - `test_a_change_in_the_config_is_picked_up`
+  - `test_draw_roi_off_hides_them_like_in_the_annotated_view`
+  - `test_without_the_label_the_box_stays_and_the_name_goes`
   - `test_without_a_revision_the_config_is_read_once`
 - `TestNoCameraRoi`
   - `test_a_leftover_camera_roi_is_not_drawn`
@@ -4764,19 +4779,20 @@ Tests de la búsqueda de ajustes en una pestaña: qué campos y secciones encuen
 
 </details>
 
-### [test_form.py](../test/ui/test_form.py) — 17 tests
+### [test_form.py](../test/ui/test_form.py) — 21 tests
 
 Tests de los constructores del formulario: la tarjeta de una pestaña no depende de lo que tiene adentro, y la rueda no cambia el valor de un campo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestCardWidth` | 3 |
-| `TestCardPosition` | 1 |
-| `TestWheelGuard` | 6 |
-| `TestCheckGrid` | 1 |
-| `TestSetFieldEnabled` | 2 |
-| `TestGeneralTab` | 2 |
-| `TestFitToCurrent` | 2 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestCardWidth` |  | 3 |
+| `TestCardPosition` |  | 1 |
+| `TestWheelGuard` |  | 6 |
+| `TestCheckGrid` |  | 1 |
+| `TestSetFieldEnabled` |  | 2 |
+| `TestGeneralTab` |  | 2 |
+| `TestFitToCurrent` |  | 2 |
+| `TestWheelGuardInstall` | `install_wheel_guard()` lo pone en cada widget que la rueda cambiaría, y no en la aplicación: instalado ahí veía pasar cada evento de cada widget por Python. | 4 |
 
 <details><summary>Tests</summary>
 
@@ -4804,17 +4820,22 @@ Tests de los constructores del formulario: la tarjeta de una pestaña no depende
 - `TestFitToCurrent`
   - `test_the_bar_measures_the_page_on_view`
   - `test_without_it_qt_measures_the_tallest_page_even_hidden`
+- `TestWheelGuardInstall`
+  - `test_a_spin_box_created_afterwards_is_guarded`
+  - `test_it_reaches_a_widget_under_a_style_sheet`
+  - `test_it_does_not_see_the_events_of_other_widgets`
+  - `test_installing_it_twice_keeps_one`
 
 </details>
 
-### [test_hardware_tab.py](../test/ui/test_hardware_tab.py) — 15 tests
+### [test_hardware_tab.py](../test/ui/test_hardware_tab.py) — 19 tests
 
 Tests de la pestaña de hardware: qué muestra de cada métrica, de cada cámara y de cada interfaz, y que lo que el equipo no expone se vea como «—» y no como un cero medido.
 
 | Grupo | Tests |
 |---|---:|
 | `TestTiles` | 5 |
-| `TestThermalZonesAndEngines` | 3 |
+| `TestThermalZonesAndEngines` | 7 |
 | `TestCameras` | 4 |
 | `TestNetwork` | 3 |
 
@@ -4828,6 +4849,10 @@ Tests de la pestaña de hardware: qué muestra de cada métrica, de cada cámara
   - `test_overcurrent_events_are_counted_in_the_power_foot`
 - `TestThermalZonesAndEngines`
   - `test_every_zone_gets_its_temperature`
+  - `test_a_zone_shows_its_short_name_and_keeps_the_full_one_in_the_tooltip`
+  - `test_a_zone_without_the_suffix_keeps_its_name`
+  - `test_the_bar_follows_the_temperature`
+  - `test_a_hot_zone_turns_amber_and_a_normal_one_does_not`
   - `test_the_engines_card_is_hidden_without_engines`
   - `test_an_idle_engine_shows_no_clock`
 - `TestCameras`
@@ -4842,7 +4867,7 @@ Tests de la pestaña de hardware: qué muestra de cada métrica, de cada cámara
 
 </details>
 
-### [test_home_view.py](../test/ui/test_home_view.py) — 38 tests
+### [test_home_view.py](../test/ui/test_home_view.py) — 41 tests
 
 Tests de la página de inicio: cómo se muestran la dirección de una cámara, los tiempos y su edad, el estado general de la placa y que cada tabla resuma lo que le llega.
 
@@ -4851,7 +4876,8 @@ Tests de la página de inicio: cómo se muestran la dirección de una cámara, l
 | `TestCameraAddress` | 5 |
 | `TestFormats` | 5 |
 | `TestOverallState` | 4 |
-| `TestNameplate` | 3 |
+| `TestNameplate` | 5 |
+| `TestAppIcon` | 1 |
 | `TestCameras` | 7 |
 | `TestInferenceTimes` | 5 |
 | `TestResults` | 6 |
@@ -4878,8 +4904,12 @@ Tests de la página de inicio: cómo se muestran la dirección de una cámara, l
   - `test_without_a_valid_licence_it_is_red_whatever_the_rest`
 - `TestNameplate`
   - `test_it_shows_the_app_and_the_device`
+  - `test_under_the_name_goes_the_description_of_the_installation`
+  - `test_without_a_description_the_generic_line_stays`
   - `test_the_ip_of_the_device_is_not_shown`
   - `test_the_licence_decides_red_with_the_same_flag_as_the_footer`
+- `TestAppIcon`
+  - `test_the_app_icon_goes_next_to_the_name_when_the_fork_declares_it`
 - `TestCameras`
   - `test_every_camera_is_a_row_of_the_same_card`
   - `test_a_row_follows_the_camera_status`
@@ -5104,6 +5134,24 @@ Tests de la tabla de eventos: el orden, el tope FIFO y el filtro, y que una lín
   - `test_a_new_line_that_does_not_match_is_not_shown`
 - `TestPause`
   - `test_lines_that_arrive_paused_are_kept_and_shown_on_resume`
+
+</details>
+
+### [test_main_window.py](../test/ui/test_main_window.py) — 4 tests
+
+Tests de la ventana principal: que las páginas se armen solas después de mostrarse, de a una, y que abrir una ya armada no la vuelva a armar.
+
+| Grupo | Tests |
+|---|---:|
+| `TestPrewarm` | 4 |
+
+<details><summary>Tests</summary>
+
+- `TestPrewarm`
+  - `test_it_builds_one_page_per_step`
+  - `test_in_the_end_every_page_with_tabs_is_built`
+  - `test_opening_a_built_page_does_not_build_it_again`
+  - `test_it_starts_after_the_window_is_shown`
 
 </details>
 
@@ -5596,18 +5644,22 @@ Tests de la barra lateral: la navegación que publica, la vista activa y el riel
 
 </details>
 
-### [test_system_tab.py](../test/ui/test_system_tab.py) — 4 tests
+### [test_system_tab.py](../test/ui/test_system_tab.py) — 6 tests
 
 Tests de la pestaña de sistema: lo que identifica al equipo se muestra pero no se edita, el idioma se guarda por su código y el tema no es de esta pestaña.
 
 | Grupo | Tests |
 |---|---:|
 | `TestDeviceId` | 2 |
+| `TestAppDescription` | 2 |
 | `TestInterface` | 2 |
 
 <details><summary>Tests</summary>
 
 - `TestDeviceId`
+  - `test_it_is_shown_but_not_editable`
+  - `test_save_does_not_write_it`
+- `TestAppDescription`
   - `test_it_is_shown_but_not_editable`
   - `test_save_does_not_write_it`
 - `TestInterface`
@@ -5660,6 +5712,25 @@ Tests de la paleta: que los dos temas definan lo mismo.
   - `test_the_themes_render_different_stylesheets`
   - `test_a_palette_role_can_be_used_as_a_token`
   - `test_an_unknown_token_keeps_the_rest_of_the_sheet`
+
+</details>
+
+### [test_theme_app_identity.py](../test/ui/test_theme_app_identity.py) — 5 tests
+
+Tests del ícono de la aplicación en `ui/theme.py`: el que declara un fork en `ui/icons/app/`, y qué pasa cuando no declara ninguno.
+
+| Grupo | Tests |
+|---|---:|
+| `TestAppIcon` | 5 |
+
+<details><summary>Tests</summary>
+
+- `TestAppIcon`
+  - `test_without_one_the_icon_is_empty`
+  - `test_it_comes_in_every_size`
+  - `test_the_small_sizes_use_the_simplified_drawing`
+  - `test_without_the_simplified_drawing_the_small_sizes_use_the_big_one`
+  - `test_an_unreadable_icon_is_none`
 
 </details>
 

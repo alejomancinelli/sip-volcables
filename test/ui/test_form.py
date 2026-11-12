@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint, QPointF, Qt                              # noqa: E402
 from PySide6.QtGui import QWheelEvent                                       # noqa: E402
 from PySide6.QtWidgets import (                                             # noqa: E402
-    QApplication, QCheckBox, QLabel, QScrollArea, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QLabel, QScrollArea, QStyleFactory, QVBoxLayout, QWidget,
 )
 
 import ui.widgets.form as form                                              # noqa: E402
@@ -226,3 +226,50 @@ class TestFitToCurrent:
         short_px = tabs.heightForWidth(self._WIDTH_PX)
         tabs.setCurrentIndex(1)
         assert short_px == tabs.heightForWidth(self._WIDTH_PX)
+
+
+class TestWheelGuardInstall:
+    """
+    `install_wheel_guard()` lo pone en cada widget que la rueda cambiaría, y no en la
+    aplicación: instalado ahí veía pasar cada evento de cada widget por Python.
+    """
+
+    @pytest.fixture
+    def installed(self, qt_app):
+        original = qt_app.style().name()
+        guard = form.install_wheel_guard(qt_app)
+        yield guard
+        qt_app.setStyle(QStyleFactory.create(original))
+
+    def test_a_spin_box_created_afterwards_is_guarded(self, installed):
+        spin = form.build_spin_box(0, 100, 50)
+        spin.show()
+        _wheel(spin)
+        assert spin.value() == 50
+
+    def test_it_reaches_a_widget_under_a_style_sheet(self, installed):
+        """La hoja de estilo de la ventana delega el pulido en el estilo de la aplicación."""
+        window = QWidget()
+        window.setStyleSheet("QSpinBox { padding: 2px; }")
+        layout = QVBoxLayout(window)
+        spin = form.build_spin_box(0, 100, 50)
+        layout.addWidget(spin)
+        window.show()
+        QApplication.processEvents()
+        _wheel(spin)
+        assert spin.value() == 50
+
+    def test_it_does_not_see_the_events_of_other_widgets(self, installed, monkeypatch):
+        seen = []
+        real_filter = form.WheelGuard.eventFilter
+        monkeypatch.setattr(form.WheelGuard, "eventFilter",
+                            lambda guard, watched, event: seen.append(watched)
+                            or real_filter(guard, watched, event))
+        label = QLabel("texto")
+        label.show()
+        label.setText("otro")
+        QApplication.processEvents()
+        assert label not in seen
+
+    def test_installing_it_twice_keeps_one(self, installed, qt_app):
+        assert form.install_wheel_guard(qt_app) is installed

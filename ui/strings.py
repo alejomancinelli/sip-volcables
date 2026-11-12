@@ -1085,6 +1085,13 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "Application name",
                                "pt": "Nome da aplicação"},
     "sys_device_id":          {"es": "Id del equipo",  "en": "Device id",     "pt": "Id do equipamento"},
+    "sys_app_description":    {"es": "Descripción",    "en": "Description",   "pt": "Descrição"},
+    "sys_app_description_hint": {"es": "La línea bajo el nombre en la página de inicio. Se "
+                                       "cambia en config.yaml.",
+                                 "en": "The line under the name on the home page. Changed in "
+                                       "config.yaml.",
+                                 "pt": "A linha sob o nome na página inicial. Muda-se no "
+                                       "config.yaml."},
     "sys_device_id_note":     {"es": "Se cambia en config.yaml. Identifica al equipo en la "
                                      "telemetría: cambiarlo parte la historia en dos series.",
                                "en": "Changed in config.yaml. It identifies the device in "
@@ -1156,12 +1163,15 @@ _TEXTS: dict[str, dict[str, str]] = {
                                "en": "{count} overcurrent events",
                                "pt": "{count} eventos de sobrecorrente"},
     "hw_card_temperatures":   {"es": "Temperaturas",   "en": "Temperatures",  "pt": "Temperaturas"},
-    "hw_card_temperatures_description": {"es": "Cada zona térmica que publica el equipo, con "
-                                               "el nombre que le da la plataforma.",
-                                         "en": "Every thermal zone the device publishes, "
-                                               "named as the platform names it.",
-                                         "pt": "Cada zona térmica que o equipamento publica, "
-                                               "com o nome que a plataforma lhe dá."},
+    "hw_card_temperatures_description": {"es": "Cada zona térmica que publica el equipo. La "
+                                               "barra va de 0 a 100 °C y pasa al ámbar desde "
+                                               "los 85 °C.",
+                                         "en": "Every thermal zone the device publishes. The bar "
+                                               "goes from 0 to 100 °C and turns amber from "
+                                               "85 °C.",
+                                         "pt": "Cada zona térmica que o equipamento publica. A "
+                                               "barra vai de 0 a 100 °C e fica âmbar a partir "
+                                               "de 85 °C."},
     "hw_temperatures_empty":  {"es": "El equipo no publica zonas térmicas.",
                                "en": "The device publishes no thermal zones.",
                                "pt": "O equipamento não publica zonas térmicas."},

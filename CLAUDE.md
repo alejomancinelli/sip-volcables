@@ -475,8 +475,9 @@ Lo que no se deduce leyendo un archivo suelto:
   que salieran de dos reglas serían cosas distintas. El monitor muestra siempre el frame
   completo con los recuadros encima: en anotado los dibuja el overlay, en crudo el panel, nunca
   los dos. Los recuadros llevan el nombre del operador (`inference.pipelines.<slot>.name`, y el
-  slot si no tiene) en el diálogo, en el panel y en el anotado —éste sin tildes, porque la
-  fuente de OpenCV sólo dibuja ASCII—. El color de cada pipeline sale de `overlay.get_pipeline_style()`, por su lugar en
+  slot si no tiene) en el diálogo, en el panel y en el anotado, en una etiqueta con un cuadrado
+  de su color; `inference.overlay.draw_roi_label: false` la saca en el anotado y en el crudo
+  y deja el recuadro, que entonces dice el estado sólo con el color. El color de cada pipeline sale de `overlay.get_pipeline_style()`, por su lugar en
   `inference.pipelines`, y **no usa verde, rojo ni amarillo**: son del estado, y un pipeline que
   los usara de identidad se confundiría con un veredicto, y por eso pueden pintar el borde: el
   pipeline declara `roi_state` (`ok`/`nok`/`warning`, de `result.py`) junto a sus `labels`, porque
@@ -845,8 +846,8 @@ Lo que no se deduce leyendo un archivo suelto:
   de una página dejaría lo editado en otra en pantalla y sin persistir, que se lee como
   guardado y no lo está.
 - **La página de inicio presenta el equipo y es la que se ve al abrir.** Es la «Inicio» del
-  sistema de diseño: una placa con el nombre, el equipo, la versión, el tiempo en servicio y
-  el anillo de cámaras en línea; los veredictos de cada par (pipeline, cámara); una tarjeta
+  sistema de diseño: una placa con el ícono y el nombre, el equipo, la versión, el tiempo en
+  servicio y el anillo de cámaras en línea; los veredictos de cada par (pipeline, cámara); una tarjeta
   con todas las cámaras —dirección, estado y FPS—; y, del mismo tamaño, el ciclo y la
   inferencia del último resultado de cada par junto a los seis canales de salida, la
   licencia y el latido que sale al PLC. Breve a propósito: dice qué hay y si anda, y el
@@ -906,7 +907,10 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   (+1 línea en `pipeline_factory.py`), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), un calibrador en
-  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), y lo que corresponda en
+  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), el ícono de la
+  aplicación en `ui/icons/app/` —`icon.svg` e `icon_16.svg` para la ventana y la placa de
+  inicio, `icon.ico` para el ejecutable, que se nombra en `_ICON` de `build/build.py`; ver
+  `ui/theme.py`—, y lo que corresponda en
   `test/`, `manual_test/` y `docs/`.
 - **De `main.py` se completan cuatro métodos**, los del bloque marcado: el widget del
   monitor, el contexto que se guarda con el dataset, las compuertas de frames y la

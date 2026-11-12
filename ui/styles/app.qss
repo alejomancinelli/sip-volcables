@@ -485,6 +485,31 @@ QLabel#metricFoot {
     color: $muted_foreground;
     font-size: 9pt;
 }
+/* Una zona térmica de la pestaña Hardware: una baldosa apagada, el valor y su barra. */
+QWidget#temperatureTile {
+    background-color: $muted;
+    border-radius: 8px;
+}
+QLabel#temperatureValue {
+    font-family: "$font_heading";
+    font-size: 14pt;
+    font-weight: 600;
+}
+QLabel#temperatureValue[warn="true"] {
+    color: $warn;
+}
+QProgressBar#temperatureBar {
+    background-color: $border;
+    border: none;
+    border-radius: 2px;
+}
+QProgressBar#temperatureBar::chunk {
+    background-color: $primary;
+    border-radius: 2px;
+}
+QProgressBar#temperatureBar[warn="true"]::chunk {
+    background-color: $warn;
+}
 QLabel#metricFoot[warn="true"], QLabel#tableValue[warn="true"], QLabel#hintLabel[warn="true"] {
     color: $warn;
 }

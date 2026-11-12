@@ -249,8 +249,11 @@ color del pipeline, su nombre y la región en una línea. La pestaña Cámaras n
 (`cameras.<slot>.name`) y el de cada pipeline (`inference.pipelines.<slot>.name`, opcional, se
 escribe en la página del pipeline). Sin nombre se muestra el slot, que sigue siendo la
 identidad —con él se elige la pestaña y bajo él se guarda—. El mismo nombre va en el recuadro
-del panel en crudo y en el del anotado; en el anotado sin tildes ni eñes, porque la fuente del
-overlay sólo dibuja ASCII («Verificación» sale «Verificacion»).
+del panel en crudo y en el del anotado, en una etiqueta oscura con un cuadrado del color del
+pipeline. El anotado la escribe en la Ubuntu de la app, con tildes; sin Pillow cae a la fuente
+de OpenCV, que sólo dibuja ASCII («Verificación» sale «Verificacion»).
+`inference.overlay.draw_roi_label: false` saca la etiqueta en los dos —el nombre, y en el
+anotado también el veredicto escrito— y deja el recuadro.
 
 - **Una pestaña por pipeline que mira esa cámara**, con el frame en vivo arriba y el rectángulo
   de todos encima. El de la pestaña activa va grueso y se edita —arrastrarlo desde adentro lo
@@ -340,6 +343,8 @@ que tiene más de una interfaz.
   con `QPainter`, con los colores `nameplate_*` de la paleta; los textos, con los tokens
   `nameplate_*` del QSS. La caja del anillo es opaca: el QSS no tiene `backdrop-blur`, y
   translúcida dejaba ver la órbita pasando por detrás.
+  **El ícono de la aplicación va al lado del nombre** si el fork lo declara en
+  `ui/icons/app/icon.svg`, que es también el ícono de la ventana (ver `ui/theme.py`).
 - **Los resultados** son los veredictos de cada par (pipeline, cámara): las métricas
   `<algo>_ok` del analyzer (`analysis.is_verdict_key()`), las mismas que dibuja el anotado y
   salen al PLC. 1 es OK y 0 NOK; vencido, «Sin dato». Los arma `main.py` una vez por segundo
@@ -366,8 +371,11 @@ que tiene más de una interfaz.
 
 Recibe lo suyo por la ventana: `set_service_status()`, `update_camera_status()`,
 `update_license()`, `update_inference_times()` —desde cada `InferenceResult`—, y
-`update_heartbeat()` y `update_verdicts()`, en cada tick de los registros. Un fork que quiera
-otra línea de presentación cambia `home_tagline` en `strings.py`.
+`update_heartbeat()` y `update_verdicts()`, en cada tick de los registros. La línea bajo el
+nombre es `system.app_description` del config —«Sistema Inteligente de Visión para
+Autodescarga»—, en el idioma de la planta y sin pasar por `strings.py`: es de la instalación
+como el nombre, y reescribir un texto del template en cada fork chocaría en cada merge. Sin
+ella va la genérica, `home_tagline`.
 
 ## La vista de monitor viene vacía
 
@@ -573,9 +581,17 @@ Ningún spin ni combo de la interfaz cambia con la rueda, ni ninguna barra de pe
 por una pestaña larga cambiaba el valor de cada campo que pasaba debajo del puntero —una
 exposición, un umbral— sin que nadie lo notara, y al pasar por una barra de sub-pestañas dejaba
 editando otra cámara u otro pipeline. Lo hace `WheelGuard` (`ui/widgets/form.py`), un filtro
-que `MainWindow` instala una vez sobre la `QApplication`, así que alcanza a toda pestaña y
-diálogo nuevos sin que hagan nada: la rueda sobre un campo o una barra desplaza la página que
-lo contiene. Un valor se cambia tipeando o con las flechas, y una pestaña con un clic.
+que `MainWindow` instala una vez con `install_wheel_guard()`: un estilo de la aplicación lo pone
+en cada spin, combo y barra de pestañas cuando Qt los pule, así que alcanza a toda pestaña,
+diálogo y widget del fork nuevos sin que hagan nada: la rueda sobre un campo o una barra
+desplaza la página que lo contiene. Un valor se cambia tipeando o con las flechas, y una
+pestaña con un clic. No va sobre la `QApplication`: ahí veía pasar por Python cada evento de
+cada widget —el video, los timers, cada repintado—, y eso era un tercio de lo que tardaba
+cambiar de página.
+
+Las páginas se arman solas un rato después de mostrarse la ventana, de a una por vuelta del
+loop de eventos (`MainWindow._prewarm_next_page()`): armar una cuesta de 150 ms a casi un
+segundo, y hacerlo al abrirla era una pausa la primera vez que se entraba a cada una.
 
 ### Por qué interfaz escucha un servidor
 
