@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**117 archivos, 662 grupos, 3283 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**117 archivos, 663 grupos, 3284 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -32,7 +32,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 35 | 557 |
+| [test/ui/](#testui) | 35 | 558 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -5715,13 +5715,14 @@ Tests de la paleta: que los dos temas definan lo mismo.
 
 </details>
 
-### [test_theme_app_identity.py](../test/ui/test_theme_app_identity.py) — 5 tests
+### [test_theme_app_identity.py](../test/ui/test_theme_app_identity.py) — 6 tests
 
 Tests del ícono de la aplicación en `ui/theme.py`: el que declara un fork en `ui/icons/app/`, y qué pasa cuando no declara ninguno.
 
 | Grupo | Tests |
 |---|---:|
 | `TestAppIcon` | 5 |
+| `TestRepoIcon` | 1 |
 
 <details><summary>Tests</summary>
 
@@ -5731,6 +5732,8 @@ Tests del ícono de la aplicación en `ui/theme.py`: el que declara un fork en `
   - `test_the_small_sizes_use_the_simplified_drawing`
   - `test_without_the_simplified_drawing_the_small_sizes_use_the_big_one`
   - `test_an_unreadable_icon_is_none`
+- `TestRepoIcon`
+  - `test_the_icon_of_this_repo_is_readable`
 
 </details>
 

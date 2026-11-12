@@ -56,7 +56,7 @@ class TestTemplateHooks:
         hooks = build_hooks(_MockConfig(**{"inference.overlay.draw_timestamp": False}))
         frame = np.zeros((60, 80, 3), np.uint8) + 128
         hooks.annotator(frame, InferenceResult(camera_slot="camera_1"))
-        assert np.all(frame[-1, -1] == 0)
+        assert np.any(frame[-20:, -40:] != 128) and np.all(frame[0, 0] == 128)
 
     def test_with_the_engine_timestamp_the_project_does_not_draw_it(self):
         """Una sola clave decide quién la dibuja: nunca salen las dos."""

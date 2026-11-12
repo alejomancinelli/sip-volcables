@@ -65,3 +65,9 @@ class TestAppIcon:
         (app_dir / "icon.svg").write_text("esto no es un svg")
         assert theme.render_app_icon(52) is None
 
+
+class TestRepoIcon:
+    def test_the_icon_of_this_repo_is_readable(self):
+        """El de SIP Volcables: un SVG que QtSvg no entiende dejaría la ventana sin ícono."""
+        assert theme.render_app_icon(256) is not None
+        assert theme.render_app_icon(16) is not None

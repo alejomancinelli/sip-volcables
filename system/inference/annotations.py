@@ -34,7 +34,7 @@ import numpy as np
 
 from . import overlay, person_safety
 from .pipeline import GRAIN_FLOW_LABEL
-from .result import InferenceResult
+from .result import ROI_STATE_NOK, ROI_STATE_OK, InferenceResult
 from .stopper_check import Gap, StopperRule
 
 Annotator = Callable[[np.ndarray, InferenceResult], None]
@@ -51,14 +51,16 @@ _STATUS_LABELS = {
 }
 _FALLBACK_LANGUAGE = "es"
 
-_STATUS_OK_BGR = (40, 200, 40)
-_STATUS_NOK_BGR = (40, 40, 230)
-_STATUS_UNKNOWN_BGR = (170, 170, 170)
+# Los colores de estado del overlay, que son los del tema de la UI: un NOK en el video y uno
+# en la pantalla son el mismo rojo. Lo que no se pudo medir va en el gris apagado.
+_STATUS_OK_BGR = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK]
+_STATUS_NOK_BGR = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK]
+_STATUS_UNKNOWN_BGR = overlay.MUTED_BGR
 # Texto del estado, en fracción del lado menor del frame: la cámara puede llegar a tamaño
 # completo o reducida por el decodificador, y tiene que leerse igual en las dos.
-_STATUS_TEXT_FRACTION = 0.05    # alto del texto del panel
-_TIMESTAMP_TEXT_FRACTION = 0.04  # `draw_timestamp` lo dibuja un punto más chico que esto
-_GAP_TEXT_FRACTION = 0.03
+_STATUS_TEXT_FRACTION = 0.028   # alto del texto del panel
+_TIMESTAMP_TEXT_FRACTION = 0.03  # `draw_timestamp` lo dibuja un punto más chico que esto
+_GAP_TEXT_FRACTION = 0.025
 # Trama de la zona de exclusión: un tinte del color de su estado y rayas diagonales, para que
 # se lea como un área y no como un recuadro más. El paso va en fracción del lado menor.
 _ZONE_TINT_ALPHA = 0.18
@@ -282,15 +284,14 @@ def _get_text_scale(frame_bgr: np.ndarray, height_fraction: float) -> float:
 def _draw_status(frame_bgr: np.ndarray, rows: list[tuple[str, bool | None]]):
     """
     Dibuja in-place el panel de estado pegado a la esquina superior izquierda, con un
-    renglón por veredicto. Uno en None —sin dar— sale `--` en gris.
+    renglón por veredicto y el veredicto en una píldora de su color. Uno en None —sin dar—
+    sale `--` en gris.
     """
-    lines = [(label, "--" if state is None else "OK" if state else "NOK")
-             for label, state in rows]
-    colors = tuple(_get_state_bgr(state) for _, state in rows)
-    font_scale = _get_text_scale(frame_bgr, _STATUS_TEXT_FRACTION)
-    overlay.draw_text_panel(frame_bgr, lines, line_colors_bgr=colors,
-                            options=overlay.OverlayOptions(font_scale=font_scale),
-                            margin_px=0)
+    overlay.draw_status_panel(
+        frame_bgr,
+        [(label, "--" if state is None else "OK" if state else "NOK", _get_state_bgr(state))
+         for label, state in rows],
+        font_scale=_get_text_scale(frame_bgr, _STATUS_TEXT_FRACTION), margin_px=0)
 
 
 def _draw_level(frame_bgr: np.ndarray, y_px: int, color_bgr: tuple[int, int, int]):
@@ -307,16 +308,13 @@ def _draw_gap(frame_bgr: np.ndarray, closest: Gap, color_bgr: tuple[int, int, in
     for point_px in (start_px, end_px):
         cv2.circle(frame_bgr, point_px, stroke_px * 2, color_bgr, cv2.FILLED, cv2.LINE_AA)
 
-    text = f"{distance_px:.0f} px"
-    font_scale = _get_text_scale(frame_bgr, _GAP_TEXT_FRACTION)
-    thickness = overlay.text_thickness(font_scale)
-    anchor_px = (max(start_px[0], end_px[0]) + stroke_px * 4,
-                 (start_px[1] + end_px[1]) // 2)
-    # Contorno negro abajo y el color encima: se lee sobre la calza clara y sobre el piso.
-    cv2.putText(frame_bgr, text, anchor_px, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                (0, 0, 0), thickness + 2 * stroke_px, cv2.LINE_AA)
-    cv2.putText(frame_bgr, text, anchor_px, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                color_bgr, thickness, cv2.LINE_AA)
+    # En una etiqueta, con el texto del color del veredicto: se lee sobre la calza clara y
+    # sobre el piso.
+    overlay.draw_tag(frame_bgr, f"{distance_px:.0f} px",
+                     (max(start_px[0], end_px[0]) + stroke_px * 4,
+                      (start_px[1] + end_px[1]) // 2),
+                     font_scale=_get_text_scale(frame_bgr, _GAP_TEXT_FRACTION),
+                     text_bgr=color_bgr, is_centered_y=True)
 
 
 def _draw_zone(frame_bgr: np.ndarray, zone: np.ndarray, color_bgr: tuple[int, int, int]):

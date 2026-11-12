@@ -68,7 +68,7 @@ _ENTRY_POINT = "main.py"
 _COMPANY = "IEA"
 _PRODUCT = "APP_NAME"
 _DESCRIPTION = "APP_DESCRIPTION"
-_ICON = "ui/icons/iea_100x100.ico"
+_ICON = "ui/icons/app/icon.ico"
 
 # Paquetes que no entran al ejecutable, y por qué cada uno. Vacía por defecto: Nuitka
 # empaqueta lo que `main.py` importa, así que sólo hace falta excluir lo que el proyecto

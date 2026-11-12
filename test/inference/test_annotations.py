@@ -8,6 +8,7 @@ ni frames de cámara.
 import numpy as np
 import pytest
 
+from system.inference import overlay
 from system.inference.annotations import (
     chain, labels_panel_annotator, max_load_line_annotator, stopper_status_annotator,
     timestamp_annotator, unload_status_annotator,
@@ -153,9 +154,15 @@ _PERSON_PIPELINE = "pipeline_2"
 # El `safety_ok` del analyzer de personas.
 STATE_OK = 1
 STATE_NOK = 0
-_GREEN = (40, 200, 40)
-_RED = (40, 40, 230)
-_GRAY = (170, 170, 170)
+# Los colores de estado del overlay, que son los del tema: el texto de una píldora sale con
+# el color justo en el centro del trazo.
+_GREEN = overlay.ROI_STATE_COLORS_BGR["ok"]
+_RED = overlay.ROI_STATE_COLORS_BGR["nok"]
+_GRAY = overlay.MUTED_BGR
+# La tarjeta de los paneles sobre el gris de los frames de prueba.
+_SURFACE_ON_GRAY = tuple(int(value) for value in np.rint(
+    128 * (1 - overlay.SURFACE_OPACITY)
+    + np.array(overlay.SURFACE_BGR, np.float32) * overlay.SURFACE_OPACITY))
 
 
 def _status(*, person_cameras: set[str] | None = None, zones: dict | None = None):
@@ -208,8 +215,8 @@ def _row_states(frame_bgr: np.ndarray) -> list[str]:
 
 
 def _panel_height_px(frame_bgr: np.ndarray) -> int:
-    """Filas negras del panel, medidas sobre una columna que el texto no toca."""
-    return int(np.count_nonzero(np.all(frame_bgr[:, 2] == 0, axis=1)))
+    """Filas de la tarjeta del panel, medidas sobre una columna que el texto no toca."""
+    return int(np.count_nonzero(np.all(frame_bgr[:, 2] == _SURFACE_ON_GRAY, axis=1)))
 
 
 # Lejos del panel, para que su borde no se cuente como un renglón.
@@ -306,7 +313,7 @@ class TestUnloadStatus:
     def test_the_panel_sits_in_the_top_left_corner(self):
         annotator, frame = _status(), _status_frame()
         annotator(frame, _grain("flow"))
-        assert np.all(frame[0, 0] == 0) and np.all(frame[0, 40] == 0)
+        assert tuple(frame[0, 0]) == tuple(frame[0, 40]) == _SURFACE_ON_GRAY
 
     def test_the_panel_adds_the_person_line_where_persons_are_detected(self):
         with_persons, without_persons = _frame(), _frame()
@@ -329,16 +336,21 @@ class TestUnloadStatus:
         assert "flow" in _status().__name__
 
 
+# Una columna adentro de la tarjeta de la hora, en su relleno: el texto no la toca.
+_TIMESTAMP_COLUMN = -(overlay._MARGIN_PX + 2)
+
+
 def _timestamp_height_px(frame_bgr: np.ndarray) -> int:
-    """Filas negras del fondo de la hora, sobre la última columna del frame."""
-    return int(np.count_nonzero(np.all(frame_bgr[:, -1] == 0, axis=1)))
+    """Filas de la tarjeta de la hora, sobre una columna de su relleno."""
+    return int(np.count_nonzero(np.any(frame_bgr[:, _TIMESTAMP_COLUMN] != 128, axis=1)))
 
 
 class TestTimestamp:
     def test_it_draws_in_the_bottom_right_corner(self):
         frame = _frame()
         timestamp_annotator()(frame, _result())
-        assert np.all(frame[-1, -1] == 0)
+        assert _timestamp_height_px(frame) > 0
+        assert np.all(frame[-1, -1] == 128)       # con margen al borde, como los paneles
         assert np.all(frame[0, 0] == 128)
 
     def test_it_grows_with_the_frame(self):
@@ -438,7 +450,7 @@ class TestStopperStatus:
         """El margen era para que el borde lo enmarcara: sin borde, iría con video alrededor."""
         frame = _stopper_frame()
         _stopper_status()(frame, _stoppers(_raised_stopper(), _wheel()))
-        assert np.all(frame[0, 0] == 0) and np.all(frame[0, 40] == 0)
+        assert tuple(frame[0, 0]) == tuple(frame[0, 40]) == _SURFACE_ON_GRAY
 
     def test_a_stopper_below_the_line_is_nok_and_the_contact_is_not_judged(self):
         frame = _stopper_frame()
