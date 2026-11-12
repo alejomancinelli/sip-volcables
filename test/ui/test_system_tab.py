@@ -54,6 +54,21 @@ class TestDeviceId:
         assert "system.device_id" not in config.written
 
 
+class TestAppDescription:
+    def test_it_is_shown_but_not_editable(self):
+        config = _MockConfig()
+        config._values["system.app_description"] = "Sistema Inteligente de Visión"
+        tab = SystemTab(config)
+        assert tab._app_description.text() == "Sistema Inteligente de Visión"
+        assert tab._app_description.isReadOnly()
+
+    def test_save_does_not_write_it(self):
+        """Identifica la instalación, como el nombre: se escribe al armar el fork."""
+        config = _MockConfig()
+        SystemTab(config).save()
+        assert "system.app_description" not in config.written
+
+
 class TestInterface:
     def test_the_language_is_saved_by_its_code_and_not_its_name(self):
         """El combo muestra «Português»; al config va `pt`, en cualquier idioma de la pantalla."""

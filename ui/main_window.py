@@ -24,11 +24,15 @@ nada para aparecer.
 
 Tres cosas que no son obvias:
 
-  - **Las pestañas de configuración se arman la primera vez que se abre una página que
-    tenga alguna**, o la búsqueda, que tiene que poder encontrar sus campos. Son nueve pestañas con cientos de campos y el arranque de la
-    aplicación no las necesita. Se arman todas juntas porque se guardan todas juntas. Las
-    de diagnóstico, en cambio, existen desde el arranque: reciben datos desde el primer
-    segundo, aunque su página no se haya abierto.
+  - **Las páginas se arman después del arranque, de a una, con la ventana ya a la vista.**
+    Armar una página cuesta entre 150 ms y casi un segundo en la Jetson —la primera con
+    pestañas de configuración arma las nueve, con cientos de campos, porque se guardan
+    todas juntas—, y hacerlo al abrirla era una pausa en cada página la primera vez. El
+    arranque no las necesita, así que no lo demoran: empiezan un rato después de mostrarse
+    la ventana, una por vuelta del loop de eventos, y abrir una página que todavía no se
+    armó la arma en el momento, como antes. Las pestañas de diagnóstico, en cambio, existen
+    desde el arranque: reciben datos desde el primer segundo, aunque su página no se haya
+    abierto.
   - **La página de entradas y salidas aparece sólo si hay controlador.** `set_gpio()` es
     lo que la habilita: un equipo que no lo inyecta no tiene esa entrada en la barra, en
     vez de tener una que no comanda nada.
@@ -70,7 +74,7 @@ from ui.views.monitor_view import MonitorView
 from ui.views.page_view import PageView
 from ui.widgets import field_search
 from ui.widgets.command_palette import CommandPalette, PaletteEntry
-from ui.widgets.form import WheelGuard
+from ui.widgets.form import install_wheel_guard
 from ui.widgets.sidebar import Sidebar
 
 _TOP_BAR_HEIGHT_PX = 56
@@ -89,6 +93,8 @@ _FOOTER_SPACING_PX = 18       # aire entre los datos del lado derecho de la barr
 _WINDOW_WIDTH_PX = 1920
 _WINDOW_HEIGHT_PX = 1080
 _CLOCK_INTERVAL_MS = 1000
+_PREWARM_DELAY_MS = 1500      # después de mostrarse la ventana, antes de armar páginas
+_PREWARM_STEP_MS = 50         # entre una página y la siguiente: la GUI atiende lo que llegó
 
 _ICONS_DIRNAME = "icons"
 _WINDOW_ICON_FILENAME = "iea_100x100.ico"
@@ -142,14 +148,14 @@ class MainWindow(QMainWindow):
         # El cartel de arranque es de una sola vez: sin este flag, minimizar y restaurar
         # la ventana —que también dispara `showEvent`— lo mostraría de nuevo.
         self._did_show_license_warning = False
+        self._is_prewarm_scheduled = False
 
         self.setWindowTitle(str(self._config.get("system.app_name", "")))
         self._apply_window_icon()
         self.resize(_WINDOW_WIDTH_PX, _WINDOW_HEIGHT_PX)
         theme.load_fonts()
-        # Sobre toda la aplicación, así alcanza también a los diálogos: ver `WheelGuard`.
-        self._wheel_guard = WheelGuard(self)
-        QApplication.instance().installEventFilter(self._wheel_guard)
+        # En cada spin, combo y barra de pestañas, diálogos incluidos: ver `WheelGuard`.
+        install_wheel_guard(QApplication.instance())
 
         self._diagnostics = DiagnosticsTabs(
             self._config, navigation.get_tab_classes(AbstractDiagnosticsTab), self)
@@ -311,6 +317,10 @@ class MainWindow(QMainWindow):
         corrida, y minimizar/restaurar la ventana no cuenta como una nueva apertura.
         """
         super().showEvent(event)
+        if not self._is_prewarm_scheduled:
+            self._is_prewarm_scheduled = True
+            # Con la ventana de contexto: si se destruye antes, Qt cancela la llamada.
+            QTimer.singleShot(_PREWARM_DELAY_MS, self, self._prewarm_next_page)
         if self._did_show_license_warning:
             return
         self._did_show_license_warning = True
@@ -623,6 +633,18 @@ class MainWindow(QMainWindow):
         self._sidebar.set_current(key)
         self._breadcrumb_current.setText(self._sidebar.get_label(key))
 
+    def _prewarm_next_page(self):
+        """
+        Arma la próxima página que todavía no existe y agenda la siguiente. Una por vez, con
+        la GUI libre entre una y otra, para que los frames y los clics sigan entrando.
+        """
+        pending = [entry.key for entry in navigation.get_pages()
+                   if entry.tabs and entry.key not in self._pages]
+        if not pending:
+            return
+        self._build_page(pending[0])
+        QTimer.singleShot(_PREWARM_STEP_MS, self, self._prewarm_next_page)
+
     def _add_page(self, key: str, page: QWidget):
         self._pages[key] = page
         self._stack.addWidget(page)
@@ -823,9 +845,14 @@ class MainWindow(QMainWindow):
         return None
 
     def _apply_window_icon(self):
-        icon_path = self._get_icon_path(_WINDOW_ICON_FILENAME)
-        if os.path.isfile(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        """El ícono de la aplicación que declara el fork; sin él, el de IEA."""
+        icon = theme.get_app_icon()
+        if icon.isNull():
+            icon_path = self._get_icon_path(_WINDOW_ICON_FILENAME)
+            if not os.path.isfile(icon_path):
+                return
+            icon = QIcon(icon_path)
+        self.setWindowIcon(icon)
 
     def _get_icon_path(self, filename: str) -> str:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)),

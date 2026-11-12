@@ -4,8 +4,8 @@ Pestaña de sistema: las secciones `project:`, `system:`, `ui:` y `system_monito
 Una tarjeta con cuatro secciones, como las demás pestañas de configuración: la identidad del
 equipo, el registro y las carpetas, el idioma, y qué mide el monitor de hardware.
 
-`project:` y el nombre de la aplicación se muestran de sólo lectura: identifican la
-instalación y se escriben una vez, al armar el fork. Cambiarlos desde la UI de planta
+`project:`, el nombre de la aplicación y su descripción se muestran de sólo lectura:
+identifican la instalación y se escriben una vez, al armar el fork. Cambiarlos desde la UI de planta
 rompería la correspondencia entre el equipo y sus datos históricos —y el nombre, además,
 es el que aparece en el título de la ventana y en la barra lateral, que se arman al iniciar—.
 
@@ -64,6 +64,10 @@ class SystemTab(AbstractConfigTab):
         self._app_name = identity.add_field(tr("sys_app_name"), build_readonly_line_edit(""))
         self._device_id = identity.add_field(tr("sys_device_id"), build_readonly_line_edit(""),
                                              hint=tr("sys_device_id_note"))
+        # A todo el ancho: es una frase, la que va debajo del nombre en la página de inicio.
+        self._app_description = identity.add_field(
+            tr("sys_app_description"), build_readonly_line_edit(""),
+            hint=tr("sys_app_description_hint"), span=2)
 
         general = card.add_section(tr("sys_box_general"), tr("sys_general_description"),
                                    _COLUMNS)
@@ -99,6 +103,8 @@ class SystemTab(AbstractConfigTab):
         self._project_id.setText(str(self._config.get("project.project_id", "") or ""))
 
         self._app_name.setText(str(self._config.get("system.app_name", "") or ""))
+        self._app_description.setText(
+            str(self._config.get("system.app_description", "") or ""))
         self._device_id.setText(str(self._config.get("system.device_id", "") or ""))
         set_combo_value(self._log_level, self._config.get("system.log_level", "INFO"))
         self._logs_path.setText(str(self._config.get("system.paths.logs", "") or ""))
@@ -110,7 +116,7 @@ class SystemTab(AbstractConfigTab):
         self._net_interfaces.set_selected(self._config.get("system_monitor.net_interfaces", []))
 
     def save(self):
-        # `app_name` y `device_id` no se guardan: son de sólo lectura. El `device_id` es
+        # `app_name`, `app_description` y `device_id` no se guardan: son de sólo lectura. El `device_id` es
         # la identidad del equipo en MQTT y en InfluxDB, y se cambia en el config.yaml.
         # `ui.dark_mode` tampoco: lo guarda la barra superior al cambiar el tema.
         self._config.set("system.log_level", self._log_level.currentText())

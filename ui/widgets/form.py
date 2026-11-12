@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea, QAbstractSpinBox, QApplication, QCheckBox, QComboBox,
     QDoubleSpinBox, QFormLayout, QGraphicsOpacityEffect, QGridLayout, QGroupBox, QHBoxLayout,
     QLabel,
-    QLineEdit, QScrollArea, QSizePolicy, QSpinBox, QStyle, QStyleOptionTabWidgetFrame,
-    QTabBar, QTabWidget, QVBoxLayout, QWidget,
+    QLineEdit, QProxyStyle, QScrollArea, QSizePolicy, QSpinBox, QStyle, QStyleFactory,
+    QStyleOptionTabWidgetFrame, QTabBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
 _LABEL_MIN_WIDTH_PX = 240    # ancho mínimo de la etiqueta, para alinear todas las filas
@@ -407,18 +407,23 @@ class _BarReservingScrollArea(QScrollArea):
         self._content_layout.setContentsMargins(0, 0, width_px, 0)
 
 
+_GUARDED_TYPES = (QAbstractSpinBox, QComboBox, QTabBar)
+
+
 class WheelGuard(QObject):
     """
-    Filtro de eventos de la aplicación: la rueda del mouse no cambia el valor de un spin ni
-    de un combo, ni la pestaña elegida de una barra, y sigue desplazando la página que los
-    contiene.
+    Filtro de eventos: la rueda del mouse no cambia el valor de un spin ni de un combo, ni
+    la pestaña elegida de una barra, y sigue desplazando la página que los contiene.
 
     Sin esto, bajar por una pestaña larga con la rueda cambia el valor de cada campo que
     pasa debajo del puntero —una exposición, un umbral— sin que el operador lo note, y al
-    pasar por una barra de sub-pestañas lo deja editando otra cámara u otro pipeline. Se
-    instala una vez, sobre la `QApplication`, y vale para toda la interfaz, diálogos
-    incluidos. Un valor se cambia tipeando, con las flechas o con el teclado; una pestaña,
-    con un clic.
+    pasar por una barra de sub-pestañas lo deja editando otra cámara u otro pipeline. Un
+    valor se cambia tipeando, con las flechas o con el teclado; una pestaña, con un clic.
+
+    Se instala con `install_wheel_guard()`, que lo pone en cada uno de esos widgets y no en
+    la aplicación: instalado en la `QApplication` veía pasar cada evento de cada widget —el
+    video, los timers, cada repintado— por Python, y sólo eso era un tercio de lo que
+    tardaba cambiar de página.
     """
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
@@ -429,6 +434,41 @@ class WheelGuard(QObject):
         if area is not None:
             QApplication.sendEvent(area.viewport(), event.clone())
         return True
+
+
+class _WheelGuardStyle(QProxyStyle):
+    """
+    El estilo de la aplicación con un gancho: cada widget que se pule y es de un tipo que la
+    rueda cambiaría recibe el `WheelGuard`. Qt pule cada widget antes de mostrarlo —también
+    con la hoja de estilo, que delega en este estilo—, así que alcanza a toda la interfaz,
+    diálogos y widgets del fork incluidos, sin que nadie lo instale a mano.
+    """
+
+    def __init__(self, base_style: QStyle, guard: WheelGuard):
+        super().__init__(base_style)
+        self.guard = guard
+
+    def polish(self, target):
+        result = super().polish(target)
+        if isinstance(target, _GUARDED_TYPES):
+            # Instalarlo dos veces no lo duplica: Qt deja uno solo.
+            target.installEventFilter(self.guard)
+        return result
+
+
+def install_wheel_guard(app: QApplication) -> WheelGuard:
+    """
+    Pone el `WheelGuard` en cada spin, combo y barra de pestañas de la aplicación, los que ya
+    existen y los que se creen después. Llamarlo de nuevo devuelve el que ya está.
+    """
+    current = app.style()
+    if isinstance(current, _WheelGuardStyle):
+        return current.guard
+    guard = WheelGuard(app)
+    # Una copia del estilo actual, por nombre: el proxy se queda con la base, y la de ahora
+    # la borra `setStyle()` al reemplazarla.
+    app.setStyle(_WheelGuardStyle(QStyleFactory.create(current.name()), guard))
+    return guard
 
 
 def _find_scroll_area(widget: QWidget) -> QAbstractScrollArea | None:

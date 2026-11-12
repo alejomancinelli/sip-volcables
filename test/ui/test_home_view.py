@@ -11,6 +11,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QPixmap                                       # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton        # noqa: E402
 
 import ui.views.home_view as home_view                                 # noqa: E402
@@ -148,6 +149,18 @@ class TestNameplate:
         assert "Volcables" in _texts(view, "homeNameplateTitle")
         assert "JETSON-01" in _texts(view, "homeSpecValue")
 
+    def test_under_the_name_goes_the_description_of_the_installation(self):
+        view = HomeView(_MockConfig(**{
+            "system.app_description": "Sistema Inteligente de Visión para Autodescarga"}))
+        assert _texts(view, "homeNameplateTagline") == [
+            "Sistema Inteligente de Visión para Autodescarga"]
+
+    def test_without_a_description_the_generic_line_stays(self):
+        """El template no declara ninguna: sin esto la placa quedaría con un hueco."""
+        for description in (None, "", "   "):
+            view = HomeView(_MockConfig(**{"system.app_description": description}))
+            assert _texts(view, "homeNameplateTagline") == [tr("home_tagline")]
+
     def test_the_ip_of_the_device_is_not_shown(self):
         """Tiene más de una interfaz: la que importa depende de quién pregunta."""
         assert tr("home_spec_device") in _texts(HomeView(_MockConfig()), "homeSpecLabel")
@@ -158,6 +171,15 @@ class TestNameplate:
         view.update_license({"state": manager.STATE_ABSENT, "should_report_invalid": True})
         assert view.overall_state == CHIP_ERROR
         assert tr("lic_state_absent") in _texts(view, "statusPill")
+
+
+class TestAppIcon:
+    def test_the_app_icon_goes_next_to_the_name_when_the_fork_declares_it(self, monkeypatch):
+        monkeypatch.setattr(home_view.theme, "render_app_icon",
+                            lambda size_px, ratio=1.0: QPixmap(size_px, size_px))
+        assert HomeView(_MockConfig()).findChildren(QLabel, "homeAppIcon")
+        monkeypatch.setattr(home_view.theme, "render_app_icon", lambda size_px, ratio=1.0: None)
+        assert not HomeView(_MockConfig()).findChildren(QLabel, "homeAppIcon")
 
 
 class TestCameras:

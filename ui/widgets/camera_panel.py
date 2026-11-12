@@ -264,8 +264,13 @@ class CameraPanel(QWidget):
         return self._regions
 
     def _draw_regions(self, pixmap: QPixmap, frame_width_px: int, frame_height_px: int):
-        if self._mode != MODE_RAW:
+        """
+        Las regiones sobre el crudo, con las mismas claves que el overlay sobre el anotado:
+        `inference.overlay.draw_roi` las apaga y `draw_roi_label` les saca el nombre.
+        """
+        if self._mode != MODE_RAW or not self._config.get("inference.overlay.draw_roi", True):
             return
+        has_label = bool(self._config.get("inference.overlay.draw_roi_label", True))
         scale = pixmap.width() / frame_width_px
         painter = None
         for region in self._read_regions():
@@ -280,7 +285,8 @@ class CameraPanel(QWidget):
                 painter,
                 QRect(int(x_px * scale), int(y_px * scale),
                       int(width_px * scale), int(height_px * scale)),
-                region.name, style.color_bgr, style.is_dashed, _REGION_PEN_WIDTH_PX)
+                region.name if has_label else "", style.color_bgr, style.is_dashed,
+                _REGION_PEN_WIDTH_PX)
         if painter is not None:
             painter.end()
 

@@ -888,12 +888,13 @@ class TestAnnotation:
         assert tuple(result.annotated_bgr[0, 0]) == (0, 0, 255)
 
     def test_the_timestamp_is_drawn_over_the_annotator(self):
-        """Va abajo a la derecha, con fondo opaco: una referencia del proyecto no lo tapa."""
+        """Va abajo a la derecha, en su tarjeta: una referencia del proyecto no lo tapa."""
         def paint_everything(frame_bgr, result):
             frame_bgr[:] = (0, 0, 255)
 
         result = _process_one(_engine(_FakePipeline(), annotator=paint_everything), _frame())
-        assert tuple(int(c) for c in result.annotated_bgr[-1, -1]) == (0, 0, 0)
+        corner = result.annotated_bgr[-40:, -40:]
+        assert np.any(np.any(corner != (0, 0, 255), axis=-1))
 
     def test_without_a_timestamp_the_annotator_has_the_last_word(self):
         def paint_everything(frame_bgr, result):
@@ -990,7 +991,7 @@ class TestDrawOnto:
     def test_the_timestamp_is_drawn_on_request(self):
         canvas = _frame()
         _engine(_FakePipeline()).draw_timestamp(canvas, _other_result())
-        assert tuple(int(c) for c in canvas[-1, -1]) == (0, 0, 0)
+        assert not np.array_equal(canvas[-40:, -40:], _frame()[-40:, -40:])
 
     def test_the_timestamp_obeys_the_config(self):
         config = _MockConfig(**{"inference.overlay.draw_timestamp": False})
@@ -1171,10 +1172,10 @@ class TestRegionDrawing:
 
     def _drawn_texts(self, monkeypatch, config) -> list[str]:
         texts = []
-        real_put_text = overlay.cv2.putText
-        monkeypatch.setattr(overlay.cv2, "putText",
+        real_draw_text = overlay._draw_text
+        monkeypatch.setattr(overlay, "_draw_text",
                             lambda frame, text, *args: texts.append(text)
-                            or real_put_text(frame, text, *args))
+                            or real_draw_text(frame, text, *args))
         _process_one(_engine(_FakePipeline(), config), _frame())
         return texts
 
@@ -1186,6 +1187,10 @@ class TestRegionDrawing:
 
     def test_without_a_name_the_roi_carries_the_slot(self, monkeypatch):
         assert _PIPELINE in self._drawn_texts(monkeypatch, _MockConfig(**_pipeline_roi()))
+
+    def test_with_draw_roi_label_off_the_roi_carries_no_name(self, monkeypatch):
+        config = _MockConfig(**_pipeline_roi(), **{"inference.overlay.draw_roi_label": False})
+        assert _PIPELINE not in self._drawn_texts(monkeypatch, config)
 
     def test_draw_onto_uses_the_same_style(self):
         config = _MockConfig(**_pipeline_roi())

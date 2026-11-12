@@ -7,6 +7,7 @@ project:
 
 system:
   app_name: APP_NAME
+  app_description: ""           # la línea bajo el nombre en la página de inicio; vacía = la genérica
   device_id: DEVICE_ID          # client_id de MQTT y tag `device`; se fija al instalar, no en la UI
   log_level: INFO               # DEBUG | INFO | WARNING | ERROR
   hard_exit: false
@@ -144,6 +145,9 @@ inference:
     # Recuadro de la región de cada pipeline, con su color y su nombre; de verde, rojo o
     # amarillo si el pipeline declara un veredicto, y gris punteado si el resultado no vale.
     draw_roi: true
+    # false = el recuadro sin su etiqueta —nombre, veredicto escrito y motivo de un resultado
+    # inválido—, en el anotado y en el crudo: el estado queda dicho sólo por el color.
+    draw_roi_label: true
     draw_timestamp: true
     font_scale: 0.6
     thickness: 0                # trazo de cajas y ROI; 0 = automático según el frame (2–6 px)

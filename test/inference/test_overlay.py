@@ -22,6 +22,13 @@ def _frame(level: int = 128) -> np.ndarray:
     return np.full((120, 200, 3), level, np.uint8)
 
 
+def _surface_on(level: int) -> tuple:
+    """El color de la tarjeta de los paneles sobre un fondo gris de ese nivel."""
+    return tuple(int(value) for value in np.rint(
+        level * (1 - overlay.SURFACE_OPACITY)
+        + np.array(overlay.SURFACE_BGR, np.float32) * overlay.SURFACE_OPACITY))
+
+
 def _detection(**overrides) -> Detection:
     fields = {"class_index": 0, "class_name": "grain", "confidence_pct": 90.0,
               "bbox_px": (40, 40, 90, 90)}
@@ -305,12 +312,13 @@ class TestTextPanelLayout:
     def test_by_default_it_leaves_a_margin_to_the_border(self):
         frame = np.full((200, 600, 3), 128, np.uint8)
         overlay.draw_text_panel(frame, ["AB"])
-        assert np.all(frame[0, 0] == 128) and np.all(frame[12, 12] == 0)
+        assert np.all(frame[0, 0] == 128) and tuple(frame[14, 14]) == _surface_on(128)
 
     def test_with_no_margin_it_sits_in_the_corner(self):
+        """Pegado a la esquina va sin redondear: una esquina redonda contra el borde parece un error."""
         frame = np.full((200, 600, 3), 128, np.uint8)
         overlay.draw_text_panel(frame, [("A:", "1.0%")], margin_px=0)
-        assert np.all(frame[0, 0] == 0)
+        assert tuple(frame[0, 0]) == _surface_on(128)
 
 
 class TestLineThickness:
@@ -351,7 +359,8 @@ class TestLineThickness:
             frame = self._sized(height_px, width_px)
             overlay.draw_roi(frame, (20, 20, 100, 60), state=state,
                              options=overlay.OverlayOptions(roi_color_bgr=(255, 0, 0)))
-            return int(np.count_nonzero(np.any(frame[:60, 70] != 128, axis=1)))
+            # Lejos de la etiqueta del veredicto y de las escuadras: sólo el borde de arriba.
+            return int(np.count_nonzero(np.any(frame[:60, 110] != 128, axis=1)))
 
         assert roi_rows(2160, 3840) > roi_rows(360, 640)
         assert roi_rows(2160, 3840, ROI_STATE_NOK) == roi_rows(2160, 3840)
@@ -509,8 +518,24 @@ class TestDrawRoi:
         without = self._draw()
         assert _changed_pixels(with_label, without) > 0
 
-    def test_an_accented_name_is_drawn_without_its_accents(self, monkeypatch):
-        """La fuente de OpenCV sólo dibuja ASCII: «ó» saldría como «??»."""
+    def test_an_accented_name_keeps_its_accents(self, monkeypatch):
+        """Con la Ubuntu de la app el nombre sale como lo escribió el operador."""
+        if overlay._get_font(20) is None:
+            pytest.skip("sin Pillow o sin las tipografías de la app")
+        texts = []
+        real_draw_text = overlay._draw_text
+        monkeypatch.setattr(overlay, "_draw_text",
+                            lambda frame, text, *args: texts.append(text)
+                            or real_draw_text(frame, text, *args))
+        self._draw(roi_label="Verificación de calza ñ")
+        assert texts == ["Verificación de calza ñ"]
+
+    def test_without_the_fonts_an_accented_name_is_drawn_without_its_accents(self, monkeypatch):
+        """La fuente de respaldo de OpenCV sólo dibuja ASCII: «ó» saldría como «??»."""
+        monkeypatch.setattr(overlay, "_get_font", lambda *args: None)
+        # Sin los cachés: guardan lo que se dibujó con la Ubuntu en otro test.
+        for name in ("_cap_height", "_text_width", "_text_mask"):
+            monkeypatch.setattr(overlay, name, getattr(overlay, name).__wrapped__)
         texts = []
         real_put_text = overlay.cv2.putText
         monkeypatch.setattr(overlay.cv2, "putText",
@@ -518,6 +543,18 @@ class TestDrawRoi:
                             or real_put_text(frame, text, *args))
         self._draw(roi_label="Verificación de calza ñ")
         assert texts == ["Verificacion de calza n"]
+
+    def test_the_label_can_be_hidden_and_the_border_stays(self):
+        hidden = self._draw(roi_label="pipeline_1", draw_roi_label=False)
+        assert np.array_equal(hidden, self._draw())
+        assert self._has_color_near(hidden, 100, 90)
+
+    def test_a_hidden_label_hides_the_verdict_text_too(self):
+        """El estado queda dicho sólo por el color del borde: es lo que pide quien la apaga."""
+        frame = _frame()
+        overlay.draw_roi(frame, self._ROI, state=ROI_STATE_NOK, options=overlay.OverlayOptions(
+            roi_color_bgr=self._BLUE, roi_label="p1", draw_roi_label=False))
+        assert not np.any(np.all(frame[:24] != 128, axis=-1))     # arriba del borde y sus escuadras
 
     def test_without_options_it_is_the_old_grey_box_without_a_name(self):
         frame = _frame()
@@ -641,3 +678,65 @@ class TestRoiState:
 
     def test_a_state_outside_the_vocabulary_is_drawn_as_none(self):
         assert self._has(self._annotate(roi_state="purple"), self._BLUE)
+
+
+class TestStatusPanel:
+    """Un renglón por veredicto, con el texto en una píldora de su color, y todas del mismo ancho."""
+
+    _OK = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK]
+    _NOK = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK]
+
+    def _columns(self, frame: np.ndarray, color: tuple) -> np.ndarray:
+        return np.flatnonzero(np.all(frame == color, axis=-1).any(axis=0))
+
+    def test_each_verdict_is_written_in_its_color(self):
+        frame = np.full((200, 600, 3), 128, np.uint8)
+        overlay.draw_status_panel(frame, [("GRAIN", "OK", self._OK), ("PERSON", "NOK", self._NOK)],
+                                  font_scale=1.0)
+        assert self._columns(frame, self._OK).size and self._columns(frame, self._NOK).size
+
+    def test_a_verdict_that_changes_does_not_move_the_panel(self):
+        """Las píldoras miden lo que la más ancha: pasar de OK a NOK no ensancha el panel."""
+        def panel_columns(first: str) -> int:
+            frame = np.full((200, 600, 3), 128, np.uint8)
+            overlay.draw_status_panel(frame, [("A", first, self._OK), ("B", "NOK", self._NOK)],
+                                      font_scale=1.0)
+            return int(np.count_nonzero(np.any(frame != 128, axis=(0, 2))))
+
+        assert panel_columns("OK") == panel_columns("NOK")
+
+    def test_an_empty_frame_is_ignored(self):
+        overlay.draw_status_panel(np.zeros((0, 0, 3), np.uint8), [("A", "OK", self._OK)],
+                                  font_scale=1.0)
+
+
+class TestDrawingCost:
+    """
+    Lo que se repite frame a frame se arma una sola vez. Rasterizar cada texto y cada tarjeta
+    en cada frame costaba diez veces el overlay viejo en la Jetson, y con tres pipelines y la
+    GUI dibujando a la vez los resultados se acumulaban en la cola de la GUI hasta llenar la
+    memoria.
+    """
+
+    def test_a_repeated_text_is_rasterized_once(self, monkeypatch):
+        if overlay._get_font(20) is None:
+            pytest.skip("sin Pillow o sin las tipografías de la app")
+        overlay._text_mask.cache_clear()
+        drawn = []
+        real_draw = overlay.ImageDraw.Draw
+        monkeypatch.setattr(overlay.ImageDraw, "Draw",
+                            lambda image: drawn.append(image) or real_draw(image))
+        for _ in range(5):
+            overlay.draw_tag(_frame(), "wheel 88%", (10, 10), font_scale=0.6)
+        assert len(drawn) == 1
+
+    def test_a_repeated_card_shape_is_built_once(self, monkeypatch):
+        overlay._rounded_mask.cache_clear()
+        circles = []
+        real_circle = overlay.cv2.circle
+        monkeypatch.setattr(overlay.cv2, "circle",
+                            lambda *args, **kwargs: circles.append(args)
+                            or real_circle(*args, **kwargs))
+        for _ in range(5):
+            overlay.draw_tag(_frame(), "OK", (10, 10), font_scale=0.6)
+        assert len(circles) == 4                  # las cuatro esquinas, una sola vez

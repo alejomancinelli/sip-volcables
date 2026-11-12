@@ -8,7 +8,10 @@ Pestaña de hardware: el estado del equipo por secciones, cada una en su tarjeta
     │ Temp. 52 °C│ Temp. 49 °C│ 43 % en uso    │ en .        │ Sin sobre… │
     └─────────────────────────────────────────────────────────────────────┘
     ┌ Temperaturas ───────────────────┐ ┌ Aceleradores ──────────────────┐
-    │ cpu-thermal 52 °C  gpu-th… 49 °C│ │ VIC   En uso      729 MHz      │
+    │ ┌ CPU ────┐ ┌ GPU ────┐ ┌ TJ ───┐│ │ VIC   En uso      729 MHz      │
+    │ │ 52.0 °C │ │ 49.0 °C │ │ 55 °C ││ │                                │
+    │ │ ▬▬▬▬──  │ │ ▬▬▬───  │ │ ▬▬▬── ││ │                                │
+    │ └─────────┘ └─────────┘ └───────┘│ │                                │
     └─────────────────────────────────┘ └────────────────────────────────┘
     ┌ Cámaras ────────────────────────────────────────────────────────────┐
     │ Cámara        Estado       FPS        Último minuto  Temp.  Vistas  │
@@ -28,6 +31,12 @@ Las tendencias son `Sparkline`, como las de Estadísticas de Modbus: los porcent
 escala fija de 0 a 100 —una CPU que va de 20 a 21 se ve casi plana, que es lo que es— y los
 FPS de cada cámara contra su `acquisition.fps_limit`.
 
+Cada zona térmica es una baldosa con su nombre corto —`cpu-thermal` se lee «CPU»; el
+nombre entero queda en el tooltip—, el valor y una barra de 0 a 100 °C que pasa al ámbar
+desde `_TEMPERATURE_WARN_C`: la zona caliente se ve sin leer los nueve números. El umbral es
+de lectura y no un límite del equipo —la Jetson recién se frena cerca de los 99 °C—, así que
+no sale al PLC ni a ningún lado.
+
 Lo que depende del equipo se arma con la primera medición y no a mano: las zonas térmicas
 salen de `temps_c`, los motores de `engines` —fuera de una Jetson viene vacío y su tarjeta
 no se muestra— y las interfaces de `net_mbps`, que son las de `system_monitor.net_interfaces`.
@@ -38,7 +47,7 @@ no informa queda en su fila, con su estado, en vez de no estar.
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+    QGridLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from system.config_manager import ConfigManager
@@ -61,6 +70,11 @@ _TILE_MARGINS_PX = (20, 14, 20, 16)
 _TABLE_COLUMN_GAP_PX = 20
 _TABLE_ROW_GAP_PX = 10
 _TEMPERATURE_COLUMNS = 3
+_TEMPERATURE_GAP_PX = 10
+_TEMPERATURE_TILE_MARGINS_PX = (12, 10, 12, 12)
+_TEMPERATURE_SCALE_C = 100    # la barra va de 0 a esto
+_TEMPERATURE_WARN_C = 85      # desde acá, en ámbar: ver el docstring del módulo
+_ZONE_SUFFIXES = ("-thermal", "_thermal", " thermal")
 _MB_PER_GB = 1024.0
 _PERCENT = 100.0
 
@@ -92,6 +106,7 @@ class HardwareTab(AbstractDiagnosticsTab):
             _TILE_POWER: _MetricTile(tr("hw_power")),
         }
         self._temperature_cells: dict[str, QLabel] = {}
+        self._temperature_bars: dict[str, QProgressBar] = {}
         self._engine_rows: dict[str, tuple[StatusChip, QLabel]] = {}
         self._camera_rows: dict[str, _CameraRow] = {}
         self._network_rows: dict[str, _NetworkRow] = {}
@@ -183,8 +198,9 @@ class HardwareTab(AbstractDiagnosticsTab):
         self._temperatures_hint = _new_label(tr("hw_waiting"), "hintLabel")
         layout.addWidget(self._temperatures_hint)
         self._temperatures_grid = QGridLayout()
-        self._temperatures_grid.setHorizontalSpacing(_TABLE_COLUMN_GAP_PX)
-        self._temperatures_grid.setVerticalSpacing(_TABLE_ROW_GAP_PX)
+        self._temperatures_grid.setSpacing(_TEMPERATURE_GAP_PX)
+        for column in range(_TEMPERATURE_COLUMNS):
+            self._temperatures_grid.setColumnStretch(column, 1)
         layout.addLayout(self._temperatures_grid)
         layout.addStretch()
         return card
@@ -283,20 +299,38 @@ class HardwareTab(AbstractDiagnosticsTab):
             cell = self._temperature_cells.get(zone)
             if cell is None:
                 cell = self._add_temperature_cell(zone)
-            cell.setText(_format_temperature(temps_c[zone]))
+            celsius = float(temps_c[zone] or 0.0)
+            cell.setText(_format_temperature(celsius))
+            bar = self._temperature_bars[zone]
+            bar.setValue(int(round(min(max(celsius, 0.0), _TEMPERATURE_SCALE_C))))
+            is_hot = celsius >= _TEMPERATURE_WARN_C
+            _set_property(cell, "warn", is_hot)
+            _set_property(bar, "warn", is_hot)
 
     def _add_temperature_cell(self, zone: str) -> QLabel:
+        """La baldosa de una zona: nombre corto, valor y barra. Devuelve la etiqueta del valor."""
         index = len(self._temperature_cells)
-        name = _new_label(zone, "tableDetail")
-        value = _new_fixed_label(_EMPTY_VALUE)
-        cell = QHBoxLayout()
-        cell.setSpacing(8)
-        cell.addWidget(name)
-        cell.addStretch()
-        cell.addWidget(value)
-        self._temperatures_grid.addLayout(cell, index // _TEMPERATURE_COLUMNS,
+        tile = QWidget()
+        tile.setObjectName("temperatureTile")
+        tile.setAttribute(Qt.WA_StyledBackground, True)
+        tile.setToolTip(zone)
+        layout = QVBoxLayout(tile)
+        layout.setContentsMargins(*_TEMPERATURE_TILE_MARGINS_PX)
+        layout.setSpacing(4)
+        layout.addWidget(_new_label(_short_zone_name(zone), "metricFoot"))
+        value = _new_label(_EMPTY_VALUE, "temperatureValue")
+        value.setTextFormat(Qt.PlainText)
+        layout.addWidget(value)
+        bar = QProgressBar()
+        bar.setObjectName("temperatureBar")
+        bar.setRange(0, _TEMPERATURE_SCALE_C)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(4)
+        layout.addWidget(bar)
+        self._temperatures_grid.addWidget(tile, index // _TEMPERATURE_COLUMNS,
                                           index % _TEMPERATURE_COLUMNS)
         self._temperature_cells[zone] = value
+        self._temperature_bars[zone] = bar
         return value
 
     def _update_engines(self, engines: dict):
@@ -535,6 +569,14 @@ class _Table(QGridLayout):
 
 
 # ── Piezas sueltas ──────────────────────────────────────────────────────────────
+
+def _short_zone_name(zone: str) -> str:
+    """«cpu-thermal» -> «CPU»: el sufijo lo repiten todas las zonas y no dice nada."""
+    for suffix in _ZONE_SUFFIXES:
+        if zone.lower().endswith(suffix):
+            return zone[:-len(suffix)].upper()
+    return zone
+
 
 def _format_temperature(celsius: object) -> str:
     """«52.0 °C», o un guion si no hay lectura: 0 es lo que informa quien no tiene sensor."""

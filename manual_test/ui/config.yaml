@@ -17,6 +17,7 @@ project:
 
 system:
   app_name: Prueba de interfaz
+  app_description: Prueba de la interfaz con cámaras simuladas
   device_id: banco_de_pruebas
   log_level: INFO
   paths:
@@ -71,6 +72,7 @@ inference:
     draw_masks: true
     draw_labels: true
     draw_roi: true
+    draw_roi_label: true
     draw_timestamp: true
     font_scale: 0.6
     thickness: 2
