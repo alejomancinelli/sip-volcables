@@ -14,6 +14,8 @@ Para agregar un fabricante o modelo, editar CAMERA_CATALOG directamente:
   - "sensor_settings" en True si el driver le aplica al sensor la exposición y la
     ganancia de `acquisition`. Sin ella la UI no muestra esos campos: una cámara IP
     o un video los ignoran, y se ajustan en la cámara misma.
+  - "decodes" en True si el driver decodifica video y lee la sección `decode` de la cámara
+    (ver `tools/camera/decoder.py`). Sin ella la UI no muestra esos campos.
 """
 
 CAMERA_CATALOG: dict[str, dict] = {
@@ -38,6 +40,7 @@ CAMERA_CATALOG: dict[str, dict] = {
     "rtsp": {
         "label": "IP genérica (RTSP)",
         "driver": "rtsp",
+        "decodes": True,
         "models": [
             "generic",
         ],
@@ -45,6 +48,7 @@ CAMERA_CATALOG: dict[str, dict] = {
     "replay": {
         "label": "Video grabado",
         "driver": "video_file",
+        "decodes": True,
         "models": ["file"],
     },
     "mock": {

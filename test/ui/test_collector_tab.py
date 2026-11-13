@@ -131,12 +131,63 @@ class TestIntervals:
                 config.written["image_collector.interval_max_s"]) == (30, 90)
 
 
+_PIPELINES = {"inference.pipelines": {"pipeline_1": {"name": "Flujo de grano"},
+                                      "pipeline_2": {}}}
+
+
 class TestPipelines:
-    def test_save_does_not_touch_the_pipeline_list(self):
-        """Se edita en el archivo: guardar la pestaña no la pisa."""
+    def test_without_pipelines_save_does_not_touch_the_list(self):
+        """Sin pipelines en el config no hay casillas: la lista no se mostró y no se pisa."""
         tab, config = _tab(**{"image_collector.pipelines": ["pipeline_1"]})
         tab.save()
         assert "image_collector.pipelines" not in config.written
+
+    def test_one_checkbox_per_pipeline_with_its_name(self):
+        tab, _ = _tab(**_PIPELINES)
+        assert [check.text() for check in tab._pipeline_checks.values()] == \
+            ["Flujo de grano", "pipeline_2"]
+
+    def test_an_empty_list_checks_every_pipeline_and_saves_empty(self):
+        tab, config = _tab(**_PIPELINES, **{"image_collector.pipelines": []})
+        assert all(check.isChecked() for check in tab._pipeline_checks.values())
+        tab.save()
+        assert config.written["image_collector.pipelines"] == []
+
+    def test_a_list_round_trips(self):
+        tab, config = _tab(**_PIPELINES, **{"image_collector.pipelines": ["pipeline_1"]})
+        tab.save()
+        assert config.written["image_collector.pipelines"] == ["pipeline_1"]
+
+    def test_unchecking_one_saves_the_other(self):
+        tab, config = _tab(**_PIPELINES)
+        tab._pipeline_checks["pipeline_2"].setChecked(False)
+        tab.save()
+        assert config.written["image_collector.pipelines"] == ["pipeline_1"]
+
+    def test_the_last_checked_pipeline_cannot_be_unchecked(self):
+        tab, config = _tab(**_PIPELINES, **{"image_collector.pipelines": ["pipeline_2"]})
+        tab._pipeline_checks["pipeline_2"].setChecked(False)
+        tab.save()
+        assert config.written["image_collector.pipelines"] == ["pipeline_2"]
+
+    def test_a_slot_that_is_not_configured_goes_back_to_the_file(self):
+        tab, config = _tab(**_PIPELINES,
+                           **{"image_collector.pipelines": ["pipeline_1", "pipeline_9"]})
+        tab.save()
+        assert config.written["image_collector.pipelines"] == ["pipeline_1", "pipeline_9"]
+
+    def test_the_pipelines_do_not_share_the_cameras_last_check(self):
+        """La última cámara marcada no traba los pipelines, ni al revés."""
+        tab, config = _tab(**_PIPELINES, **{"image_collector.cameras": ["camera_1"]})
+        tab._pipeline_checks["pipeline_1"].setChecked(False)
+        tab.save()
+        assert config.written["image_collector.pipelines"] == ["pipeline_2"]
+        assert config.written["image_collector.cameras"] == ["camera_1"]
+
+    def test_turning_collection_off_dims_them(self):
+        tab, _ = _tab(**_PIPELINES)
+        tab._enabled.setChecked(False)
+        assert not tab._pipeline_checks["pipeline_1"].isEnabled()
 
 
 def _with_cycle(frames_per_cycle: int, mode: str) -> dict:

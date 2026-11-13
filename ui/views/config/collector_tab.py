@@ -2,7 +2,7 @@
 Pestaña de dataset: la sección `image_collector:`.
 
 Dos tarjetas con la forma de las de ajustes (`ui/widgets/settings_card.py`): «Recolección»
-—cuándo se guarda, qué lleva cada guardado y de qué cámaras— y «Almacenamiento» —los topes de
+—cuándo se guarda, qué lleva cada guardado y de qué cámaras y pipelines— y «Almacenamiento» —los topes de
 espacio y los duplicados—.
 
 `enabled` se prende y se apaga en caliente, pero el modo no: cambiarlo exige reiniciar
@@ -24,14 +24,14 @@ Los dos intervalos tienen una condición más: sólo hacen algo en modo `interva
 están habilitados únicamente cuando la recolección está prendida **y** el modo es ese. El
 mínimo no puede pasar al máximo: cada guardado cae al azar entre los dos.
 
-Las cámaras que se guardan son una casilla por slot de `cameras:`, con su nombre. Todas
-marcadas guarda `image_collector.cameras: []`, que también incluye a las que se agreguen
-después; si no, la lista de las marcadas. Un slot de la lista que ya no está en `cameras:`
-vuelve al archivo tal cual. La última marcada no se puede desmarcar: la lista vacía
-significa todas, y no guardar ninguna es apagar la recolección.
-
-`image_collector.pipelines` no está en la pantalla: se edita en el archivo, y `save()` no lo
-toca.
+Las cámaras que se guardan son una casilla por slot de `cameras:`, con su nombre, y los
+pipelines, una por slot de `inference.pipelines`. Las dos listas siguen la misma regla: todas
+marcadas guarda `[]`, que también incluye a los que se agreguen después; si no, la lista de
+los marcados. Un slot de la lista que ya no está en el config vuelve al archivo tal cual. El
+último marcado no se puede desmarcar: la lista vacía significa todos, y no guardar ninguno es
+apagar la recolección. El filtro de pipelines decide de qué resultados se guarda la imagen
+—la región que vio el pipeline, si tiene ROI propio, o el frame entero— y lo aplica el
+recolector (`should_collect()`).
 """
 
 from PySide6.QtCore import QSignalBlocker
@@ -56,6 +56,8 @@ _MODES = {
 }
 _MODE_ON_DEMAND = "on_demand"
 _MODE_INTERVAL = "interval"
+_CAMERAS = "cameras"             # las dos listas de slots de `image_collector:`
+_PIPELINES = "pipelines"
 
 _MAX_INTERVAL_S = 86400
 _MAX_IMAGES = 1000000
@@ -119,23 +121,37 @@ class CollectorTab(AbstractConfigTab):
         content.add_row(build_check_grid(
             [self._save_original, self._save_annotated, self._save_json], _CHECK_COLUMNS))
 
-        cameras = card.add_section(tr("col_box_cameras"), tr("col_cameras_note"), columns=1)
-        self._camera_checks: dict[str, QCheckBox] = {}
-        # Slots de la lista del config que no están en `cameras:`: no tienen casilla y
-        # vuelven al archivo como estaban.
-        self._unlisted_cameras: list[str] = []
-        for camera_slot, section in (self._config.get("cameras", {}) or {}).items():
-            name = section.get("name") if isinstance(section, dict) else None
-            check = QCheckBox(str(name or "").strip() or str(camera_slot))
-            check.setToolTip(str(camera_slot))
-            check.setChecked(True)
-            check.toggled.connect(lambda checked, check=check: self._keep_one_checked(check))
-            self._camera_checks[str(camera_slot)] = check
-        cameras.add_row(build_check_grid(list(self._camera_checks.values()), _CHECK_COLUMNS))
-        hint = QLabel(tr("col_cameras_hint"))
-        hint.setObjectName("settingsFieldHint")
-        cameras.add_row(hint)
+        # Slots de cada lista del config que no tienen casilla: vuelven al archivo como estaban.
+        self._unlisted: dict[str, list[str]] = {_CAMERAS: [], _PIPELINES: []}
+        self._camera_checks = self._add_slot_section(
+            card, self._config.get("cameras", {}), tr("col_box_cameras"),
+            tr("col_cameras_note"), tr("col_cameras_hint"))
+        self._pipeline_checks: dict[str, QCheckBox] = {}
+        pipelines = self._config.get("inference.pipelines", {}) or {}
+        if pipelines:
+            self._pipeline_checks = self._add_slot_section(
+                card, pipelines, tr("col_box_pipelines"), tr("col_pipelines_note"),
+                tr("col_pipelines_hint"))
         return card
+
+    def _add_slot_section(self, card: SettingsCard, sections: object, title: str,
+                          description: str, hint_text: str) -> dict[str, QCheckBox]:
+        """Una sección con una casilla por slot de `sections`, rotulada con su `name`."""
+        section = card.add_section(title, description, columns=1)
+        checks: dict[str, QCheckBox] = {}
+        for slot, slot_section in (sections or {}).items():
+            name = slot_section.get("name") if isinstance(slot_section, dict) else None
+            check = QCheckBox(str(name or "").strip() or str(slot))
+            check.setToolTip(str(slot))
+            check.setChecked(True)
+            check.toggled.connect(
+                lambda checked, checks=checks, check=check: _keep_one_checked(checks, check))
+            checks[str(slot)] = check
+        section.add_row(build_check_grid(list(checks.values()), _CHECK_COLUMNS))
+        hint = QLabel(hint_text)
+        hint.setObjectName("settingsFieldHint")
+        section.add_row(hint)
+        return checks
 
     def _build_storage_card(self) -> QWidget:
         card = SettingsCard(tr("col_card_storage"))
@@ -170,7 +186,8 @@ class CollectorTab(AbstractConfigTab):
             self._mode_combo, self._interval_min, self._interval_max,
             self._max_images, self._min_free_space,
             self._save_original, self._save_annotated, self._save_json,
-            *self._camera_checks.values(), self._dedup_enabled,
+            *self._camera_checks.values(), *self._pipeline_checks.values(),
+            self._dedup_enabled,
         ])
         # Los intervalos dependen además del modo, y eso se resuelve después del toggle,
         # que es el que los deja habilitados sin mirar el modo.
@@ -199,7 +216,8 @@ class CollectorTab(AbstractConfigTab):
         self._save_json.setChecked(
             bool(self._config.get("image_collector.save_inference_json", True))
         )
-        self._load_cameras()
+        self._load_slots(_CAMERAS, self._camera_checks)
+        self._load_slots(_PIPELINES, self._pipeline_checks)
         self._dedup_enabled.setChecked(
             bool(self._config.get("image_collector.dedup.enabled", True))
         )
@@ -222,7 +240,12 @@ class CollectorTab(AbstractConfigTab):
         self._config.set("image_collector.save_original", self._save_original.isChecked())
         self._config.set("image_collector.save_annotated", self._save_annotated.isChecked())
         self._config.set("image_collector.save_inference_json", self._save_json.isChecked())
-        self._config.set("image_collector.cameras", self._get_selected_cameras())
+        self._config.set("image_collector.cameras",
+                         self._get_selected(_CAMERAS, self._camera_checks))
+        # Sin pipelines en el config no hay casillas: la lista no se mostró y no se toca.
+        if self._pipeline_checks:
+            self._config.set("image_collector.pipelines",
+                             self._get_selected(_PIPELINES, self._pipeline_checks))
         self._config.set("image_collector.dedup.enabled", self._dedup_enabled.isChecked())
         self._config.set("image_collector.dedup.history_len", self._history_len.value())
         self._config.set("image_collector.dedup.hamming_threshold", self._hamming.value())
@@ -254,25 +277,26 @@ class CollectorTab(AbstractConfigTab):
         is_useless = not self._has_cycle and self._mode_combo.currentData() == _MODE_ON_DEMAND
         self._no_cycle_warning.setVisible(is_useless)
 
-    def _load_cameras(self):
-        """Marca las cámaras de la lista; vacía —o que no es lista— las marca todas."""
-        cameras = self._config.get("image_collector.cameras", []) or []
-        selected = [str(slot) for slot in cameras] if isinstance(cameras, (list, tuple)) else []
-        self._unlisted_cameras = [slot for slot in selected if slot not in self._camera_checks]
-        for camera_slot, check in self._camera_checks.items():
+    def _load_slots(self, key: str, checks: dict[str, QCheckBox]):
+        """Marca los slots de `image_collector.<key>`; vacía —o que no es lista— los marca todos."""
+        slots = self._config.get(f"image_collector.{key}", []) or []
+        selected = [str(slot) for slot in slots] if isinstance(slots, (list, tuple)) else []
+        self._unlisted[key] = [slot for slot in selected if slot not in checks]
+        for slot, check in checks.items():
             with QSignalBlocker(check):
-                check.setChecked(not selected or camera_slot in selected)
+                check.setChecked(not selected or slot in selected)
 
-    def _get_selected_cameras(self) -> list[str]:
-        """Lo que va a `image_collector.cameras`: [] con todas marcadas, si no la lista."""
-        checked = [slot for slot, check in self._camera_checks.items() if check.isChecked()]
-        if len(checked) == len(self._camera_checks):
+    def _get_selected(self, key: str, checks: dict[str, QCheckBox]) -> list[str]:
+        """Lo que va a `image_collector.<key>`: [] con todos marcados, si no la lista."""
+        checked = [slot for slot, check in checks.items() if check.isChecked()]
+        if len(checked) == len(checks):
             return []
-        return checked + self._unlisted_cameras
+        return checked + self._unlisted[key]
 
-    def _keep_one_checked(self, check: QCheckBox):
-        """Vuelve a marcar la última cámara desmarcada: ninguna se guardaría como todas."""
-        if any(other.isChecked() for other in self._camera_checks.values()):
-            return
-        with QSignalBlocker(check):
-            check.setChecked(True)
+
+def _keep_one_checked(checks: dict[str, QCheckBox], check: QCheckBox):
+    """Vuelve a marcar el último slot desmarcado: ninguno se guardaría como todos."""
+    if any(other.isChecked() for other in checks.values()):
+        return
+    with QSignalBlocker(check):
+        check.setChecked(True)
