@@ -20,9 +20,7 @@ cameras:
       brightness_factor: 1.0    # x0.1–x5.0; 1.0 = sin cambio
       clahe_clip: 0.0
 
-process:
-  # Lo lee system/inference/hooks.py, igual que en la app.
-  max_load_y_px: {}             # {camera_1: 430} — dibuja el límite de carga en el anotado
+process: {}                     # lo lee system/inference/hooks.py, igual que en la app
 
 inference:
   overlay:

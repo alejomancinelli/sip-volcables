@@ -92,13 +92,6 @@ process:
   # es peor que no arrancar.
   #
   # Los valores por cámara van como mapas con la clave del slot.
-  scale_px_per_mm: {}           # {camera_1: 3.2} — calibración; sin esto no hay medidas físicas
-  max_load_y_px: {}             # {camera_1: 430} — altura del límite de carga de la cinta
-  min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
-  # Caída de grano. Declarada, el anotado de cada cámara del grano lleva el estado de la
-  # descarga: un borde verde sólo si cae grano y no hay personas en la zona de exclusión,
-  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK.
-  grain_flow: {}
   ramp_gate:
     # La plataforma corta la medición. Estos pipelines miden con la plataforma horizontal y
     # dejan de recibir frames cuando el PLC escribe `ramp_state` = 2 (inclinada): pasado ese

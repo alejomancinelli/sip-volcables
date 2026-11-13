@@ -57,13 +57,9 @@ video:
     gamma: 1.0
     clahe_clip: 0.0
 
-process:
-  # Parámetros del proceso. En esta prueba no se usan —el analyzer del template no los
-  # necesita—, pero la sección va igual porque es la que el fork reescribe y conviene
-  # verla en el archivo.
-  scale_px_per_mm: {}
-  max_load_y_px: {}
-  min_load_pct: 0
+# Parámetros del proceso. En esta prueba no hace falta ninguno, pero la sección va igual
+# porque es la que el fork reescribe y conviene verla en el archivo.
+process: {}
 
 inference:
   overlay:

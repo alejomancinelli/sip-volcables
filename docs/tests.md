@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**117 archivos, 664 grupos, 3301 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**117 archivos, 663 grupos, 3292 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -21,7 +21,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/ci/](#testci) | 2 | 22 |
 | [test/formats/](#testformats) | 6 | 98 |
 | [test/image_collector/](#testimage_collector) | 2 | 91 |
-| [test/inference/](#testinference) | 19 | 670 |
+| [test/inference/](#testinference) | 19 | 661 |
 | [test/inference/models/](#testinferencemodels) | 6 | 145 |
 | [test/license/](#testlicense) | 8 | 138 |
 | [test/modbus/](#testmodbus) | 5 | 230 |
@@ -1583,13 +1583,12 @@ Tests de las agregaciones sobre detecciones y de la agregación de un ciclo de v
 
 </details>
 
-### [test_annotations.py](../test/inference/test_annotations.py) — 60 tests
+### [test_annotations.py](../test/inference/test_annotations.py) — 51 tests
 
-Tests de los annotators del proyecto: el límite de carga por cámara y la composición de varios en uno.
+Tests de los annotators del proyecto: los paneles de estado, la hora y la composición de varios en uno.
 
 | Grupo | Tests |
 |---|---:|
-| `TestMaxLoadLine` | 9 |
 | `TestChain` | 6 |
 | `TestLabelsPanel` | 2 |
 | `TestUnloadStatus` | 18 |
@@ -1598,16 +1597,6 @@ Tests de los annotators del proyecto: el límite de carga por cámara y la compo
 
 <details><summary>Tests</summary>
 
-- `TestMaxLoadLine`
-  - `test_it_draws_at_the_configured_height`
-  - `test_it_spans_the_whole_width`
-  - `test_each_camera_gets_its_own_height`
-  - `test_a_camera_without_a_height_gets_no_line`
-  - `test_a_height_outside_the_frame_draws_nothing`
-  - `test_it_draws_with_no_detections`
-  - `test_an_empty_frame_is_ignored`
-  - `test_the_label_is_drawn_over_the_line`
-  - `test_it_names_itself_with_its_geometry`
 - `TestChain`
   - `test_it_runs_every_annotator`
   - `test_the_last_one_draws_on_top`
@@ -1969,12 +1958,12 @@ Tests de los hooks del proyecto: qué le entrega el template al motor desde `pro
   - `test_it_returns_the_hooks_object`
   - `test_the_template_does_not_filter_detections`
   - `test_the_analyzer_is_the_generic_count`
-  - `test_without_a_load_limit_there_is_no_annotator`
-  - `test_a_declared_load_limit_is_drawn_on_its_camera`
-  - `test_a_declared_grain_flow_draws_the_verdict_panel`
+  - `test_without_pipelines_there_is_no_annotator`
+  - `test_a_grain_pipeline_draws_the_verdict_panel`
+  - `test_a_disabled_grain_pipeline_draws_nothing`
+  - `test_the_process_section_does_not_turn_the_panel_on`
   - `test_without_the_engine_timestamp_the_project_draws_it`
   - `test_with_the_engine_timestamp_the_project_does_not_draw_it`
-  - `test_the_load_limit_is_not_drawn_on_other_cameras`
 - `TestStopperHooks`
   - `test_a_stopper_pipeline_draws_the_stopper_status`
   - `test_without_a_stopper_pipeline_there_is_no_annotator`

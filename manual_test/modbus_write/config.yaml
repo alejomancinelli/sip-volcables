@@ -39,7 +39,7 @@ video:
 
 process:
   max_load_y_px:
-    camera_1: 430               # px — se dibuja en el anotado y se publica en 40010
+    camera_1: 430               # px — se publica en 40010
   min_load_pct: 60.0            # % — se publica en 40012, con una décima
 
 inference:

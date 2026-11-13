@@ -31,6 +31,7 @@ from .result import Detection, InferenceResult
 Classifier = Callable[[list[Detection], str], list[Detection]]
 Analyzer = Callable[[InferenceResult], dict]
 
+GRAIN_PIPELINE_TYPE = "grain_flow"
 PERSON_PIPELINE_TYPE = "person_safety"
 PERSON_SECTION = "process.person_safety"
 STOPPER_PIPELINE_TYPE = "stopper_check"
@@ -65,12 +66,12 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     """
     Arma los hooks del proyecto con los valores de `process:`.
 
-    No filtra ni reetiqueta y cuenta con el analyzer genérico. Dibuja el límite de carga
-    sólo si alguna cámara lo declara, y el estado de la descarga —panel OK / NOK del grano y
-    de las personas— sólo si el config declara la sección `process.grain_flow`.
+    No filtra ni reetiqueta y cuenta con el analyzer genérico.
 
-    Qué pipelines son de personas y qué cámaras miran sale de `inference.pipelines` (ver
-    `read_pipelines()`). Con alguno, el analyzer suma el veredicto filtrado de personas
+    Qué pipelines hay de cada proceso y qué cámaras miran sale de `inference.pipelines` (ver
+    `read_pipelines()`), no de una clave propia de `process:`. Con algún pipeline del grano se
+    dibuja el estado de la descarga: el panel OK / NOK del grano y de las personas. Con alguno
+    de personas, el analyzer suma el veredicto filtrado de personas
     (`person_safety.py`) con la zona de exclusión y el filtro de `process.person_safety`; la
     misma zona es la que dibuja el annotator, así que la pantalla y el PLC no pueden mirar
     zonas distintas. Con algún pipeline `stopper_check` se arma la regla de las calzas
@@ -83,8 +84,7 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
     tamaño del frame y última, encima de todo: es una sola clave para que nunca salgan las
     dos ni ninguna sin quererlo.
     """
-    max_load_y_px = config.get("process.max_load_y_px", {}) or {}
-    has_grain_flow = isinstance(config.get("process.grain_flow"), dict)
+    grain_pipelines, _ = read_pipelines(config, GRAIN_PIPELINE_TYPE)
     language = str(config.get("ui.language", "") or "")
 
     person_pipelines, person_cameras = read_pipelines(config, PERSON_PIPELINE_TYPE)
@@ -104,7 +104,7 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
         ))
 
     selected = []
-    if has_grain_flow:
+    if grain_pipelines:
         selected.append(annotations.unload_status_annotator(
             flow_class=FLOW_CLASS,
             person_cameras=set(person_cameras),
@@ -125,8 +125,6 @@ def build_hooks(config: ConfigManager) -> EngineHooks:
         extras.append(stopper_check.build_analyzer(rule, stopper_pipelines=stopper_pipelines))
         selected.append(annotations.stopper_status_annotator(
             rule, stopper_pipelines=stopper_pipelines, language=language))
-    if max_load_y_px:
-        selected.append(annotations.max_load_line_annotator(max_load_y_px))
     if not config.get("inference.overlay.draw_timestamp", True):
         selected.append(annotations.timestamp_annotator())
     annotator = annotations.chain(*selected) if selected else None
