@@ -38,7 +38,7 @@ una cámara que no va a abrir.
 De la decodificación se edita quién decodifica (`decode.backend`) y el tamaño del frame se
 muestra pero no se edita. El backend cambia quién trabaja y no la imagen que ve la app, así
 que cambiarlo es seguro. El tamaño es el espacio de todo lo que el config mide en píxeles —las
-regiones de los pipelines, las alturas de las calzas, la zona de personas—: cambiarlo desde la
+regiones de los pipelines y las alturas o zonas que dibuja el proceso—: cambiarlo desde la
 planta dejaría todo eso midiendo mal sin un error. Se cambia en el config.yaml, en la puesta
 en marcha, y después se vuelve a dibujar.
 
