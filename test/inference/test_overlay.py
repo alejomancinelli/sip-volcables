@@ -527,8 +527,8 @@ class TestDrawRoi:
         monkeypatch.setattr(overlay, "_draw_text",
                             lambda frame, text, *args: texts.append(text)
                             or real_draw_text(frame, text, *args))
-        self._draw(roi_label="Verificación de calza ñ")
-        assert texts == ["Verificación de calza ñ"]
+        self._draw(roi_label="Inspección de tapa ñ")
+        assert texts == ["Inspección de tapa ñ"]
 
     def test_without_the_fonts_an_accented_name_is_drawn_without_its_accents(self, monkeypatch):
         """La fuente de respaldo de OpenCV sólo dibuja ASCII: «ó» saldría como «??»."""
@@ -541,8 +541,8 @@ class TestDrawRoi:
         monkeypatch.setattr(overlay.cv2, "putText",
                             lambda frame, text, *args: texts.append(text)
                             or real_put_text(frame, text, *args))
-        self._draw(roi_label="Verificación de calza ñ")
-        assert texts == ["Verificacion de calza n"]
+        self._draw(roi_label="Inspección de tapa ñ")
+        assert texts == ["Inspeccion de tapa n"]
 
     def test_the_label_can_be_hidden_and_the_border_stays(self):
         hidden = self._draw(roi_label="pipeline_1", draw_roi_label=False)
@@ -691,7 +691,7 @@ class TestStatusPanel:
 
     def test_each_verdict_is_written_in_its_color(self):
         frame = np.full((200, 600, 3), 128, np.uint8)
-        overlay.draw_status_panel(frame, [("GRAIN", "OK", self._OK), ("PERSON", "NOK", self._NOK)],
+        overlay.draw_status_panel(frame, [("LEVEL", "OK", self._OK), ("CAP", "NOK", self._NOK)],
                                   font_scale=1.0)
         assert self._columns(frame, self._OK).size and self._columns(frame, self._NOK).size
 
@@ -727,7 +727,7 @@ class TestDrawingCost:
         monkeypatch.setattr(overlay.ImageDraw, "Draw",
                             lambda image: drawn.append(image) or real_draw(image))
         for _ in range(5):
-            overlay.draw_tag(_frame(), "wheel 88%", (10, 10), font_scale=0.6)
+            overlay.draw_tag(_frame(), "cap 88%", (10, 10), font_scale=0.6)
         assert len(drawn) == 1
 
     def test_a_repeated_card_shape_is_built_once(self, monkeypatch):

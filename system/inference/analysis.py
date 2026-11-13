@@ -113,7 +113,7 @@ def is_verdict_key(name: str) -> bool:
     """
     Si la métrica es un veredicto: se llama `<algo>_ok` y vale 1 OK y 0 cualquier otra cosa
     —NOK o «sin veredicto»—, que es como el analyzer nombra lo que el PLC usa para decidir
-    (`flow_ok`, `safety_ok`). Con esto los muestra la página de inicio sin una lista por
+    (`level_ok`, `presence_ok`). Con esto los muestra la página de inicio sin una lista por
     proyecto; una métrica que no es un veredicto no se llama así.
     """
     return name.endswith(VERDICT_SUFFIX)

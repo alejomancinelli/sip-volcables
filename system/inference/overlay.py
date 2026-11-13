@@ -523,7 +523,7 @@ def draw_status_panel(frame_bgr: np.ndarray, rows: list, *, font_scale: float,
     Dibuja in-place un panel de veredictos arriba a la izquierda: un renglón por veredicto,
     con su rótulo y, a la derecha, una píldora con su texto y su color.
 
-    `rows` son `(rótulo, texto, color_bgr)` —«GRANO», «OK», el verde—. Es la forma de la
+    `rows` son `(rótulo, texto, color_bgr)` —«NIVEL», «OK», el verde—. Es la forma de la
     página de inicio: la píldora es el color sobre su tono suave, y todas miden lo que la
     más ancha, así que un OK que pasa a NOK no corre nada. El rótulo va en el color del
     texto y no en el gris apagado, que es el de un veredicto que no se pudo dar: un renglón
@@ -729,7 +729,7 @@ def _draw_corners(frame_bgr: np.ndarray, top_left_px: tuple[int, int],
 def _to_drawable_text(text: str) -> str:
     """
     El texto sin tildes ni eñes, para la fuente Hershey de respaldo, que sólo dibuja ASCII:
-    el nombre de un pipeline que pone el operador («Verificación de calza») saldría con «??».
+    el nombre de un pipeline que pone el operador («Inspección de tapa») saldría con «??».
     """
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
 

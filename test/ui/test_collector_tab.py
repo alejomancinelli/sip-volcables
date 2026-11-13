@@ -102,9 +102,9 @@ class TestCameras:
         assert config.written["image_collector.cameras"] == ["camera_1", "camera_9"]
 
     def test_a_checkbox_shows_the_camera_name_and_falls_back_to_the_slot(self):
-        tab, _ = _tab(cameras={"camera_1": {"name": "Acoplado"}, "camera_2": {}})
+        tab, _ = _tab(cameras={"camera_1": {"name": "Cinta"}, "camera_2": {}})
         assert [check.text() for check in tab._camera_checks.values()] == \
-            ["Acoplado", "camera_2"]
+            ["Cinta", "camera_2"]
 
     def test_turning_collection_off_does_not_uncheck_them(self):
         """El toggle de recolección atenúa las cámaras, pero no las desmarca."""
@@ -131,7 +131,7 @@ class TestIntervals:
                 config.written["image_collector.interval_max_s"]) == (30, 90)
 
 
-_PIPELINES = {"inference.pipelines": {"pipeline_1": {"name": "Flujo de grano"},
+_PIPELINES = {"inference.pipelines": {"pipeline_1": {"name": "Nivel de llenado"},
                                       "pipeline_2": {}}}
 
 
@@ -145,7 +145,7 @@ class TestPipelines:
     def test_one_checkbox_per_pipeline_with_its_name(self):
         tab, _ = _tab(**_PIPELINES)
         assert [check.text() for check in tab._pipeline_checks.values()] == \
-            ["Flujo de grano", "pipeline_2"]
+            ["Nivel de llenado", "pipeline_2"]
 
     def test_an_empty_list_checks_every_pipeline_and_saves_empty(self):
         tab, config = _tab(**_PIPELINES, **{"image_collector.pipelines": []})

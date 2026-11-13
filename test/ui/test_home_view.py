@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton        # noqa: E
 
 import ui.views.home_view as home_view                                 # noqa: E402
 from system.license import manager                                     # noqa: E402
+from ui import strings                                                  # noqa: E402
 from ui.strings import tr                                              # noqa: E402
 from ui.views.home_view import (                                       # noqa: E402
     HomeView, format_age, format_camera_address, format_ms, format_uptime, get_overall_state,
@@ -38,16 +39,16 @@ class _MockConfig:
 
     def __init__(self, **overrides):
         self._values = {
-            "system.app_name": "Volcables",
+            "system.app_name": "Inspección",
             "system.device_id": "JETSON-01",
             "cameras": {
-                "camera_1": {"name": "Acoplado", "driver": "rtsp",
-                             "address": "rtsp://10.8.51.1:8554/cam_1"},
-                "camera_2": {"name": "Chasis", "driver": "basler", "address": "10.8.51.20",
+                "camera_1": {"name": "Cinta", "driver": "rtsp",
+                             "address": "rtsp://192.168.1.10:554/cam_1"},
+                "camera_2": {"name": "Báscula", "driver": "basler", "address": "192.168.1.20",
                              "enabled": False},
             },
             "inference.pipelines": {
-                "pipeline_1": {"name": "Flujo de grano", "cameras": ["camera_1"]},
+                "pipeline_1": {"name": "Nivel de llenado", "cameras": ["camera_1"]},
                 "pipeline_2": {"cameras": ["camera_2"]},
                 "pipeline_3": {"name": "Apagado", "enabled": False},
             },
@@ -82,16 +83,16 @@ def _raw_texts(widget, object_name: str) -> list[str]:
 
 class TestCameraAddress:
     def test_an_rtsp_camera_shows_the_whole_url(self):
-        assert format_camera_address("rtsp", "rtsp://10.8.51.1:8554/cam_1") == \
-            "rtsp://10.8.51.1:8554/cam_1"
+        assert format_camera_address("rtsp", "rtsp://192.168.1.10:554/cam_1") == \
+            "rtsp://192.168.1.10:554/cam_1"
 
     def test_credentials_written_in_the_url_are_left_out(self):
         """Las credenciales salen del entorno; si alguien las escribió igual, no se ven."""
-        assert format_camera_address("rtsp", "rtsp://admin:secreta@10.8.51.1:8554/cam_1") == \
-            "rtsp://10.8.51.1:8554/cam_1"
+        assert format_camera_address("rtsp", "rtsp://admin:secreta@192.168.1.10:554/cam_1") == \
+            "rtsp://192.168.1.10:554/cam_1"
 
     def test_an_ip_or_serial_is_shown_as_is(self):
-        assert format_camera_address("basler", "10.8.51.20") == "10.8.51.20"
+        assert format_camera_address("basler", "192.168.1.20") == "192.168.1.20"
         assert format_camera_address("st", "24-05044") == "24-05044"
 
     def test_a_video_file_shows_only_its_name(self):
@@ -146,14 +147,14 @@ class TestOverallState:
 class TestNameplate:
     def test_it_shows_the_app_and_the_device(self):
         view = HomeView(_MockConfig())
-        assert "Volcables" in _texts(view, "homeNameplateTitle")
+        assert "Inspección" in _texts(view, "homeNameplateTitle")
         assert "JETSON-01" in _texts(view, "homeSpecValue")
 
     def test_under_the_name_goes_the_description_of_the_installation(self):
         view = HomeView(_MockConfig(**{
-            "system.app_description": "Sistema Inteligente de Visión para Autodescarga"}))
+            "system.app_description": "Inspección de la cinta 1"}))
         assert _texts(view, "homeNameplateTagline") == [
-            "Sistema Inteligente de Visión para Autodescarga"]
+            "Inspección de la cinta 1"]
 
     def test_without_a_description_the_generic_line_stays(self):
         """El template no declara ninguna: sin esto la placa quedaría con un hueco."""
@@ -186,8 +187,8 @@ class TestCameras:
     def test_every_camera_is_a_row_of_the_same_card(self):
         view = HomeView(_MockConfig())
         names = _texts(view, "homeRowLabel")
-        assert "Acoplado" in names and "Chasis" in names
-        assert "rtsp://10.8.51.1:8554/cam_1" in _texts(view, "homeFieldValue")
+        assert "Cinta" in names and "Báscula" in names
+        assert "rtsp://192.168.1.10:554/cam_1" in _texts(view, "homeFieldValue")
 
     def test_a_row_follows_the_camera_status(self):
         view = HomeView(_MockConfig())
@@ -231,7 +232,7 @@ class TestInferenceTimes:
     def test_there_is_a_row_per_enabled_pipeline_and_camera(self):
         """Sin `name`, el slot; un pipeline apagado no tiene fila."""
         names = _texts(HomeView(_MockConfig()), "homeRowLabel")
-        assert "Flujo de grano" in names and "pipeline_2" in names
+        assert "Nivel de llenado" in names and "pipeline_2" in names
         assert "Apagado" not in names
 
     def test_a_pair_without_results_says_so(self):
@@ -266,24 +267,32 @@ class TestInferenceTimes:
 
 
 class TestResults:
+    @pytest.fixture(autouse=True)
+    def verdict_labels(self, monkeypatch):
+        """Los rótulos de los veredictos son de cada fork: el template no trae ninguno."""
+        monkeypatch.setitem(strings._TEXTS, "verdict_level_ok",
+                            {"es": "Nivel", "en": "Level", "pt": "Nível"})
+        monkeypatch.setitem(strings._TEXTS, "verdict_presence_ok",
+                            {"es": "Presencia", "en": "Presence", "pt": "Presença"})
+
     def test_a_pair_waits_for_its_first_verdict(self):
         assert tr("home_results_waiting") in _texts(HomeView(_MockConfig()), "homeRowDetail")
 
     def test_each_verdict_is_a_pill_with_its_label_and_state(self):
         view = HomeView(_MockConfig())
-        view.update_verdicts({("camera_1", "pipeline_1"): {"flow_ok": 1, "safety_ok": 0}})
+        view.update_verdicts({("camera_1", "pipeline_1"): {"level_ok": 1, "presence_ok": 0}})
         pills = _texts(view, "statusPill")
-        assert f"{tr('verdict_flow_ok')}: {tr('verdict_ok')}" in pills
-        assert f"{tr('verdict_safety_ok')}: {tr('verdict_nok')}" in pills
+        assert f"{tr('verdict_level_ok')}: {tr('verdict_ok')}" in pills
+        assert f"{tr('verdict_presence_ok')}: {tr('verdict_nok')}" in pills
 
     def test_an_expired_verdict_says_there_is_no_data(self):
         """Venció en el cableado: en pantalla no queda el último OK."""
         view = HomeView(_MockConfig())
-        view.update_verdicts({("camera_1", "pipeline_1"): {"flow_ok": 1}})
-        view.update_verdicts({("camera_1", "pipeline_1"): {"flow_ok": None}})
+        view.update_verdicts({("camera_1", "pipeline_1"): {"level_ok": 1}})
+        view.update_verdicts({("camera_1", "pipeline_1"): {"level_ok": None}})
         pills = _texts(view, "statusPill")
-        assert f"{tr('verdict_flow_ok')}: {tr('verdict_no_data')}" in pills
-        assert f"{tr('verdict_flow_ok')}: {tr('verdict_ok')}" not in pills
+        assert f"{tr('verdict_level_ok')}: {tr('verdict_no_data')}" in pills
+        assert f"{tr('verdict_level_ok')}: {tr('verdict_ok')}" not in pills
 
     def test_a_verdict_without_a_label_shows_its_name(self):
         view = HomeView(_MockConfig())
@@ -293,13 +302,13 @@ class TestResults:
     def test_a_nok_does_not_touch_the_state_of_the_device(self):
         """NOK es del proceso, no una falla del equipo."""
         view = HomeView(_MockConfig())
-        view.update_verdicts({("camera_1", "pipeline_1"): {"flow_ok": 0}})
+        view.update_verdicts({("camera_1", "pipeline_1"): {"level_ok": 0}})
         assert view.overall_state == CHIP_OK
 
     def test_a_pair_that_is_not_in_the_table_is_ignored(self):
         view = HomeView(_MockConfig())
-        view.update_verdicts({("camera_2", "pipeline_1"): {"flow_ok": 1}})
-        assert f"{tr('verdict_flow_ok')}: {tr('verdict_ok')}" not in _texts(view, "statusPill")
+        view.update_verdicts({("camera_2", "pipeline_1"): {"level_ok": 1}})
+        assert f"{tr('verdict_level_ok')}: {tr('verdict_ok')}" not in _texts(view, "statusPill")
 
 
 class TestServices:

@@ -254,7 +254,7 @@ _REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
 # Las filas que vuelven a 0 cuando ningún resultado confiable las renueva a tiempo.
 _MAX_AGE_S_BY_NAME = SCHEMA.max_age_by_name()
 # Cuánto vale en pantalla un veredicto sin fila en el mapa, o con fila sin `max_age_s`: un
-# OK viejo a la vista es peor que un «sin dato», y más el de las personas.
+# OK viejo a la vista es peor que un «sin dato».
 _VERDICT_DEFAULT_MAX_AGE_S = 3.0
 
 _COLLECTOR_MODE_INTERVAL = "interval"

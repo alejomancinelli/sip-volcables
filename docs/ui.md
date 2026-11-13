@@ -325,7 +325,7 @@ que tiene más de una interfaz.
 │ Equipo   Versión   En servicio                            │ Cámaras … │
 └───────────────────────────────────────────────────────────┴───────────┘
 ┌ Resultados ─────────────────────────────────────────────────────────┐
-│ Pipeline   Cámara   [Personas: OK]  [Calza elevada: OK] [Contacto: NOK]
+│ Pipeline   Cámara   [Presencia: OK]  [Nivel: OK]  [Tapa: NOK]
 └─────────────────────────────────────────────────────────────────────┘
 ┌ Cámaras ──────────────────────────────────────────── Ver monitor ↗ ┐
 │ Cámara        Dirección                        Estado        FPS   │  todas en una tarjeta
@@ -372,10 +372,10 @@ que tiene más de una interfaz.
 Recibe lo suyo por la ventana: `set_service_status()`, `update_camera_status()`,
 `update_license()`, `update_inference_times()` —desde cada `InferenceResult`—, y
 `update_heartbeat()` y `update_verdicts()`, en cada tick de los registros. La línea bajo el
-nombre es `system.app_description` del config —«Sistema Inteligente de Visión para
-Autodescarga»—, en el idioma de la planta y sin pasar por `strings.py`: es de la instalación
-como el nombre, y reescribir un texto del template en cada fork chocaría en cada merge. Sin
-ella va la genérica, `home_tagline`.
+nombre es `system.app_description` del config —«Inspección de la cinta 1»—, en el idioma de
+la planta y sin pasar por `strings.py`: es de la instalación como el nombre, y reescribir
+un texto del template en cada fork chocaría en cada merge. Sin ella va la genérica,
+`home_tagline`.
 
 ## La vista de monitor viene vacía
 
@@ -776,7 +776,7 @@ window.update_hardware_metrics(monitor.get_metrics())
 window.update_inference_times(result.camera_slot, result.pipeline_slot,
                               result.cycle_time_ms, result.inference_time_ms)
 window.update_heartbeat(heartbeat)
-window.update_verdicts({(camera_slot, pipeline_slot): {"safety_ok": 1}})
+window.update_verdicts({(camera_slot, pipeline_slot): {"presence_ok": 1}})
 window.update_modbus_values(batch)
 window.log_event("WARNING", "mensaje", "Modulo")
 

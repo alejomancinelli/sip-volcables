@@ -134,12 +134,12 @@ def _camera_checks(tab: InferenceTab) -> dict[str, QCheckBox]:
 
 
 class TestCameraChecklist:
-    _CAMERAS = {"cameras": {"camera_1": {"name": "Acoplado"}, "camera_2": {}}}
+    _CAMERAS = {"cameras": {"camera_1": {"name": "Cinta"}, "camera_2": {}}}
 
     def test_there_is_a_box_per_camera_with_its_name(self):
         tab, _ = _tab(**self._CAMERAS)
         assert [check.text() for check in _camera_checks(tab).values()] == \
-            ["Acoplado", "camera_2"]
+            ["Cinta", "camera_2"]
 
     def test_the_pipeline_cameras_are_the_checked_ones(self):
         tab, _ = _tab(**self._CAMERAS)
@@ -342,16 +342,16 @@ class TestPipelinePage:
         return pipelines
 
     def test_a_named_pipeline_shows_its_name_on_its_sub_tab(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
-        assert _tab_labels(self._pipeline_bar(tab)) == ["Flujo de grano"]
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert _tab_labels(self._pipeline_bar(tab)) == ["Nivel de llenado"]
 
     def test_typing_a_name_renames_its_sub_tab(self):
         tab, _ = _tab()
-        tab._pipeline_forms[_PIPELINE]["name"].setText("Personas")
-        assert _tab_labels(self._pipeline_bar(tab)) == ["Personas"]
+        tab._pipeline_forms[_PIPELINE]["name"].setText("Presencia")
+        assert _tab_labels(self._pipeline_bar(tab)) == ["Presencia"]
 
     def test_the_slot_is_shown_under_the_name(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
         hints = [label.text() for label in self._pipeline_bar(tab).widget(0).findChildren(
             QLabel, "settingsFieldHint")]
         assert tr("inf_pipeline_slot_hint").format(slot=_PIPELINE) in hints
@@ -508,8 +508,8 @@ class TestRegionsSection:
         assert edit_buttons == []
 
     def test_a_row_is_titled_with_the_pipeline_name(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
-        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Flujo de grano"
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Nivel de llenado"
 
     def test_a_pipeline_without_a_name_shows_its_slot(self):
         tab, _ = _tab()
@@ -517,18 +517,18 @@ class TestRegionsSection:
 
     def test_typing_a_name_renames_the_rows_at_once(self):
         tab, _ = _tab()
-        tab._pipeline_forms[_PIPELINE]["name"].setText("Personas")
-        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Personas"
+        tab._pipeline_forms[_PIPELINE]["name"].setText("Presencia")
+        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Presencia"
 
     def test_the_name_is_loaded_into_the_pipeline_page(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
-        assert tab._pipeline_forms[_PIPELINE]["name"].text() == "Flujo de grano"
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert tab._pipeline_forms[_PIPELINE]["name"].text() == "Nivel de llenado"
 
     def test_save_writes_the_name(self):
         tab, config = _tab()
-        tab._pipeline_forms[_PIPELINE]["name"].setText("  Personas ")
+        tab._pipeline_forms[_PIPELINE]["name"].setText("  Presencia ")
         tab.save()
-        assert config.written[f"inference.pipelines.{_PIPELINE}.name"] == "Personas"
+        assert config.written[f"inference.pipelines.{_PIPELINE}.name"] == "Presencia"
 
     def test_save_does_not_add_an_empty_name_key(self):
         tab, config = _tab()
