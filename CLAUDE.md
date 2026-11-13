@@ -52,6 +52,7 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         lens_health.py        nivel 1 — ¿el vidrio está sucio? nitidez sobre el ROI
       formats/                módulos puros: cada uno arma un bitfield y nadie más corre bits
         camera_health.py      estado de una cámara: adquisición excluyente + lente sucio
+        catalog.py            las palabras por nombre, para decodificarlas bit por bit
         com_status.py         un bit por canal de salida que está andando
         gpio_status.py        las dos palabras de GPIO: entradas leídas y salidas comandadas
         pipeline_status.py    una palabra por pipeline: ¿sus números son una medición?
@@ -81,6 +82,9 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         analysis.py           nivel 1 — agregaciones genéricas sobre detecciones
         geometry.py           nivel 1 — una máscara contra una altura y la distancia entre dos
         rolling.py            nivel 1 — media móvil por tiempo, y cuánto de la ventana se midió
+        presence.py           nivel 1 — presencia filtrada: confirma por frames, libera por tiempo
+        person_safety.py      nivel 1 — personas en la zona: el veredicto filtrado que va al PLC
+        stopper_check.py      nivel 1 — la regla de las calzas: la usan analyzer, annotator y pestaña
         metrics.py            nivel 1 — las métricas del proceso; se reescribe en cada fork
         engine.py             un hilo por pipeline; fan-in de las cámaras que tiene asignadas
         preprocessing.py      el preprocessor del motor: lente y ajuste de imagen por cámara
@@ -101,7 +105,8 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
         schema.py             nivel 1 — maquinaria del mapa: carga, escalas, quién escribe cada fila
         register_map.yaml     el mapa concreto; es lo que cambia en cada instalación
         registers.py          carga el YAML al importar y expone el SCHEMA validado
-        server.py             servidor esclavo TCP + RTU sobre un datastore en RAM
+        server.py             servidor esclavo TCP + RTU sobre un datastore en RAM; cuenta
+                              lo que contesta cada transporte
         plc_variables.py      lo que escribe el PLC: la cola, el drenado y el log de cada cambio
         export_map.py         genera docs/modbus_map.{md,csv} desde el YAML
       telemetry/
@@ -134,24 +139,41 @@ SDK de cámara está en `setup/cameras/{windows,linux}/`; la de la Jetson, en
       image/                  operaciones sobre un frame; no saben de dónde salió
         enhance.py            gamma para mirar; factor de brillo lineal por cámara para medir
         undistort.py          corrección de lente; va en el preprocessor del motor
+      net_interfaces.py       las interfaces de red del equipo: nombre, IPv4 y enlace
 
     ui/                       nivel 4 — presentación; no la importa nadie de system/ ni tools/
       strings.py              tabla de textos por idioma (es/en/pt); nadie escribe un literal
-      theme.py                único dueño de los colores; el QSS y las paletas de lo que se dibuja
-      service_status.py       estado de un servicio -> texto y color de su chip
-      main_window.py          header, las tres vistas y la barra de estado
+      theme.py                único dueño de colores, tipografías e íconos: los tokens del QSS y
+                              las paletas de lo que se dibuja
+      service_status.py       estado de un servicio, una cámara o la licencia -> texto y
+                              color de su chip; lo comparten el inicio y el detalle
+      navigation.py           las páginas de la barra lateral y qué pestañas muestra cada una
+      main_window.py          barra lateral, barra superior, las páginas y la barra de estado
       views/
-        monitor_view.py       barra lateral + área central VACÍA; la llena el fork
-        config_view.py        cascarón: arma las pestañas y persiste una sola vez
-        diagnostics_view.py   cascarón: reparte a las pestañas lo que le llega
-        config/               una pestaña por sección del config; +1 línea para agregar otra
+        home_view.py          la página de inicio: placa del equipo, veredictos, cámaras,
+                              tiempos de inferencia, servicios y latido; la que se ve al abrir
+        monitor_view.py       área central VACÍA y nada más; la llena el fork
+        page_view.py          una página: sus pestañas y, si alguna edita, Guardar/Descartar
+        config_tabs.py        crea las pestañas de configuración y las persiste una sola vez
+        diagnostics_tabs.py   crea las pestañas de diagnóstico y les reparte lo que llega
+        gpio_view.py          entradas y salidas; la página existe sólo con controlador
+        config/               una pestaña por sección del config; +1 línea en navigation.py
         diagnostics/          hardware, Modbus, video, licencia y logs
-      widgets/                form, status_chip, log_table, realtime_chart,
+      widgets/                sidebar (la marca y la navegación), page_header (rótulo, título y
+                              descripción de una página), save_bar (aparece con cambios sin
+                              guardar), form, settings_card (secciones con los campos en columnas),
+                              status_chip, log_table, realtime_chart,
                               camera_panel (una cámara), camera_grid (N, con foco),
                               region_canvas (el frame con las regiones de los pipelines),
-                              pause_button (congela el video de un diálogo de dibujo)
-      dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog, gpio_dialog
-      styles/                 dark.qss y light.qss, espejados regla por regla
+                              pause_button (congela el video de un diálogo de dibujo),
+                              interface_picker (por qué interfaz escucha un servidor),
+                              sparkline (la tendencia chica, sin ejes),
+                              command_palette (la búsqueda de la barra superior, Ctrl+K),
+                              field_search (los campos de una pestaña, y llegar a uno)
+      dialogs/                roi_dialog, pipeline_regions_dialog, level_dialog,
+                              polygon_dialog (una zona con vértices)
+      styles/                 app.qss: una plantilla para los dos temas, con los tokens de theme.py
+      fonts/                  Exo, Ubuntu y Ubuntu Mono: viajan con la app, con sus licencias
 
     test/                     espeja el árbol de arriba; conftest.py en la raíz
     manual_test/              pruebas con hardware o pantalla, con su config.yaml al lado
@@ -253,8 +275,11 @@ Son punteros: el contrato vive en el archivo, no acá.
 - **Mapa de registros Modbus** — `system/modbus/schema.py`: los campos de una fila,
   el vocabulario de `producer`, las escalas, la copia de umbrales del config que se
   publica (`mirror_batch()`) y qué escribe el PLC (`plc_regs()`, `write_ranges()`, y
-  `write_range()`, la regla única del rango).
-  El mapa concreto es `system/modbus/register_map.yaml`.
+  `write_range()`, la regla única del rango), y qué fila es una palabra de estado
+  (`bitfield`, `bitfields()`). El mapa concreto es `system/modbus/register_map.yaml`.
+- **Estadísticas de Modbus** — `system/modbus/server.py`: `get_stats()` por transporte, con
+  sus claves estables. Se cuentan las respuestas y no las consultas, así que en un RS-485
+  compartido no entra lo que va a otro esclavo, y no hay contador de CRC ni de timeouts.
 - **Escrituras del PLC** — el servidor (`system/modbus/server.py`) valida la petición
   entera y avisa a `on_write` bajo su lock; `PlcVariables` (`system/modbus/plc_variables.py`)
   lo encola, y el cableado de `main.py` lo drena cada 100 ms y lo deja en
@@ -265,7 +290,9 @@ Son punteros: el contrato vive en el archivo, no acá.
   (`system/camera/capture_scheduler.py`). Lo que tiene que saber el integrador está en
   `docs/plc_commands.md`.
 - **Bitfields** — `system/formats/*.py`: cada archivo es el dueño de su palabra y
-  documenta qué significa cada bit. Nadie corre bits afuera.
+  documenta qué significa cada bit. Nadie corre bits afuera. `catalog.py` las junta por
+  nombre —el que declara el campo `bitfield` de una fila del mapa— y es lo que decodifica
+  la tabla de registros de la interfaz.
 - **Salud de la óptica** — `system/camera/lens_health.py`: el vocabulario `STATE_*`, qué
   necesita calibrarse y cuándo la ventana habilita a afirmar que el vidrio está sucio. La
   puerta es `LensHealthMonitor`, que guarda **una ventana y una referencia por cámara**;
@@ -276,8 +303,8 @@ Son punteros: el contrato vive en el archivo, no acá.
   simulado sin `gpiod`, que expone la misma API y lo declara en `hardware_available`. Las
   salidas se informan como eco de lo comandado, no releyendo el hardware. Las dos palabras
   que van al PLC son de `formats/gpio_status.py` y salen siempre, haya GPIO o no: sin
-  hardware llevan prendida su marca de «sin GPIO». El botón del header aparece sólo con
-  `gpio.enabled: true`, y al cerrar el polling se detiene antes de soltar las líneas.
+  hardware llevan prendida su marca de «sin GPIO». La página de entradas y salidas aparece
+  sólo con `gpio.enabled: true`, y al cerrar el polling se detiene antes de soltar las líneas.
 - **Licencia** — `system/license/manager.py`: el vocabulario `STATE_*`, qué habilita cada
   estado y las claves de `get_status()`. Es la única puerta del subsistema. El formato del
   `.lic` es de `schema.py`, qué hace el equipo cuando no vale es de `policy.py`, y cómo se
@@ -290,6 +317,9 @@ Son punteros: el contrato vive en el archivo, no acá.
   `calibration/README.md`.
 - **Pestaña de configuración** — `ui/views/config/abstract_tab.py`: `TITLE_KEY`,
   `load()` y `save()`, y la regla de que `save()` no persiste el archivo.
+- **Páginas** — `ui/navigation.py`: qué páginas tiene la barra lateral, agrupadas, y qué
+  pestañas muestra cada una. Una pestaña está en una sola página; las de configuración las
+  guarda juntas `ui/views/config_tabs.py`, esté donde esté cada una.
 - **Área central del monitor** — `ui/views/monitor_view.py`: `set_content()` es el punto
   de extensión de la vista de operador; el resto de la UI no conoce ese widget.
 - **Textos de la UI** — `ui/strings.py`: la clave es estable y en inglés, el texto sale
@@ -323,7 +353,8 @@ Lo que no se deduce leyendo un archivo suelto:
   abajo a la derecha, junto al `project_id`, y se sube en el commit que cierra el cambio.
 - **En las cámaras no se ajusta nada en caliente.** Exposición, ganancia, fps y
   `enabled` se cambian en `config.yaml` —desde la UI o a mano— y se reinicia la app. Lo
-  único que la UI aplica sin reiniciar es el tema.
+  único que la UI aplica sin reiniciar es el tema, y por eso se cambia desde la barra
+  superior y no desde una pestaña de configuración.
 - **El idioma queda fijo por corrida.** Cada widget resuelve su texto con `tr()` cuando
   se construye, así que cambiarlo en caliente sólo alcanzaba a lo que se armaba después y
   dejaba la pantalla partida en dos idiomas —y con un combo cuyas opciones quedaban en el
@@ -381,7 +412,10 @@ Lo que no se deduce leyendo un archivo suelto:
 - El video sale por dos caminos y no compiten: MJPEG por HTTP es el stream liviano
   para mirar en el navegador, y RTSP es el de resolución completa para un NVR o un
   reproductor. El RTSP se publica por interfaz (`video.rtsp.net_interfaces`), y
-  necesita GStreamer instalado en el equipo.
+  necesita GStreamer instalado en el equipo; el HTTP, como el Modbus TCP, escucha en una
+  dirección (`video.http.host`, `modbus.tcp.host`). La interfaz no pide tipear ninguna:
+  ofrece las que el equipo tiene (`ui/widgets/interface_picker.py`), y un valor del config
+  que el equipo no tiene se conserva y se avisa en vez de perderse al guardar.
 - **Un calibrador es un subcomando del ejecutable, no un programa aparte.** `main.py
   --calibrate <nombre>` lo despacha antes de la ventana y de la licencia, y el entregable
   lleva un lanzador por cada uno. Así llega compilado a una planta sin Python y lee el
@@ -441,8 +475,9 @@ Lo que no se deduce leyendo un archivo suelto:
   que salieran de dos reglas serían cosas distintas. El monitor muestra siempre el frame
   completo con los recuadros encima: en anotado los dibuja el overlay, en crudo el panel, nunca
   los dos. Los recuadros llevan el nombre del operador (`inference.pipelines.<slot>.name`, y el
-  slot si no tiene) en el diálogo, en el panel y en el anotado —éste sin tildes, porque la
-  fuente de OpenCV sólo dibuja ASCII—. El color de cada pipeline sale de `overlay.get_pipeline_style()`, por su lugar en
+  slot si no tiene) en el diálogo, en el panel y en el anotado, en una etiqueta con un cuadrado
+  de su color; `inference.overlay.draw_roi_label: false` la saca en el anotado y en el crudo
+  y deja el recuadro, que entonces dice el estado sólo con el color. El color de cada pipeline sale de `overlay.get_pipeline_style()`, por su lugar en
   `inference.pipelines`, y **no usa verde, rojo ni amarillo**: son del estado, y un pipeline que
   los usara de identidad se confundiría con un veredicto, y por eso pueden pintar el borde: el
   pipeline declara `roi_state` (`ok`/`nok`/`warning`, de `result.py`) junto a sus `labels`, porque
@@ -494,6 +529,27 @@ Lo que no se deduce leyendo un archivo suelto:
   el PLC, que es quien manda la señal, sabe que no los tiene que leer. No hay timeout: un
   PLC que deja de escribir deja la plataforma en el último estado, y el latido del PLC
   queda para después.
+- **Los veredictos que el PLC usa para decidir salen del analyzer, no del annotator, y valen
+  1 OK y 0 cualquier otra cosa.** El annotator sólo corre si alguien mira el anotado, así que
+  lo que tiene que llegar al PLC lo calcula el analyzer y el annotator dibuja lo mismo: grano
+  `flow_ok` (`metrics.py`), calzas `raised_ok` / `contact_ok` (`stopper_check.py`, la regla
+  que comparten analyzer, annotator y pestaña) y personas `safety_ok` (`person_safety.py`). El
+  0 es a la vez NOK y «sin veredicto» —sin calibrar, el equipo arrancando, el pipeline
+  caído—, así que una falla nunca se lee como OK. Los nombres van sin la cámara: qué
+  registro le toca a cada par lo decide el mapa. Para que una fila vuelva a 0 cuando su
+  pipeline deja de dar resultados —sin resultados nuevos el analyzer no corre y la fila
+  quedaría en 1— la fila declara `max_age_s` (`system/modbus/schema.py`); con la licencia en
+  `degrade` queda con su último valor, como el resto del proceso.
+- **El veredicto de personas sale filtrado del equipo, no crudo al PLC.** El filtro
+  (`presence.py`) confirma con K detecciones en los últimos N frames —no seguidos: una
+  persona real que el modelo pierde de a ratos no se confirmaría nunca con N seguidos— y
+  libera tras `release_s` sin verla; se edita en la pestaña de proceso. Filtra el equipo y no
+  el PLC porque el PLC lee los registros una vez por segundo y vería uno de cada cinco o diez
+  frames: no podría contar frames, sólo muestras. Es el único analyzer con estado, uno por
+  par (pipeline, cámara). Una persona cuenta si los pies de su caja caen en la zona de
+  exclusión de su cámara (`process.person_safety.exclusion_zone_px`), que se dibuja con el
+  diálogo de polígono desde la pestaña de proceso; sin zona cuenta todo el frame. En el
+  anotado la zona va tramada —tinte, rayas y borde— con el color del veredicto.
 - **Un veredicto del frame no es una detección ni una métrica.** Lo que dice una
   clasificación de la imagen entera —el estado de la cinta— viaja en `labels`, que es
   texto: no tiene forma ni posición, y si tiene que llegar al PLC lo traduce a bit el
@@ -766,14 +822,54 @@ Lo que no se deduce leyendo un archivo suelto:
   gate del anotado queda en manos de los clientes de los streams: sin ninguno, el overlay
   no se dibuja.
 - `ui/` no lo importa nadie de `system/` ni de `tools/`.
-- **La UI no tiene colores ni textos propios repartidos.** Los colores de los widgets
-  estándar están en el QSS de los dos temas y los de lo que se dibuja con QPainter en
-  `ui/theme.py`; los textos, en `ui/strings.py`, con la clave en inglés y una columna por
-  idioma. Un color o un texto en dos archivos es el bug que este límite evita. La única
-  excepción de estilo inline es una animación, porque el QSS no interpola colores.
+- **La UI no tiene colores ni textos propios repartidos.** Todos los colores están en
+  `ui/theme.py`: los de los widgets estándar como tokens que reemplaza en `app.qss` —una
+  sola plantilla para los dos temas, así que una regla no puede faltar en uno— y los de lo
+  que se dibuja con QPainter como paleta; los textos, en `ui/strings.py`, con la clave en
+  inglés y una columna por idioma. Un color o un texto en dos archivos es el bug que este
+  límite evita. La única excepción de estilo inline es una animación, porque el QSS no
+  interpola colores.
+- **La identidad visual es la del sistema de diseño de IEA**, y donde la guía de
+  presentaciones y la propuesta web difieren manda la web. El acento es el celeste IEA; la
+  marca vive en la barra lateral, oscura en los dos temas, y el área de trabajo queda sin
+  degradés ni pies corporativos. Exo, Ubuntu y Ubuntu Mono viajan en `ui/fonts/` porque un
+  equipo de planta no las tiene ni tiene internet, y los íconos son los de Tabler, los
+  mismos de la guía. Qué se lleva de cada componente a Qt está en `docs/ui.md`.
+- **La barra lateral agrupa las páginas por subsistema, no por tipo de pantalla.** Una
+  página junta las pestañas que editan una sección del config con las que muestran ese
+  subsistema andando —Modbus tiene las estadísticas, los registros que salen y la
+  configuración—, porque quien diagnostica una falla del Modbus la busca en un lugar y no en
+  dos. El Modbus tiene página propia porque es el canal principal con el PLC; video y
+  telemetría, que publican hacia afuera, comparten la otra. Las pestañas en vivo van antes
+  que las que configuran: lo primero que se busca es si anda. El
+  guardado sigue siendo uno solo para todas las pestañas de configuración: guardar sólo las
+  de una página dejaría lo editado en otra en pantalla y sin persistir, que se lee como
+  guardado y no lo está.
+- **La página de inicio presenta el equipo y es la que se ve al abrir.** Es la «Inicio» del
+  sistema de diseño: una placa con el ícono y el nombre, el equipo, la versión, el tiempo en
+  servicio y el anillo de cámaras en línea; los veredictos de cada par (pipeline, cámara); una tarjeta
+  con todas las cámaras —dirección, estado y FPS—; y, del mismo tamaño, el ciclo y la
+  inferencia del último resultado de cada par junto a los seis canales de salida, la
+  licencia y el latido que sale al PLC. Breve a propósito: dice qué hay y si anda, y el
+  detalle —el uso del hardware incluido— está en la página de cada subsistema. No muestra la
+  IP del equipo: tiene más de una interfaz. **Un veredicto es una métrica `<algo>_ok` del
+  analyzer** (`analysis.is_verdict_key()`), y la página no tiene una lista por proyecto: su
+  rótulo es `verdict_<nombre>` en `strings.py`. Los arma `main.py` una vez por segundo
+  (`_build_verdicts()`) desde el mismo `_metrics_by_pair` que los registros y vencen con el
+  mismo `max_age_s` de su fila —o a los 3 s si no tiene—, así que la pantalla no muestra un OK
+  que el PLC ya no lee, y un OK que nadie renueva no queda en verde. Los
+  tiempos llegan uno por frame y se pintan una vez por segundo, y la edad sigue creciendo
+  aunque no llegue nada: es lo que delata un par caído. Los números y las píldoras tienen
+  ancho fijo, para que un valor que cambia no corra la columna de al lado. Qué texto y color
+  lleva cada estado lo decide `ui/service_status.py`, el mismo que usan el panel de cada
+  cámara y las pestañas; el rojo de la placa sale de `should_report_invalid`, como la barra
+  de estado, y un NOK no lo toca: es del proceso, no del equipo. La dirección de una cámara
+  RTSP es la URL entera, **sin el usuario y la clave** si alguien los escribió en ella. El
+  latido es el contador del registro `heartbeat`: el PLC todavía no escribe uno propio.
 - **La vista de monitor viene vacía y es a propósito.** Qué se mira mientras la línea
-  trabaja es lo más específico de cada instalación: el template trae la barra lateral
-  —los seis canales de salida y el log— y el fork le pasa su widget con `set_content()`.
+  trabaja es lo más específico de cada instalación: el template no le pone nada propio
+  —ni log ni chips de servicios, para que el video tenga todo el espacio; el log tiene su
+  página— y el fork le pasa su widget con `set_content()`.
   Para el caso normal ya está `camera_grid`, que muestra **todas** las cámaras
   configuradas —una caída queda con «SIN SEÑAL» en su lugar, para que se vea que falta— y
   no elige qué frame entra: publica el modo crudo/anotado y lo resuelve el cableado. Una
@@ -811,7 +907,10 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   (+1 línea en `pipeline_factory.py`), `annotations.py`, un driver nuevo
   en `tools/camera/` (+1 línea en su fábrica), el widget del área central del monitor
   (lo devuelve `_build_monitor_content()` de `main.py`), un calibrador en
-  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), y lo que corresponda en
+  `calibration/<nombre>/` (+1 línea en `calibration/registry.py`), el ícono de la
+  aplicación en `ui/icons/app/` —`icon.svg` e `icon_16.svg` para la ventana y la placa de
+  inicio, `icon.ico` para el ejecutable, que se nombra en `_ICON` de `build/build.py`; ver
+  `ui/theme.py`—, y lo que corresponda en
   `test/`, `manual_test/` y `docs/`.
 - **De `main.py` se completan cuatro métodos**, los del bloque marcado: el widget del
   monitor, el contexto que se guarda con el dataset, las compuertas de frames y la
@@ -821,8 +920,8 @@ cross-portea; si describe qué se mide en esta planta, es del fork.**
   sueltas. El resto del archivo es cableado y se cross-portea.
 - **De `ui/` sólo se agrega**: el widget del monitor, los textos que ese widget necesite
   en `strings.py`, y —si el fork quiere editar `process:` desde la pantalla— una pestaña
-  en `views/config/` con +1 línea en `_TAB_CLASSES`. Las pestañas genéricas, los widgets,
-  los temas y las tres vistas son maquinaria: ver `docs/ui.md`.
+  en `views/config/` con +1 línea en la página que la muestra, en `ui/navigation.py`. Las
+  pestañas genéricas, los widgets, los temas y las páginas son maquinaria: ver `docs/ui.md`.
 - **Todo lo demás es maquinaria.** Si hay que editarla para que el fork funcione,
   el límite está mal puesto: lo que falta es un punto de extensión, no un parche.
 
@@ -837,8 +936,10 @@ La tabla completa, archivo por archivo, está en `README.md`.
   métodos marcados de `main.py`: el widget del monitor, el contexto del dataset, las
   compuertas de frames y la reacción a un cambio de señal. Lo que sigue faltando es el
   contenido: qué se mide y qué se publica.
-- El rango 3-50 del mapa de registros sigue reservado y vacío: la inferencia ya corre,
-  pero qué publica es lo más específico de cada fork y se declara al escribirlo. Del
+- El rango 3-50 del mapa de registros sigue reservado y vacío en esta rama: las señales
+  (`flow_ok`, `raised_ok`, `contact_ok`, `safety_ok` y los conteos de personas) ya salen del
+  analyzer, pero sus filas —con `max_age_s`— y la traducción de métrica a registro por
+  posición viven en `fork/modbus-map`. Del
   bloque 40101-40150 que escribe el PLC, la única fila es `ramp_state`.
 - **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
   y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
@@ -850,8 +951,8 @@ La tabla completa, archivo por archivo, está en `README.md`.
   `lens_health:` del config, la pestaña con la calibración por cámara y el bit al PLC
   están. Lo que queda es de cada instalación —calibrar cada cámara con el vidrio limpio,
   que es lo que llena `cameras.<slot>.lens_health.reference`—.
-- **El área central de la vista de monitor.** La UI está completa y andando —tres vistas,
-  ocho pestañas de configuración, cinco de diagnóstico— salvo un hueco a propósito: el
+- **El área central de la vista de monitor.** La UI está completa y andando —nueve páginas,
+  ocho pestañas de configuración, seis de diagnóstico— salvo un hueco a propósito: el
   widget que va en el centro del monitor lo pone el fork con `set_content()`. Cómo se toca
   eso está en `docs/ui.md`.
 - **Del GPIO no falta código: falta probarlo contra un chip de verdad.** El controlador,

@@ -24,6 +24,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
+from system.inference import overlay
+
 from ui.strings import tr
 
 RectPx = tuple[int, int, int, int]      # (x, y, ancho, alto) en píxeles del frame
@@ -35,7 +37,11 @@ _HANDLE_MARGIN_PX = 6           # tolerancia del mouse sobre un borde, en pantal
 _HANDLE_SIZE_PX = 8
 _ACTIVE_PEN_WIDTH_PX = 3
 _REFERENCE_PEN_WIDTH_PX = 1
-_LABEL_TEXT_COLOR = QColor(20, 20, 20)
+_LABEL_PAD_X_PX = 6
+_LABEL_PAD_Y_PX = 2
+_LABEL_GAP_PX = 5
+_LABEL_RADIUS_PX = 4
+_SWATCH_PX = 8
 
 # Dónde se agarró el rectángulo. Los bordes y esquinas se nombran por los puntos
 # cardinales de lo que se mueve: «nw» mueve el borde de arriba y el de la izquierda.
@@ -322,24 +328,45 @@ def paint_region_box(painter: QPainter, rect: QRect, name: str,
     Dibuja un recuadro de región con su nombre sobre el borde de arriba.
 
     Es lo que dibujan el lienzo del diálogo y el panel de cámara, para que una región se
-    vea igual en los dos. El color es el que el overlay le da al pipeline.
+    vea igual en los dos. El color es el que el overlay le da al pipeline, y la etiqueta es
+    la del anotado: una tarjeta oscura con un cuadrado de ese color y el nombre. Sin nombre
+    —`inference.overlay.draw_roi_label` apagado— va el recuadro solo.
     """
-    blue, green, red = color_bgr
-    color = QColor(red, green, blue)
-    pen = QPen(color, pen_width_px)
+    painter.save()
+    pen = QPen(_to_qcolor(color_bgr), pen_width_px)
     if is_dashed:
         pen.setStyle(Qt.DashLine)
     painter.setPen(pen)
     painter.drawRect(rect)
 
-    metrics = painter.fontMetrics()
-    label_rect = QRect(rect.left(), rect.top() - metrics.height() - 2,
-                       metrics.horizontalAdvance(name) + 6, metrics.height() + 2)
-    if label_rect.top() < 0:
-        label_rect.moveTop(rect.top())
-    painter.fillRect(label_rect, color)
-    painter.setPen(_LABEL_TEXT_COLOR)
-    painter.drawText(label_rect.adjusted(3, 0, 0, 0), Qt.AlignVCenter, name)
+    if name:
+        metrics = painter.fontMetrics()
+        height_px = metrics.height() + 2 * _LABEL_PAD_Y_PX
+        width_px = (2 * _LABEL_PAD_X_PX + _SWATCH_PX + _LABEL_GAP_PX
+                    + metrics.horizontalAdvance(name))
+        label_rect = QRect(rect.left(), rect.top() - height_px - 2, width_px, height_px)
+        if label_rect.top() < 0:
+            label_rect.moveTop(rect.top() + pen_width_px + 1)
+        # Suavizado sólo en la etiqueta: el recuadro queda nítido, con el color justo.
+        painter.setRenderHint(QPainter.Antialiasing)
+        surface = _to_qcolor(overlay.SURFACE_BGR)
+        surface.setAlphaF(overlay.SURFACE_OPACITY)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(surface)
+        painter.drawRoundedRect(label_rect, _LABEL_RADIUS_PX, _LABEL_RADIUS_PX)
+        painter.setBrush(_to_qcolor(color_bgr))
+        painter.drawRoundedRect(
+            QRect(label_rect.left() + _LABEL_PAD_X_PX,
+                  label_rect.center().y() - _SWATCH_PX // 2 + 1, _SWATCH_PX, _SWATCH_PX), 2, 2)
+        painter.setPen(_to_qcolor(overlay.TEXT_BGR))
+        painter.drawText(label_rect.adjusted(_LABEL_PAD_X_PX + _SWATCH_PX + _LABEL_GAP_PX, 0,
+                                             0, 0), Qt.AlignVCenter, name)
+    painter.restore()
+
+
+def _to_qcolor(color_bgr: tuple[int, int, int]) -> QColor:
+    blue, green, red = color_bgr
+    return QColor(red, green, blue)
 
 
 def _clamp(value: int, minimum: int, maximum: int) -> int:

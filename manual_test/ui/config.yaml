@@ -17,6 +17,7 @@ project:
 
 system:
   app_name: Prueba de interfaz
+  app_description: Prueba de la interfaz con cámaras simuladas
   device_id: banco_de_pruebas
   log_level: INFO
   paths:
@@ -36,6 +37,7 @@ video:
     # La prueba levanta este servidor de verdad: las URLs que muestra la pestaña Video
     # se abren en el navegador y el contador de clientes se mueve.
     enabled: true
+    host: 0.0.0.0
     port: 8099                  # 8099 y no 8091 para no chocar con la app si está corriendo
     jpeg_quality: 80
     frame_width_px: 960
@@ -55,13 +57,9 @@ video:
     gamma: 1.0
     clahe_clip: 0.0
 
-process:
-  # Parámetros del proceso. En esta prueba no se usan —el analyzer del template no los
-  # necesita—, pero la sección va igual porque es la que el fork reescribe y conviene
-  # verla en el archivo.
-  scale_px_per_mm: {}
-  max_load_y_px: {}
-  min_load_pct: 0
+# Parámetros del proceso. En esta prueba no hace falta ninguno, pero la sección va igual
+# porque es la que el fork reescribe y conviene verla en el archivo.
+process: {}
 
 inference:
   overlay:
@@ -70,6 +68,7 @@ inference:
     draw_masks: true
     draw_labels: true
     draw_roi: true
+    draw_roi_label: true
     draw_timestamp: true
     font_scale: 0.6
     thickness: 2

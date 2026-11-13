@@ -7,6 +7,7 @@ project:
 
 system:
   app_name: APP_NAME
+  app_description: ""           # la línea bajo el nombre en la página de inicio; vacía = la genérica
   device_id: DEVICE_ID          # client_id de MQTT y tag `device`; se fija al instalar, no en la UI
   log_level: INFO               # DEBUG | INFO | WARNING | ERROR
   hard_exit: false
@@ -91,13 +92,6 @@ process:
   # es peor que no arrancar.
   #
   # Los valores por cámara van como mapas con la clave del slot.
-  scale_px_per_mm: {}           # {camera_1: 3.2} — calibración; sin esto no hay medidas físicas
-  max_load_y_px: {}             # {camera_1: 430} — altura del límite de carga de la cinta
-  min_load_pct: 0               # por debajo de esto la carga se reporta como insuficiente
-  # Caída de grano. Declarada, el anotado de cada cámara del grano lleva el estado de la
-  # descarga: un borde verde sólo si cae grano y no hay personas en la zona de exclusión,
-  # rojo si no, y un panel con GRAIN y PERSON en OK / NOK.
-  grain_flow: {}
   ramp_gate:
     # La plataforma corta la medición. Estos pipelines miden con la plataforma horizontal y
     # dejan de recibir frames cuando el PLC escribe `ramp_state` = 2 (inclinada): pasado ese
@@ -112,6 +106,12 @@ process:
     # Una persona cuenta si los pies —el centro del borde inferior de su caja— caen
     # adentro. Una cámara sin zona cuenta a cualquier persona del frame.
     exclusion_zone_px: {}       # {camera_3: [[x, y], [x, y], [x, y], ...]}
+    # Filtro del veredicto: alguien en la zona se confirma con `confirm_hits` frames entre
+    # los últimos `confirm_window`, no necesariamente seguidos, y se libera tras `release_s`
+    # sin verlo. Se edita en la pestaña Proceso.
+    confirm_hits: 4
+    confirm_window: 6
+    release_s: 5.0              # s
   stopper_check:
     # Calzas, por cámara: cada cámara de un pipeline `stopper_check` tiene su grupo en la
     # pestaña Proceso, y la altura se marca ahí sobre el frame en vivo. Todo en píxeles del
@@ -189,6 +189,9 @@ inference:
     # Recuadro de la región de cada pipeline, con su color y su nombre; de verde, rojo o
     # amarillo si el pipeline declara un veredicto, y gris punteado si el resultado no vale.
     draw_roi: true
+    # false = el recuadro sin su etiqueta —nombre, veredicto escrito y motivo de un resultado
+    # inválido—, en el anotado y en el crudo: el estado queda dicho sólo por el color.
+    draw_roi_label: true
     # false = la hora la dibuja el proyecto (system/inference/hooks.py), del tamaño del
     # frame y encima del borde de estado; la del motor tiene escala fija y en 2560 px queda
     # escondida dentro del borde.

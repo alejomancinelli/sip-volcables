@@ -11,24 +11,35 @@ parámetro y quien los saca del config es la pestaña, que es la que sabe qué c
 alimenta cada campo.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, QSize, Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGraphicsOpacityEffect,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSizePolicy, QSpinBox,
-    QStyle, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractScrollArea, QAbstractSpinBox, QApplication, QCheckBox, QComboBox,
+    QDoubleSpinBox, QFormLayout, QGraphicsOpacityEffect, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel,
+    QLineEdit, QProxyStyle, QScrollArea, QSizePolicy, QSpinBox, QStyle, QStyleFactory,
+    QStyleOptionTabWidgetFrame, QTabBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
 _LABEL_MIN_WIDTH_PX = 240    # ancho mínimo de la etiqueta, para alinear todas las filas
 _ROW_MIN_HEIGHT_PX = 28      # alto mínimo de una fila, para que todas midan igual
 _BOX_MIN_WIDTH_PX = 640      # ancho mínimo de un QGroupBox
 _CARD_MIN_WIDTH_PX = 720     # ancho mínimo de la tarjeta de una pestaña
-_CARD_WIDTH_PX = 1000        # ancho de toda tarjeta centrada; de ahí en más, fondo a los lados
+# Ancho del contenido de una página —su encabezado, sus pestañas y sus tarjetas—: la columna
+# de 1100 px de la web menos su aire a los lados. De ahí en más, fondo a los costados.
+PAGE_CONTENT_WIDTH_PX = 1036
+_CARD_WIDTH_PX = PAGE_CONTENT_WIDTH_PX   # una tarjeta centrada llena la columna de la página
 _FULL_CARD_MAX_WIDTH_PX = 6400   # tope de una tarjeta a todo el ancho, para una tabla
-_CARD_MARGIN_PX = 14
+# Sin aire a los costados, para que las tarjetas arranquen en el borde del encabezado de la
+# página; arriba, el que separa la barra de pestañas de la primera tarjeta.
+_CARD_MARGINS_PX = (0, 16, 0, 4)
 _DISABLED_OPACITY = 0.35     # opacidad de un campo que su checkbox de habilitado apagó
+_CHECK_COLUMN_GAP_PX = 16
+_CHECK_ROW_GAP_PX = 8
 
 _CARD_OBJECT_NAME = "configCard"     # lo pinta el QSS del tema
 _HINT_OBJECT_NAME = "hintLabel"
+_SLOT_TABS_OBJECT_NAME = "slotTabs"  # el QSS la achica: va adentro de una tarjeta, no es la página
+_GENERAL_TAB_PROPERTY = "hasGeneralTab"  # el QSS tiñe la última pestaña de esa barra
 
 
 def build_group_box(title: str) -> tuple[QGroupBox, QFormLayout]:
@@ -48,18 +59,87 @@ def build_form_page() -> tuple[QWidget, QFormLayout]:
     return page, form
 
 
-def build_slot_tabs() -> QTabWidget:
+def build_slot_tabs(*, in_card: bool = True, fit_to_current: bool = False) -> QTabWidget:
     """
     Barra de sub-pestañas, una por slot —cámara, modelo, pipeline—.
+
+    `fit_to_current` la hace medir lo que la sub-pestaña a la vista, para cuando las páginas
+    no tienen el mismo alto: una cámara que miran dos pipelines y otra que mira uno.
 
     Con más slots de los que entran a lo ancho, Qt muestra flechas de desplazamiento en la
     barra y no corta ningún rótulo: un slot cortado a la mitad no se distingue de otro. Se
     fija explícito para que no dependa del estilo ni del tema.
+
+    `in_card` la achica un paso, para cuando va adentro de una tarjeta. En False tiene el
+    tamaño de las de la página: es lo que corresponde cuando es la única barra a la vista,
+    porque la página esconde la suya con una sola pestaña.
     """
-    tabs = QTabWidget()
+    tabs = _SlotTabWidget(fit_to_current)
+    if in_card:
+        tabs.setObjectName(_SLOT_TABS_OBJECT_NAME)
     tabs.setUsesScrollButtons(True)
     tabs.setElideMode(Qt.ElideNone)
     return tabs
+
+
+class _SlotTabWidget(QTabWidget):
+    """
+    La barra de `build_slot_tabs()`. Con `fit_to_current` mide lo que la sub-pestaña a la
+    vista y no lo que la más alta: sin eso una página corta queda con el alto de la más
+    larga, y la pestaña con el scroll de un contenido que no está.
+
+    No alcanza con la política de tamaño de las páginas ocultas: `QStackedLayout` le pide el
+    alto para un ancho (`heightForWidth`) a cada página directamente, sin mirar la política,
+    y una página con un texto que se parte en líneas —la descripción de una sección— sigue
+    reclamando el suyo. Por eso se descuenta el de la pila y se suma el de la página a la
+    vista. Vale para la barra arriba, que es la única que se usa.
+    """
+
+    def __init__(self, fit_to_current: bool, parent=None):
+        super().__init__(parent)
+        self._is_fit_to_current = fit_to_current
+        if fit_to_current:
+            self.currentChanged.connect(self._fit)
+
+    def tabInserted(self, index: int):
+        super().tabInserted(index)
+        if self._is_fit_to_current:
+            self._fit(self.currentIndex())
+
+    def heightForWidth(self, width: int) -> int:
+        total_px = super().heightForWidth(width)
+        current = self.currentWidget()
+        stack = current.parentWidget() if current is not None else None
+        if not self._is_fit_to_current or stack is None or not stack.hasHeightForWidth():
+            return total_px
+        option = QStyleOptionTabWidgetFrame()
+        self.initStyleOption(option)
+        padding = self.style().sizeFromContents(QStyle.CT_TabWidget, option, QSize(0, 0), self)
+        stack_width_px = width - padding.width()
+        page_px = (current.heightForWidth(stack_width_px) if current.hasHeightForWidth()
+                   else current.sizeHint().height())
+        page_px = max(page_px, current.minimumSizeHint().height())
+        return total_px - stack.heightForWidth(stack_width_px) + page_px
+
+    def _fit(self, index: int):
+        for position in range(self.count()):
+            policy = QSizePolicy.Preferred if position == index else QSizePolicy.Ignored
+            self.widget(position).setSizePolicy(QSizePolicy.Preferred, policy)
+        # Sin esto la barra se queda con el alto que ya calculó hasta el próximo relayout.
+        self.updateGeometry()
+
+
+def add_general_tab(tabs: QTabWidget, widget: QWidget, title: str) -> int:
+    """
+    Agrega, última, la sub-pestaña de lo que vale para todos los slots —la detección de
+    lente sucio de todas las cámaras—. Devuelve su índice.
+
+    Va con otro tinte para que no se lea como un slot más. Lo pone el QSS sobre la última
+    pestaña de una barra marcada con `hasGeneralTab`, así que tiene que ser la última que se
+    agrega, y el color sigue al tema sin que nadie lo repinte.
+    """
+    tabs.setProperty(_GENERAL_TAB_PROPERTY, True)
+    return tabs.addTab(widget, title)
 
 
 def _build_form_layout() -> QFormLayout:
@@ -205,6 +285,37 @@ def set_combo_data(combo: QComboBox, value: object):
     combo.setCurrentIndex(0)
 
 
+def build_inline_row(main: QWidget, *extras: QWidget) -> QWidget:
+    """
+    Un campo y lo que lo acompaña en la misma línea —un botón que lo marca sobre la imagen,
+    un estado—. El primero se lleva el ancho que sobra.
+    """
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    # Un campo de texto es de alto fijo y quedaría más bajo que el botón de al lado.
+    main.setSizePolicy(main.sizePolicy().horizontalPolicy(), QSizePolicy.Preferred)
+    layout.addWidget(main, stretch=1)
+    for widget in extras:
+        layout.addWidget(widget)
+    return row
+
+
+def build_check_grid(checks: list[QCheckBox], columns: int) -> QWidget:
+    """Casillas en `columns` columnas del mismo ancho: una por cámara, una por archivo."""
+    grid_widget = QWidget()
+    grid = QGridLayout(grid_widget)
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(_CHECK_COLUMN_GAP_PX)
+    grid.setVerticalSpacing(_CHECK_ROW_GAP_PX)
+    for index, check in enumerate(checks):
+        grid.addWidget(check, index // columns, index % columns)
+    for column in range(columns):
+        grid.setColumnStretch(column, 1)
+    return grid_widget
+
+
 def build_line_edit(value: str, placeholder: str = "") -> QLineEdit:
     line = QLineEdit(str(value if value is not None else ""))
     line.setPlaceholderText(placeholder)
@@ -244,8 +355,7 @@ def wrap_in_card(inner: QWidget, *, center: bool = True, scroll: bool = False) -
     card.setMaximumWidth(_CARD_WIDTH_PX if center else _FULL_CARD_MAX_WIDTH_PX)
     card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
     card_layout = QVBoxLayout(card)
-    card_layout.setContentsMargins(_CARD_MARGIN_PX, _CARD_MARGIN_PX,
-                                   _CARD_MARGIN_PX, _CARD_MARGIN_PX)
+    card_layout.setContentsMargins(*_CARD_MARGINS_PX)
     card_layout.addWidget(inner)
 
     wrapper = QWidget()
@@ -297,6 +407,78 @@ class _BarReservingScrollArea(QScrollArea):
         self._content_layout.setContentsMargins(0, 0, width_px, 0)
 
 
+_GUARDED_TYPES = (QAbstractSpinBox, QComboBox, QTabBar)
+
+
+class WheelGuard(QObject):
+    """
+    Filtro de eventos: la rueda del mouse no cambia el valor de un spin ni de un combo, ni
+    la pestaña elegida de una barra, y sigue desplazando la página que los contiene.
+
+    Sin esto, bajar por una pestaña larga con la rueda cambia el valor de cada campo que
+    pasa debajo del puntero —una exposición, un umbral— sin que el operador lo note, y al
+    pasar por una barra de sub-pestañas lo deja editando otra cámara u otro pipeline. Un
+    valor se cambia tipeando, con las flechas o con el teclado; una pestaña, con un clic.
+
+    Se instala con `install_wheel_guard()`, que lo pone en cada uno de esos widgets y no en
+    la aplicación: instalado en la `QApplication` veía pasar cada evento de cada widget —el
+    video, los timers, cada repintado— por Python, y sólo eso era un tercio de lo que
+    tardaba cambiar de página.
+    """
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Wheel or not isinstance(
+                watched, (QAbstractSpinBox, QComboBox, QTabBar)):
+            return False
+        area = _find_scroll_area(watched)
+        if area is not None:
+            QApplication.sendEvent(area.viewport(), event.clone())
+        return True
+
+
+class _WheelGuardStyle(QProxyStyle):
+    """
+    El estilo de la aplicación con un gancho: cada widget que se pule y es de un tipo que la
+    rueda cambiaría recibe el `WheelGuard`. Qt pule cada widget antes de mostrarlo —también
+    con la hoja de estilo, que delega en este estilo—, así que alcanza a toda la interfaz,
+    diálogos y widgets del fork incluidos, sin que nadie lo instale a mano.
+    """
+
+    def __init__(self, base_style: QStyle, guard: WheelGuard):
+        super().__init__(base_style)
+        self.guard = guard
+
+    def polish(self, target):
+        result = super().polish(target)
+        if isinstance(target, _GUARDED_TYPES):
+            # Instalarlo dos veces no lo duplica: Qt deja uno solo.
+            target.installEventFilter(self.guard)
+        return result
+
+
+def install_wheel_guard(app: QApplication) -> WheelGuard:
+    """
+    Pone el `WheelGuard` en cada spin, combo y barra de pestañas de la aplicación, los que ya
+    existen y los que se creen después. Llamarlo de nuevo devuelve el que ya está.
+    """
+    current = app.style()
+    if isinstance(current, _WheelGuardStyle):
+        return current.guard
+    guard = WheelGuard(app)
+    # Una copia del estilo actual, por nombre: el proxy se queda con la base, y la de ahora
+    # la borra `setStyle()` al reemplazarla.
+    app.setStyle(_WheelGuardStyle(QStyleFactory.create(current.name()), guard))
+    return guard
+
+
+def _find_scroll_area(widget: QWidget) -> QAbstractScrollArea | None:
+    """El área con scroll más cercana que contiene al widget, o None."""
+    parent = widget.parentWidget()
+    while parent is not None and not isinstance(parent, QAbstractScrollArea):
+        parent = parent.parentWidget()
+    return parent
+
+
 def wire_enable_toggle(check: QCheckBox, dependents: list):
     """
     Ata un checkbox de habilitado a los campos que dependen de él.
@@ -308,13 +490,7 @@ def wire_enable_toggle(check: QCheckBox, dependents: list):
     """
     def apply_state(checked: bool, widgets: list = dependents):
         for widget in widgets:
-            widget.setEnabled(checked)
-            if checked:
-                widget.setGraphicsEffect(None)
-            else:
-                effect = QGraphicsOpacityEffect(widget)
-                effect.setOpacity(_DISABLED_OPACITY)
-                widget.setGraphicsEffect(effect)
+            set_field_enabled(widget, checked)
             if isinstance(widget, QCheckBox):
                 widget.toggled.emit(widget.isChecked() and checked)
 
@@ -322,15 +498,13 @@ def wire_enable_toggle(check: QCheckBox, dependents: list):
     apply_state(check.isChecked())
 
 
-def join_list(values: object) -> str:
-    """Lista del config -> texto separado por comas, para un QLineEdit."""
-    if not values:
-        return ""
-    if isinstance(values, (list, tuple)):
-        return ", ".join(str(value) for value in values)
-    return str(values)
+def set_field_enabled(widget: QWidget, enabled: bool):
+    """Prende o apaga un campo; apagado, lo atenúa como `wire_enable_toggle()`."""
+    widget.setEnabled(enabled)
+    if enabled:
+        widget.setGraphicsEffect(None)
+    else:
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(_DISABLED_OPACITY)
+        widget.setGraphicsEffect(effect)
 
-
-def split_list(text: str) -> list[str]:
-    """Texto separado por comas -> lista para el config. Descarta los vacíos."""
-    return [item.strip() for item in (text or "").split(",") if item.strip()]

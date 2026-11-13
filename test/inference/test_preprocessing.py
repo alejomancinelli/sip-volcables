@@ -80,7 +80,7 @@ class TestConfig:
         """Sin dobles: la clave del config llega al builder y ajusta sólo esa cámara."""
         config = _MockConfig(**{
             "cameras": {"camera_1": {}, "camera_2": {}},
-            "cameras.camera_1.image_adjust": {"brightness_factor": 2.0, "clahe_clip": 0.0},
+            "cameras.camera_1": {"image_adjust": {"brightness_factor": 2.0, "clahe_clip": 0.0}},
         })
         preprocessor = build_preprocessor(config)
         frame = np.full((4, 4, 3), 60, np.uint8)

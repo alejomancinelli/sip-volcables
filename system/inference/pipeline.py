@@ -68,6 +68,8 @@ from .result import ROI_STATE_NOK, ROI_STATE_OK, Detection
 # Las clases de `grain_cls`.
 FLOW_CLASS = "flow"
 NO_FLOW_CLASS = "no_flow"
+# El label con el veredicto del grano: la clase más confiable, o `none` sin detecciones.
+GRAIN_FLOW_LABEL = "grain_flow"
 
 _PERSON_CLASS = "person"
 
@@ -106,7 +108,7 @@ class GrainFlowPipeline(AbstractPipeline):
     def _run(self, frame_bgr: np.ndarray, camera_slot: str) -> list[Detection]:
         detections = self._run_stage("grain_cls", frame_bgr)
         top = max(detections, key=lambda detection: detection.confidence_pct, default=None)
-        self._set_label("grain_flow", top.class_name if top is not None else "none")
+        self._set_label(GRAIN_FLOW_LABEL, top.class_name if top is not None else "none")
         if top is not None and top.class_name == FLOW_CLASS:
             self._set_roi_state(ROI_STATE_OK)
         elif top is not None and top.class_name == NO_FLOW_CLASS:

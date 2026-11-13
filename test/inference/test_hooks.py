@@ -2,14 +2,16 @@
 Tests de los hooks del proyecto: qué le entrega el template al motor desde `process:`.
 
 Un fork reescribe `build_hooks()` y con él estos tests. Lo que se prueba acá es el
-template: no filtra, cuenta con el analyzer genérico y dibuja el límite de carga sólo si
-alguna cámara lo declara.
+template: no filtra, cuenta con el analyzer genérico y dibuja sólo lo de los pipelines que
+declara `inference.pipelines`.
 """
 
 import numpy as np
+import pytest
 
 from system.inference.hooks import EngineHooks, build_hooks, read_pipelines
 from system.inference.metrics import compute_metrics
+from system.inference.person_safety import SAFETY_METRIC
 from system.inference.result import Detection, InferenceResult
 
 
@@ -23,6 +25,9 @@ class _MockConfig:
         return self._values.get(key, default)
 
 
+_GRAIN_PIPELINES = {"pipeline_1": {"type": "grain_flow", "cameras": ["camera_1"]}}
+
+
 class TestTemplateHooks:
     def test_it_returns_the_hooks_object(self):
         assert isinstance(build_hooks(_MockConfig()), EngineHooks)
@@ -33,38 +38,34 @@ class TestTemplateHooks:
     def test_the_analyzer_is_the_generic_count(self):
         assert build_hooks(_MockConfig()).analyzer is compute_metrics
 
-    def test_without_a_load_limit_there_is_no_annotator(self):
+    def test_without_pipelines_there_is_no_annotator(self):
         """Sin nada que dibujar el motor no gasta una llamada por frame."""
         assert build_hooks(_MockConfig()).annotator is None
 
-    def test_a_declared_load_limit_is_drawn_on_its_camera(self):
-        hooks = build_hooks(_MockConfig(**{"process.max_load_y_px": {"camera_1": 30}}))
-        frame = np.zeros((60, 80, 3), np.uint8)
-        hooks.annotator(frame, InferenceResult(camera_slot="camera_1"))
-        assert frame[30].any()
-
-    def test_a_declared_grain_flow_draws_the_verdict_panel(self):
-        hooks = build_hooks(_MockConfig(**{"process.grain_flow": {}}))
+    def test_a_grain_pipeline_draws_the_verdict_panel(self):
+        hooks = build_hooks(_MockConfig(**{"inference.pipelines": _GRAIN_PIPELINES}))
         frame = np.zeros((60, 80, 3), np.uint8)
         hooks.annotator(frame, InferenceResult(camera_slot="camera_1",
                                                labels={"grain_flow": "flow"}))
         assert frame.any()
 
+    def test_a_disabled_grain_pipeline_draws_nothing(self):
+        pipelines = {"pipeline_1": {**_GRAIN_PIPELINES["pipeline_1"], "enabled": False}}
+        assert build_hooks(_MockConfig(**{"inference.pipelines": pipelines})).annotator is None
+
+    def test_the_process_section_does_not_turn_the_panel_on(self):
+        """El panel lo decide el pipeline: la vieja `process.grain_flow` ya no se lee."""
+        assert build_hooks(_MockConfig(**{"process.grain_flow": {}})).annotator is None
+
     def test_without_the_engine_timestamp_the_project_draws_it(self):
         hooks = build_hooks(_MockConfig(**{"inference.overlay.draw_timestamp": False}))
         frame = np.zeros((60, 80, 3), np.uint8) + 128
         hooks.annotator(frame, InferenceResult(camera_slot="camera_1"))
-        assert np.all(frame[-1, -1] == 0)
+        assert np.any(frame[-20:, -40:] != 128) and np.all(frame[0, 0] == 128)
 
     def test_with_the_engine_timestamp_the_project_does_not_draw_it(self):
         """Una sola clave decide quién la dibuja: nunca salen las dos."""
         assert build_hooks(_MockConfig(**{"inference.overlay.draw_timestamp": True})).annotator is None
-
-    def test_the_load_limit_is_not_drawn_on_other_cameras(self):
-        hooks = build_hooks(_MockConfig(**{"process.max_load_y_px": {"camera_1": 30}}))
-        frame = np.zeros((60, 80, 3), np.uint8)
-        hooks.annotator(frame, InferenceResult(camera_slot="camera_2"))
-        assert not frame.any()
 
 
 _STOPPER_PIPELINES = {"pipeline_3": {"type": "stopper_check", "cameras": ["camera_1"]}}
@@ -128,6 +129,72 @@ class TestStopperHooks:
         missing = build_hooks(_stopper_config(**{"process.stopper_check.max_gap_px": {}}))
         assert np.array_equal(_drawn_by(null), _drawn_by(missing))
         assert not np.array_equal(_drawn_by(null), _drawn_by(build_hooks(_stopper_config())))
+
+
+_PERSON_PIPELINES = {"pipeline_2": {"type": "person_safety", "cameras": ["camera_3"]}}
+
+
+def _person_hooks(**overrides) -> EngineHooks:
+    values = {"cameras": {"camera_3": {}},
+              "inference.pipelines": _PERSON_PIPELINES,
+              "process.person_safety.confirm_hits": 1,
+              "process.person_safety.confirm_window": 1}
+    values.update(overrides)
+    return build_hooks(_MockConfig(**values))
+
+
+def _person_result(*detections: Detection) -> InferenceResult:
+    return InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                           detections=list(detections))
+
+
+_FEET_AT_100_80 = Detection(class_index=0, class_name="person", confidence_pct=90.0,
+                            bbox_px=(90, 20, 110, 80))
+
+
+class TestPersonHooks:
+    def test_a_person_pipeline_adds_the_filtered_verdict(self):
+        metrics = _person_hooks().analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 0
+        assert metrics["detection_count"] == 1
+
+    def test_the_filter_settings_are_read(self):
+        hooks = _person_hooks(**{"process.person_safety.confirm_hits": 2,
+                                 "process.person_safety.confirm_window": 2})
+        metrics = hooks.analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 1
+
+    def test_the_exclusion_zone_is_read(self):
+        zone = {"camera_3": [[0, 0], [50, 0], [50, 50], [0, 50]]}
+        hooks = _person_hooks(**{"process.person_safety.exclusion_zone_px": zone})
+        metrics = hooks.analyzer(_person_result(_FEET_AT_100_80))
+        assert metrics[SAFETY_METRIC] == 1
+
+    def test_a_malformed_zone_stops_the_build(self):
+        with pytest.raises(ValueError, match="camera_3"):
+            _person_hooks(**{"process.person_safety.exclusion_zone_px":
+                             {"camera_3": [[0, 0]]}})
+
+    def test_an_impossible_filter_stops_the_build(self):
+        with pytest.raises(ValueError):
+            _person_hooks(**{"process.person_safety.confirm_hits": 3})
+
+
+class TestStopperSignals:
+    def test_a_stopper_pipeline_adds_its_signals(self):
+        hooks = build_hooks(_MockConfig(**{
+            "inference.pipelines": _STOPPER_PIPELINES,
+            "process.stopper_check.raised_y_px": {"camera_1": 30},
+            "process.stopper_check.min_raised_px": {"camera_1": 1},
+            "process.stopper_check.max_gap_px": {"camera_1": 5},
+        }))
+        metrics = hooks.analyzer(_stopper_result())
+        assert metrics["raised_ok"] == 1 and metrics["contact_ok"] == 1
+
+    def test_uncalibrated_signals_are_zero(self):
+        hooks = build_hooks(_MockConfig(**{"inference.pipelines": _STOPPER_PIPELINES}))
+        metrics = hooks.analyzer(_stopper_result())
+        assert metrics["raised_ok"] == 0 and metrics["contact_ok"] == 0
 
 
 class TestReadPipelines:

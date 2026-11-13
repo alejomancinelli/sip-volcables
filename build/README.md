@@ -168,7 +168,7 @@ deja afuera las opciones que sólo existen para un `.exe` —icono, consola, pro
 archivo— y `make_release.py` arma la misma carpeta con lanzadores de bash:
 
     <APP_NAME>-<version>/
-        program/                  main.bin, ui/styles, ui/icons y site-packages/
+        program/                  main.bin, ui/styles, ui/icons, ui/fonts y site-packages/
         installation/             lo de esta planta — NO se toca al actualizar
         _entorno.sh               la ruta de datos, y nada más
         <APP_NAME>.sh

@@ -20,9 +20,7 @@ cameras:
       brightness_factor: 1.0    # x0.1–x5.0; 1.0 = sin cambio
       clahe_clip: 0.0
 
-process:
-  # Lo lee system/inference/hooks.py, igual que en la app.
-  max_load_y_px: {}             # {camera_1: 430} — dibuja el límite de carga en el anotado
+process: {}                     # lo lee system/inference/hooks.py, igual que en la app
 
 inference:
   overlay:
@@ -31,6 +29,7 @@ inference:
     draw_masks: true
     draw_labels: true
     draw_roi: true
+    draw_roi_label: true
     draw_summary: true
     draw_timestamp: false       # la hora de la corrida, no la de la imagen: no informa nada
     font_scale: 0.6

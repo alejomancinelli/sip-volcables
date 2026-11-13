@@ -16,6 +16,9 @@ es texto de UI y puede cambiar sin romper nada, el slot es la identidad.
 Cualquier cliente MJPEG los consume: el navegador abriendo la URL,
 `cv2.VideoCapture("http://<ip>:<puerto>/camera_1/raw")`, VLC, ffmpeg.
 
+Escucha en `video.http.host`: sin la clave, en todas las interfaces (`0.0.0.0`); con la
+dirección de una, sólo por ahí —la red de la planta y no la de oficina, por ejemplo—.
+
 Tres cosas cuidan el CPU y el ancho de banda, y las tres importan porque el feed
 crudo llega al ritmo de la cámara y la codificación corre en el hilo que empuja:
   - Sin clientes en un stream no se codifica nada: el crudo se descarta y el anotado se
@@ -54,7 +57,8 @@ from system.video.abstract_video_server import (
     StreamKey,
 )
 
-_HOST = "0.0.0.0"
+_HOST = "0.0.0.0"              # el default de `video.http.host`: todas las interfaces
+_LOOPBACK = "127.0.0.1"
 _INFO_PATH = "/"
 _BOUNDARY = "frame"             # separador multipart del stream MJPEG
 
@@ -440,7 +444,12 @@ class HttpVideoServer(AbstractVideoServer):
         if self._status != STATUS_ACTIVE:
             return []
         port = int(self._config.get(f"video.{self.CONFIG_KEY}.port", _DEFAULT_PORT))
-        return [f"http://127.0.0.1:{port}/{name}/{mode}"
+        # Escuchando en todas, la del propio equipo; en una sola, ésa: 127.0.0.1 no la
+        # alcanzaría.
+        host = self._read_host()
+        if host == _HOST:
+            host = _LOOPBACK
+        return [f"http://{host}:{port}/{name}/{mode}"
                 for name in self._names_by_slot.values() for mode in MODES]
 
     def get_client_count(self) -> int:
@@ -498,12 +507,13 @@ class HttpVideoServer(AbstractVideoServer):
         self._subs = _Subscribers()
 
         port = self._config.get("video.http.port", _DEFAULT_PORT)
+        host = self._read_host()
         try:
-            server = _ThreadingHTTPServer((_HOST, port), self._store, self._subs,
+            server = _ThreadingHTTPServer((host, port), self._store, self._subs,
                                           self._slot_by_name, self._config)
         except OSError as e:
             self._status = STATUS_ERROR
-            logger.error(f"[HttpVideo] No se pudo iniciar en puerto {port}: {e}")
+            logger.error(f"[HttpVideo] No se pudo iniciar en {host}:{port}: {e}")
             return
 
         self._server = server
@@ -515,11 +525,15 @@ class HttpVideoServer(AbstractVideoServer):
         self._thread.start()
         self._is_active = True
         self._status = STATUS_ACTIVE
-        logger.info(f"[HttpVideo] Servidor activo en http://{_HOST}:{port}")
+        logger.info(f"[HttpVideo] Servidor activo en http://{host}:{port}")
         for slot, name in self._names_by_slot.items():
             renamed = f"   (slot {slot})" if name != slot else ""
             logger.info(f"[HttpVideo]   /{name}/{MODE_RAW} y /{name}/{MODE_ANNOTATED}"
                         f"{renamed}")
+
+    def _read_host(self) -> str:
+        """`video.http.host`: la dirección en la que escucha; vacía o ausente, todas."""
+        return str(self._config.get("video.http.host", _HOST) or _HOST)
 
     def stop(self):
         """Detiene el servidor, corta los streams abiertos y libera el puerto. Idempotente."""

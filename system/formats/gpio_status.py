@@ -38,6 +38,17 @@ DESCRIPTIONS = {
     BIT_UNAVAILABLE: "GPIO no disponible: modo simulado",
 }
 
+# Bit por bit, para decodificar una palabra: `DESCRIPTIONS` describe los grupos.
+INPUT_BITS = {
+    **{STATE_SHIFT + bit: f"Entrada {bit + 1} activa" for bit in range(MAX_CHANNELS)},
+    **{ERROR_SHIFT + bit: f"Entrada {bit + 1} sin lectura" for bit in range(MAX_CHANNELS)},
+    BIT_UNAVAILABLE: DESCRIPTIONS[BIT_UNAVAILABLE],
+}
+OUTPUT_BITS = {
+    **{STATE_SHIFT + bit: f"Salida {bit + 1} comandada" for bit in range(MAX_CHANNELS)},
+    BIT_UNAVAILABLE: DESCRIPTIONS[BIT_UNAVAILABLE],
+}
+
 
 def pack_inputs(states_by_channel: dict, *, hardware_available: bool = True) -> int:
     """

@@ -20,6 +20,24 @@ que es lo que espera la palabra de comunicaciones.
 `run()` toma el hilo que lo llama y arma ahí su loop de asyncio; `stop()` lo desarma desde
 afuera. La forma de uso es un QThread cuyo `run()` llame a este.
 
+**Cada transporte cuenta lo que atiende**, y `get_stats()` lo devuelve por transporte con
+estas claves estables:
+
+    connections         TCP: clientes conectados ahora. RTU: 1 con el puerto abierto.
+    requests            consultas contestadas desde que arrancó: lecturas, escrituras y
+                        excepciones
+    reads / writes      contestadas bien con FC03 / con FC06 o FC16
+    exceptions          contestadas con una excepción: 0x02, 0x03, 0x0B...
+    last_exception_code la última que se contestó; 0 si no hubo ninguna
+    requests_per_min    consultas contestadas en los últimos 60 s
+    last_request_age_s  segundos desde la última contestada; None si no hubo ninguna
+
+Se cuenta la **respuesta**, no la consulta: en un RS-485 compartido el equipo ve también las
+consultas dirigidas a otros esclavos, que no contesta y no son suyas. Por lo mismo una trama
+con el CRC roto no se cuenta —pymodbus la descarta antes de que sea una consulta— y no hay
+contador de timeouts: el que espera es el maestro, y un esclavo no se entera de que el
+maestro se cansó de esperar.
+
 El mapa no se conoce acá: el cableado le pasa sólo hasta qué dirección llega (`max_addr`) y
 el rango crudo de cada dirección que escribe el PLC (`write_ranges`). Qué significa cada
 dirección es de `system/modbus/registers.py`.
@@ -36,6 +54,7 @@ import logging
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 
 from pymodbus.constants import ExcCodes
@@ -83,6 +102,14 @@ _STARTUP_GRACE_S = 2.0
 
 # Cada cuánto se repite el aviso de una escritura rechazada con la misma dirección y motivo.
 _REJECTION_LOG_INTERVAL_S = 60.0
+
+# La ventana de `requests_per_min`.
+_RATE_WINDOW_S = 60.0
+# pymodbus devuelve la excepción con el código de la función original y este bit prendido.
+_EXCEPTION_FC_FLAG = 0x80
+
+TRANSPORT_TCP = "tcp"
+TRANSPORT_RTU = "rtu"
 
 
 def _build_simulator_config(register_count: int) -> dict:
@@ -152,6 +179,84 @@ class _RejectedWriteLog:
         if silenced:
             message += f" Otras {silenced} iguales desde el aviso anterior."
         logger.warning(message)
+
+
+class _TransportStats:
+    """
+    Los contadores de un transporte: lo que alimenta `SharedModbusServer.get_stats()`.
+
+    `trace_pdu` y `trace_connect` son los ganchos que pymodbus llama por cada PDU y por cada
+    conexión, en el hilo del servidor; `get()` lo llama otro hilo, así que todo va bajo un
+    lock. Las consultas por minuto se cuentan en baldes de un segundo: un PLC que consulta
+    cada 10 ms dejaría 6000 marcas de tiempo por minuto, y con baldes son 60.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic):
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._connections = 0
+        self._requests = 0
+        self._reads = 0
+        self._writes = 0
+        self._exceptions = 0
+        self._last_exception_code = 0
+        self._last_request_s: float | None = None
+        self._buckets: deque[list] = deque()      # [segundo entero, contestadas en él]
+
+    def trace_connect(self, connected: bool):
+        with self._lock:
+            self._connections = max(0, self._connections + (1 if connected else -1))
+
+    def trace_pdu(self, sending: bool, pdu):
+        """Cuenta las respuestas; las consultas pasan sin contarse. Devuelve el PDU tal cual."""
+        if sending:
+            self._count_response(pdu.function_code, int(getattr(pdu, "exception_code", 0)))
+        return pdu
+
+    def clear_connections(self):
+        """El servidor se cerró: no queda nadie conectado."""
+        with self._lock:
+            self._connections = 0
+
+    def get(self) -> dict:
+        """Los contadores, con las claves que documenta el módulo."""
+        with self._lock:
+            now = self._clock()
+            self._trim(now)
+            return {
+                "connections": self._connections,
+                "requests": self._requests,
+                "reads": self._reads,
+                "writes": self._writes,
+                "exceptions": self._exceptions,
+                "last_exception_code": self._last_exception_code,
+                "requests_per_min": sum(count for _, count in self._buckets),
+                "last_request_age_s": (None if self._last_request_s is None
+                                       else now - self._last_request_s),
+            }
+
+    def _count_response(self, func_code: int, exception_code: int):
+        with self._lock:
+            now = self._clock()
+            self._requests += 1
+            self._last_request_s = now
+            if func_code & _EXCEPTION_FC_FLAG:
+                self._exceptions += 1
+                self._last_exception_code = exception_code
+            elif func_code == _FC_READ_HOLDING_REGISTERS:
+                self._reads += 1
+            elif func_code in _WRITE_FUNC_CODES:
+                self._writes += 1
+            second = int(now)
+            if self._buckets and self._buckets[-1][0] == second:
+                self._buckets[-1][1] += 1
+            else:
+                self._buckets.append([second, 1])
+            self._trim(now)
+
+    def _trim(self, now: float):
+        while self._buckets and self._buckets[0][0] <= now - _RATE_WINDOW_S:
+            self._buckets.popleft()
 
 
 class _HoldingRegisters(ModbusSimulatorContext):
@@ -299,6 +404,7 @@ class SharedModbusServer:
         self._tcp_status = STATUS_DISABLED
         self._rtu_status = STATUS_DISABLED
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stats = {TRANSPORT_TCP: _TransportStats(), TRANSPORT_RTU: _TransportStats()}
 
         self._register_count = max(self._read_register_count(), max_addr)
         self._simulator = _HoldingRegisters(
@@ -330,6 +436,13 @@ class SharedModbusServer:
     @property
     def register_count(self) -> int:
         return self._register_count
+
+    def get_stats(self) -> dict[str, dict]:
+        """
+        {`TRANSPORT_TCP` | `TRANSPORT_RTU`: contadores}, con las claves que documenta el
+        módulo. Thread-safe; se puede llamar con el servidor corriendo o no.
+        """
+        return {transport: stats.get() for transport, stats in self._stats.items()}
 
     # ── Acceso a los registros (thread-safe) ─────────────────────────────────
 
@@ -457,9 +570,11 @@ class SharedModbusServer:
             # ignore_missing_devices=False: una consulta a otro unit id recibe la
             # excepción 0x0B en vez de un timeout opaco. Es punto a punto, no hay bus
             # que pisar, así que conviene avisarle al integrador que el id está mal.
+            stats = self._stats[TRANSPORT_TCP]
             await StartAsyncTcpServer(
                 context=self._context, address=(host, port),
                 ignore_missing_devices=False, broadcast_enable=False,
+                trace_pdu=stats.trace_pdu, trace_connect=stats.trace_connect,
             )
         except asyncio.CancelledError:
             grace.cancel()
@@ -496,6 +611,7 @@ class SharedModbusServer:
             # ignore_missing_devices=True: en un bus RS-485 compartido, contestar una
             # consulta dirigida a otro esclavo pisaría su respuesta y rompería la
             # comunicación de los dos. El maestro ve el timeout del esclavo ausente.
+            stats = self._stats[TRANSPORT_RTU]
             await StartAsyncSerialServer(
                 context=self._context,
                 port=port,
@@ -505,6 +621,7 @@ class SharedModbusServer:
                 bytesize=8,
                 ignore_missing_devices=True,
                 broadcast_enable=False,
+                trace_pdu=stats.trace_pdu, trace_connect=stats.trace_connect,
             )
         except asyncio.CancelledError:
             grace.cancel()
@@ -578,6 +695,8 @@ class SharedModbusServer:
             # apagan igual el bit de la palabra de comunicaciones.
             self._tcp_status = self._settled_status(self._tcp_status)
             self._rtu_status = self._settled_status(self._rtu_status)
+            for stats in self._stats.values():
+                stats.clear_connections()
             self._loop = None
             logger.info("[Modbus] Servidor cerrado correctamente.")
             loop.close()

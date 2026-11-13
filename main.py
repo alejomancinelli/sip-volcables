@@ -251,6 +251,11 @@ _HEALTH_REGISTER_NAMES = frozenset({
 # así que una métrica que se llame igual no las pisa.
 _REGISTER_NAMES = frozenset(reg.name for reg in REGISTERS
                             if reg.producer not in (PRODUCER_PLC, PRODUCER_CONFIG))
+# Las filas que vuelven a 0 cuando ningún resultado confiable las renueva a tiempo.
+_MAX_AGE_S_BY_NAME = SCHEMA.max_age_by_name()
+# Cuánto vale en pantalla un veredicto sin fila en el mapa, o con fila sin `max_age_s`: un
+# OK viejo a la vista es peor que un «sin dato».
+_VERDICT_DEFAULT_MAX_AGE_S = 3.0
 
 _COLLECTOR_MODE_INTERVAL = "interval"
 
@@ -360,10 +365,23 @@ class _HeadlessUi:
     def update_hardware_metrics(self, metrics: dict):
         pass
 
+    def update_inference_times(self, camera_slot: str, pipeline_slot: str,
+                               cycle_time_ms: float, inference_time_ms: float):
+        pass
+
+    def update_heartbeat(self, count: int):
+        pass
+
+    def update_verdicts(self, verdicts: dict):
+        pass
+
     def update_camera_status(self, status: dict, camera_slot: str):
         pass
 
     def update_modbus_values(self, registers: dict):
+        pass
+
+    def update_modbus_stats(self, stats: dict):
         pass
 
     def update_license(self, status: dict):
@@ -384,7 +402,7 @@ class _HeadlessUi:
         pass
 
     def set_gpio(self, gpio_controller: object, gpio_thread: object):
-        """Sin pantalla no hay botón: las palabras de GPIO salen igual al PLC."""
+        """Sin pantalla no hay página de GPIO: las palabras de GPIO salen igual al PLC."""
 
     def set_result_source(self, result_source: Callable[[str, str], object]):
         """Sin pantalla no hay diálogo que mida sobre un frame inferido."""
@@ -395,7 +413,7 @@ class _QtUi:
     La ventana de verdad, detrás de la misma API que `_HeadlessUi`.
 
     Construye `MainWindow` y es la única que sabe que existe: el cableado no toca
-    `diagnostics_view` ni `monitor_view` por su cuenta.
+    las páginas ni `monitor_view` por su cuenta.
     """
 
     def __init__(self, config: ConfigManager):
@@ -442,13 +460,27 @@ class _QtUi:
         self._window.set_stream_urls(service, urls)
 
     def update_hardware_metrics(self, metrics: dict):
-        self._window.diagnostics_view.update_hardware_metrics(metrics)
+        self._window.update_hardware_metrics(metrics)
+
+    def update_inference_times(self, camera_slot: str, pipeline_slot: str,
+                               cycle_time_ms: float, inference_time_ms: float):
+        self._window.update_inference_times(camera_slot, pipeline_slot, cycle_time_ms,
+                                            inference_time_ms)
+
+    def update_heartbeat(self, count: int):
+        self._window.update_heartbeat(count)
+
+    def update_verdicts(self, verdicts: dict):
+        self._window.update_verdicts(verdicts)
 
     def update_camera_status(self, status: dict, camera_slot: str):
-        self._window.diagnostics_view.update_camera_status(status, camera_slot)
+        self._window.update_camera_status(status, camera_slot)
 
     def update_modbus_values(self, registers: dict):
-        self._window.diagnostics_view.update_modbus_values(registers)
+        self._window.update_modbus_values(registers)
+
+    def update_modbus_stats(self, stats: dict):
+        self._window.update_modbus_stats(stats)
 
     def update_license(self, status: dict):
         self._window.update_license(status)
@@ -552,9 +584,10 @@ class Application(QObject):
         self._last_metrics: dict = {}
         self._camera_status: dict[str, dict] = {}
         self._camera_illumination: dict[str, int] = {}
-        # Últimas métricas válidas de cada par (cámara, pipeline), para los registros. Por
+        # Últimas métricas válidas de cada par (cámara, pipeline), para los registros, con el
+        # instante monotónico en que llegaron —es lo que vence una fila con `max_age_s`—. Por
         # par y no por cámara: dos pipelines sobre una cámara se pisarían el dict entero.
-        self._metrics_by_pair: dict[tuple[str, str], dict] = {}
+        self._metrics_by_pair: dict[tuple[str, str], tuple[float, dict]] = {}
         # Si el último resultado de cada par fue confiable, para la palabra de su pipeline.
         self._last_valid_by_pair: dict[tuple[str, str], bool] = {}
         # El último resultado de cada par, para el diálogo que mide sobre un frame inferido.
@@ -725,8 +758,8 @@ class Application(QObject):
         self._ui.update_license(self._license.get_status())
         self._ui.set_result_source(self._get_last_result)
         # Con `gpio.enabled: false` no hay nada del otro lado que comandar, así que no hay
-        # botón. Habilitado y sin hardware sí lo hay: el diálogo es el que avisa que las
-        # salidas no llegan a ningún borne.
+        # página de entradas y salidas. Habilitado y sin hardware sí la hay: es la página la
+        # que avisa que las salidas no llegan a ningún borne.
         if self._gpio.get_status()["status"] != "disabled":
             self._ui.set_gpio(self._gpio, self._gpio_thread)
 
@@ -1067,8 +1100,8 @@ class Application(QObject):
     @Slot(object)
     def _on_result_ready(self, result: InferenceResult):
         """
-        Un resultado del motor, uno por frame: la iluminación de la cámara y si el par
-        (cámara, pipeline) dio un resultado confiable.
+        Un resultado del motor, uno por frame: la iluminación de la cámara, si el par
+        (cámara, pipeline) dio un resultado confiable y sus tiempos, para la página de inicio.
 
         El frame anotado NO sale de acá. Lo publica `_on_cycle_complete`, con el
         representativo del ciclo: es el único que se corresponde con los números que
@@ -1078,6 +1111,8 @@ class Application(QObject):
         self._last_valid_by_pair[(result.camera_slot, result.pipeline_slot)] = result.is_valid
         self._last_result_by_pair[(result.camera_slot, result.pipeline_slot)] = (
             dataclasses.replace(result, annotated_bgr=None, region_bgr=None))
+        self._ui.update_inference_times(result.camera_slot, result.pipeline_slot,
+                                        result.cycle_time_ms, result.inference_time_ms)
         content = self._ui.monitor_content
         if content is not None:
             setter = getattr(content, "set_illumination_pct", None)
@@ -1398,6 +1433,8 @@ class Application(QObject):
         aplica `SCHEMA.encode_batch()`. Los bitfields los arma su propio módulo.
         """
         self._heartbeat = (self._heartbeat + 1) % _HEARTBEAT_MAX
+        self._ui.update_heartbeat(self._heartbeat)
+        self._ui.update_verdicts(self._build_verdicts())
         statuses = self._get_service_statuses()
 
         values = {
@@ -1496,6 +1533,7 @@ class Application(QObject):
         self._ui.set_stream_urls(
             service_status.SERVICE_VIDEO_RTSP, self._rtsp_video.get_stream_urls()
         )
+        self._ui.update_modbus_stats(self._modbus.get_stats())
 
     # ── Salud de la óptica ───────────────────────────────────────────────────
 
@@ -1979,13 +2017,22 @@ class Application(QObject):
         proyecto que mide lo mismo en dos cintas prefija el nombre con el slot
         —`camera_1_coverage_pct`— y declara una fila por cámara, igual que hacen los
         registros de estado.
+
+        **Una fila con `max_age_s` vuelve a 0** —sale en None— si ningún par la renovó en ese
+        tiempo: el pipeline caído, frames que no se pueden juzgar o el equipo arrancando. Las
+        demás quedan con su último valor. Es para un veredicto cuyo 0 quiere decir «sin
+        dato»: sin resultados nuevos nadie lo pisa, y el PLC seguiría leyendo el último.
         """
+        now_s = time.monotonic()
         values = {}
         source_by_name: dict[str, tuple[str, str]] = {}
-        for pair, metrics in self._metrics_by_pair.items():
+        for pair, (stored_s, metrics) in self._metrics_by_pair.items():
             camera_slot, pipeline_slot = pair
             for name, value in metrics.items():
                 if name in _HEALTH_REGISTER_NAMES:
+                    continue
+                max_age_s = _MAX_AGE_S_BY_NAME.get(name)
+                if max_age_s is not None and now_s - stored_s > max_age_s:
                     continue
                 if name in _REGISTER_NAMES:
                     previous = source_by_name.setdefault(name, pair)
@@ -2008,6 +2055,9 @@ class Application(QObject):
                         f"[Main] La métrica '{name}' de {camera_slot}/{pipeline_slot} no "
                         f"tiene fila en register_map.yaml: no se publica al PLC."
                     )
+        for name in _MAX_AGE_S_BY_NAME:
+            if name in _REGISTER_NAMES and name not in values:
+                values[name] = None
         return values
 
     # ── Internos ─────────────────────────────────────────────────────────────
@@ -2069,6 +2119,29 @@ class Application(QObject):
         if content is not None and hasattr(content, "update_status"):
             thread.status_updated.connect(content.update_status)
 
+    def _build_verdicts(self) -> dict:
+        """
+        Los veredictos de cada par para la página de inicio: {(cámara, pipeline): {nombre: 1,
+        0 o None}}, con None si venció.
+
+        Salen del mismo `_metrics_by_pair` que los registros —el último resultado confiable de
+        cada par— y vencen con el mismo `max_age_s` de su fila, así que la pantalla y el PLC
+        no pueden discrepar. Uno sin `max_age_s` vence a los `_VERDICT_DEFAULT_MAX_AGE_S`: en
+        el registro queda el último valor, pero en pantalla un OK que nadie renueva se lee
+        como vigente. El nombre queda aunque venza, para que su lugar diga «sin dato» en vez
+        de desaparecer.
+        """
+        now_s = time.monotonic()
+        verdicts: dict[tuple[str, str], dict] = {}
+        for pair, (stored_s, metrics) in self._metrics_by_pair.items():
+            for name, value in metrics.items():
+                if not analysis.is_verdict_key(name):
+                    continue
+                max_age_s = _MAX_AGE_S_BY_NAME.get(name) or _VERDICT_DEFAULT_MAX_AGE_S
+                verdicts.setdefault(pair, {})[name] = (None if now_s - stored_s > max_age_s
+                                                       else value)
+        return verdicts
+
     def _push_status_to_content(self, status: dict, camera_slot: str):
         """
         Empuja un status al widget del monitor para una cámara sin hilo propio.
@@ -2086,7 +2159,7 @@ class Application(QObject):
         """Guarda las métricas del último resultado válido de cada par, para los registros."""
         if result.is_valid and result.metrics:
             self._metrics_by_pair[(result.camera_slot, result.pipeline_slot)] = \
-                dict(result.metrics)
+                (time.monotonic(), dict(result.metrics))
 
     def _start_timer(self, interval_ms: int, slot) -> QTimer:
         timer = QTimer(self)

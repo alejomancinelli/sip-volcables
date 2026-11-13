@@ -20,7 +20,10 @@ Contrato del analyzer, que es cómo lo llama el motor:
     telemetría y —escalada por el esquema— a los registros del PLC; un dict anidado no
     entra en ninguno de los cuatro.
   - **No modifica el resultado ni toca los frames**, y no guarda estado entre llamadas:
-    el promedio en el tiempo se hace afuera, con `analysis.average_metrics`.
+    el promedio en el tiempo se hace afuera, con `analysis.average_metrics`. La excepción
+    es un filtro que lo declara y lleva su propio estado por par: el de personas
+    (`person_safety.py`), que se suma con `build_analyzer()` como las calzas
+    (`stopper_check.py`).
 
 `hooks.py` lo entrega al motor y por eso el motor sigue siendo genérico:
 
@@ -41,7 +44,10 @@ renombran a la ligera. Si una métrica es por clase, el nombre de la clase se pr
 chocar con una clave fija.
 """
 
+from collections.abc import Callable
+
 from . import analysis
+from .pipeline import FLOW_CLASS, GRAIN_FLOW_LABEL
 from .result import InferenceResult
 
 
@@ -49,10 +55,14 @@ def compute_metrics(result: InferenceResult) -> dict:
     """
     Métricas del proceso para un resultado confiable.
 
-    El template devuelve las genéricas: cuántas detecciones hubo, cuántas de cada clase
-    y qué porcentaje representa cada clase. Acá va la cuenta del proyecto.
+    Las genéricas —cuántas detecciones hubo, cuántas de cada clase y qué porcentaje
+    representa cada clase— y, en un resultado del grano, `flow_ok`: 1 si cae grano y 0
+    cualquier otra cosa. El 0 es el estado seguro: también es lo que lee el PLC sin dato.
     """
     metrics: dict = {"detection_count": result.detection_count}
+    verdict = result.labels.get(GRAIN_FLOW_LABEL)
+    if verdict is not None:
+        metrics["flow_ok"] = int(verdict == FLOW_CLASS)
 
     for class_name, count in analysis.count_by_class(result.detections).items():
         metrics[f"count_{class_name}"] = count
@@ -60,3 +70,24 @@ def compute_metrics(result: InferenceResult) -> dict:
         metrics[f"fraction_{class_name}_pct"] = fraction_pct
 
     return metrics
+
+
+def build_analyzer(*extras: Callable[[InferenceResult], dict]
+                   ) -> Callable[[InferenceResult], dict]:
+    """
+    `compute_metrics` más las métricas de cada extra, en un solo dict plano.
+
+    Sin extras devuelve `compute_metrics` tal cual. Un extra que repite una clave pisa la
+    genérica.
+    """
+    if not extras:
+        return compute_metrics
+
+    def analyze(result: InferenceResult) -> dict:
+        metrics = compute_metrics(result)
+        for extra in extras:
+            metrics.update(extra(result))
+        return metrics
+
+    analyze.__name__ = f"metrics({', '.join(getattr(e, '__name__', repr(e)) for e in extras)})"
+    return analyze

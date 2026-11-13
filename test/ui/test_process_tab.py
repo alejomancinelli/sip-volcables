@@ -14,7 +14,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QPushButton                 # noqa: E402
 
-from system.inference.annotations import DEFAULT_MIN_RAISED_PX          # noqa: E402
+from system.inference.person_safety import (                            # noqa: E402
+    DEFAULT_CONFIRM_HITS, DEFAULT_CONFIRM_WINDOW, DEFAULT_RELEASE_S,
+)
+from system.inference.stopper_check import DEFAULT_MIN_RAISED_PX       # noqa: E402
 from system.inference.result import Detection, InferenceResult         # noqa: E402
 from ui.strings import tr                                               # noqa: E402
 from ui.views.config.process_tab import ProcessTab                      # noqa: E402
@@ -114,6 +117,92 @@ class TestRoundTrip:
         tab, config = _tab()
         tab.save()
         assert config.written[f"{_SECTION}.raised_y_px.camera_2"] is None
+
+
+_PERSON_SECTION = "process.person_safety"
+_WITH_PERSONS = {"inference.pipelines": {
+    "pipeline_2": {"type": "person_safety", "cameras": ["camera_3"]},
+    "pipeline_3": {"type": "stopper_check", "cameras": ["camera_1"]},
+}}
+
+
+class TestPersonFilter:
+    def test_without_person_pipelines_there_is_no_group(self):
+        tab, _ = _tab()
+        assert tab._person is None
+
+    def test_the_values_go_back_as_they_were(self):
+        tab, config = _tab(**_WITH_PERSONS, **{f"{_PERSON_SECTION}.confirm_hits": 3,
+                                               f"{_PERSON_SECTION}.confirm_window": 8,
+                                               f"{_PERSON_SECTION}.release_s": 7})
+        tab.save()
+        assert config.written[f"{_PERSON_SECTION}.confirm_hits"] == 3
+        assert config.written[f"{_PERSON_SECTION}.confirm_window"] == 8
+        assert config.written[f"{_PERSON_SECTION}.release_s"] == 7
+
+    def test_a_release_with_decimals_is_shown_rounded(self):
+        """El campo es de segundos enteros: un valor con decimales escrito a mano se redondea."""
+        tab, _ = _tab(**_WITH_PERSONS, **{f"{_PERSON_SECTION}.release_s": 7.5})
+        assert tab._person._release_spin.value() == 8
+
+    def test_missing_values_show_the_defaults(self):
+        tab, config = _tab(**_WITH_PERSONS)
+        tab.save()
+        assert config.written[f"{_PERSON_SECTION}.confirm_hits"] == DEFAULT_CONFIRM_HITS
+        assert config.written[f"{_PERSON_SECTION}.confirm_window"] == DEFAULT_CONFIRM_WINDOW
+        assert config.written[f"{_PERSON_SECTION}.release_s"] == pytest.approx(DEFAULT_RELEASE_S)
+
+    def test_the_hits_cannot_exceed_the_window(self):
+        """Más aciertos que frames en la ventana y el filtro no arrancaría."""
+        tab, config = _tab(**_WITH_PERSONS)
+        tab._person._confirm_window_spin.setValue(3)
+        tab._person._confirm_hits_spin.setValue(5)
+        tab.save()
+        assert config.written[f"{_PERSON_SECTION}.confirm_hits"] == 3
+
+    def test_the_stopper_tabs_are_still_there(self):
+        tab, _ = _tab(**_WITH_PERSONS)
+        assert list(tab._stoppers) == ["camera_1"]
+
+
+_ZONE_KEY = f"{_PERSON_SECTION}.exclusion_zone_px"
+
+
+class TestPersonZone:
+    def test_one_zone_tab_per_person_camera(self):
+        tab, _ = _tab(**_WITH_PERSONS)
+        assert list(tab._person._zone_labels) == ["camera_3"]
+
+    def test_a_camera_without_zone_says_the_whole_frame_counts(self):
+        tab, _ = _tab(**_WITH_PERSONS)
+        assert tab._person._zone_labels["camera_3"].text() == tr("process_person_no_zone")
+
+    def test_a_drawn_zone_shows_its_vertices(self):
+        tab, _ = _tab(**_WITH_PERSONS, **{_ZONE_KEY: {"camera_3": [[0, 0], [9, 0], [9, 9]]}})
+        assert tab._person._zone_labels["camera_3"].text() == \
+            tr("polygon_vertices").format(count=3)
+
+    def test_the_draw_button_asks_for_its_camera_key(self):
+        tab, _ = _tab(**_WITH_PERSONS)
+        requests = []
+        tab.open_polygon_requested.connect(lambda *args: requests.append(args))
+        buttons = [button for button in tab._person.findChildren(QPushButton)
+                   if button.text() == tr("process_draw_zone")]
+        buttons[0].click()
+        assert requests == [("camera_3", f"{_ZONE_KEY}.camera_3", "process_person_zone")]
+
+    def test_reload_polygon_shows_what_the_dialog_wrote(self):
+        tab, config = _tab(**_WITH_PERSONS)
+        config.set(_ZONE_KEY, {"camera_3": [[0, 0], [9, 0], [9, 9], [0, 9]]})
+        tab.reload_polygon("camera_3")
+        assert tab._person._zone_labels["camera_3"].text() == \
+            tr("polygon_vertices").format(count=4)
+
+    def test_save_does_not_write_the_zone(self):
+        """La zona la escribe su diálogo: guardar la pestaña no la pisa."""
+        tab, config = _tab(**_WITH_PERSONS)
+        tab.save()
+        assert not any(key.startswith(_ZONE_KEY) for key in config.written)
 
 
 class TestLevel:

@@ -1,27 +1,32 @@
 """
 Pestaña de telemetría: la sección `telemetry:` — InfluxDB y MQTT.
 
+Una tarjeta con la forma de las de ajustes (`ui/widgets/settings_card.py`) y una sección
+por destino, cada una con su checkbox de habilitado, que apaga y atenúa sus campos. Se
+aplican al reiniciar.
+
 Las credenciales no están en el formulario porque no están en el config: el token de
-InfluxDB sale de `INFLUXDB_TOKEN` y la password de MQTT de `MQTT_PASSWORD`. Las dos
-notas al pie lo dicen en pantalla, que es donde alguien va a buscar el campo que falta.
+InfluxDB sale de `INFLUXDB_TOKEN` y la password de MQTT de `MQTT_PASSWORD`. Una aclaración
+al pie de cada sección lo dice, que es donde alguien va a buscar el campo que falta.
 
 El muestreo de la telemetría no está en esta pantalla: es un punto por segundo, fijo en
 `main.py`, porque no hay instalación que quiera otro. La estructura de las series está en
 `docs/influxdb.md`, y cómo sale esa misma estructura por MQTT en `docs/mqtt.md`.
 """
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QLabel, QVBoxLayout, QWidget
 
 from system.config_manager import ConfigManager
 
 from ui.strings import tr
 from ui.views.config.abstract_tab import AbstractConfigTab
-from ui.widgets.form import (
-    add_check_row, add_form_row, add_hint_row, build_group_box, build_line_edit,
-    build_spin_box, wire_enable_toggle,
-)
+from ui.widgets.form import build_line_edit, build_spin_box, wire_enable_toggle
+from ui.widgets.settings_card import SettingsCard, SettingsSection
 
 _MAX_PORT = 65535
+
+_CARD_SPACING_PX = 24        # entre tarjetas, como la web
+_COLUMNS = 3
 
 
 class TelemetryTab(AbstractConfigTab):
@@ -32,43 +37,47 @@ class TelemetryTab(AbstractConfigTab):
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.addWidget(self._build_influxdb_box())
-        layout.addWidget(self._build_mqtt_box())
+        # Sin margen propio: la tarjeta arranca en el borde del encabezado de la página.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_CARD_SPACING_PX)
+        layout.addWidget(self._build_destinations_card())
         layout.addStretch()
         self.load()
 
     # ── Construcción ─────────────────────────────────────────────────────────
 
-    def _build_influxdb_box(self) -> QWidget:
-        box, form = build_group_box(tr("tel_box_influxdb"))
-        self._influx_enabled = add_check_row(form, tr("field_enabled"), False)
-        self._influx_url = add_form_row(
-            form, tr("field_url"), build_line_edit("", "http://localhost:8086")
-        )
-        self._influx_org = add_form_row(form, tr("tel_org"), build_line_edit(""))
-        self._influx_bucket = add_form_row(form, tr("tel_bucket"), build_line_edit(""))
-        add_hint_row(form, tr("tel_influx_token_note"))
+    def _build_destinations_card(self) -> QWidget:
+        card = SettingsCard(tr("tel_card_destinations"))
+
+        influx = card.add_section(tr("tel_box_influxdb"), tr("tel_influx_description"),
+                                  _COLUMNS)
+        self._influx_enabled = influx.add_row(QCheckBox(tr("tel_influx_enabled")))
+        self._influx_url = influx.add_field(
+            tr("field_url"), build_line_edit("", "http://localhost:8086"))
+        self._influx_org = influx.add_field(tr("tel_org"), build_line_edit(""))
+        self._influx_bucket = influx.add_field(tr("tel_bucket"), build_line_edit(""))
+        _add_note(influx, tr("tel_influx_token_note"))
         wire_enable_toggle(self._influx_enabled, [
             self._influx_url, self._influx_org, self._influx_bucket,
         ])
-        return box
 
-    def _build_mqtt_box(self) -> QWidget:
-        box, form = build_group_box(tr("tel_box_mqtt"))
-        self._mqtt_enabled = add_check_row(form, tr("field_enabled"), False)
-        self._mqtt_host = add_form_row(form, tr("field_host"), build_line_edit("", "192.168.0.20"))
+        mqtt = card.add_section(tr("tel_box_mqtt"), tr("tel_mqtt_description"), _COLUMNS)
+        self._mqtt_enabled = mqtt.add_row(QCheckBox(tr("tel_mqtt_enabled")))
+        self._mqtt_host = mqtt.add_field(tr("field_host"), build_line_edit("", "192.168.0.20"))
         # 0 no es un puerto: es "el que corresponda según tls", y lo resuelve el backend.
-        self._mqtt_port = add_form_row(form, tr("field_port"), build_spin_box(0, _MAX_PORT, 0))
-        self._mqtt_tls = add_check_row(form, tr("tel_tls"), False)
-        self._mqtt_user = add_form_row(form, tr("field_user"), build_line_edit(""))
-        self._mqtt_topic_base = add_form_row(form, tr("tel_topic_base"), build_line_edit(""))
-        add_hint_row(form, tr("tel_mqtt_password_note"))
+        self._mqtt_port = mqtt.add_field(
+            tr("field_port"), build_spin_box(0, _MAX_PORT, 0), hint=tr("tel_mqtt_port_hint"))
+        # Al lado del puerto, porque con 0 lo elige: 1883 o 8883.
+        self._mqtt_tls = mqtt.add_field(tr("tel_security"), QCheckBox(tr("tel_tls")))
+        self._mqtt_user = mqtt.add_field(tr("field_user"), build_line_edit(""))
+        self._mqtt_topic_base = mqtt.add_field(
+            tr("tel_topic_base"), build_line_edit(""), hint=tr("tel_topic_base_hint"), span=2)
+        _add_note(mqtt, tr("tel_mqtt_password_note"))
         wire_enable_toggle(self._mqtt_enabled, [
             self._mqtt_host, self._mqtt_port, self._mqtt_tls,
             self._mqtt_user, self._mqtt_topic_base,
         ])
-        return box
+        return card
 
     # ── Contrato de la pestaña ───────────────────────────────────────────────
 
@@ -99,3 +108,11 @@ class TelemetryTab(AbstractConfigTab):
         self._config.set("telemetry.mqtt.tls", self._mqtt_tls.isChecked())
         self._config.set("telemetry.mqtt.user", self._mqtt_user.text())
         self._config.set("telemetry.mqtt.topic_base", self._mqtt_topic_base.text())
+
+
+def _add_note(section: SettingsSection, text: str):
+    """Una aclaración a todo el ancho de los campos, al pie de la sección."""
+    note = QLabel(text)
+    note.setObjectName("settingsFieldHint")
+    note.setWordWrap(True)
+    section.add_row(note)

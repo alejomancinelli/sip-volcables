@@ -1,0 +1,1035 @@
+/* ============================================================
+   Hoja de estilos de la interfaz — una sola plantilla para los dos temas.
+
+   Único lugar donde se pintan los widgets estándar de la UI: ningún
+   widget de ui/ llama a setStyleSheet() por su cuenta. Lo que el QSS no
+   alcanza —QPainter, series de QtCharts, items de tabla— saca sus colores
+   de ui/theme.py.
+
+   Los colores no se escriben acá: son tokens ($card, $border) que
+   theme.load_stylesheet() reemplaza con los del tema. Un color nuevo es
+   un token en los dos temas de theme.py; una regla nueva vale sola para
+   los dos.
+
+   Los selectores por propiedad (state, selected, alert) los alimentan
+   los widgets con setProperty() + unpolish/polish.
+   ============================================================ */
+
+QWidget {
+    font-family: "$font_ui";
+    font-size: 10pt;
+    color: $foreground;
+}
+QMainWindow, QDialog {
+    background-color: $background;
+}
+QLabel {
+    background-color: transparent;
+}
+QToolTip {
+    background-color: $popover;
+    color: $foreground;
+    border: 1px solid $border;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+/* ── Barra lateral (oscura en los dos temas) ────────────────── */
+
+/* La textura y el filete de la vista activa los dibuja ui/widgets/sidebar.py. */
+QWidget#appSidebar {
+    background-color: $sidebar;
+    border-right: 1px solid $sidebar_border;
+}
+QWidget#appSidebar QLabel {
+    color: $sidebar_foreground;
+}
+QWidget#sidebarDevice {
+    background-color: $sidebar_card;
+    border: 1px solid $sidebar_border;
+    border-radius: 8px;
+}
+QWidget#appSidebar QLabel#sidebarDeviceName {
+    color: $sidebar_active_foreground;
+    font-family: "$font_heading";
+    font-size: 13pt;
+    font-weight: 600;
+}
+QWidget#appSidebar QLabel#sidebarDeviceDetail {
+    color: $sidebar_icon;
+    font-size: 9pt;
+}
+QWidget#appSidebar QLabel#sidebarGroupLabel {
+    color: $sidebar_muted;
+    font-family: "$font_mono";
+    font-size: 8pt;
+    font-weight: bold;
+    padding-left: 8px;
+}
+QWidget#sidebarDivider {
+    background-color: $sidebar_divider;
+}
+QWidget#sidebarFooterBar {
+    border-top: 1px solid $sidebar_border;
+}
+QWidget#appSidebar QLabel#sidebarFooter {
+    color: $sidebar_muted;
+    font-size: 8pt;
+}
+QPushButton#navButton {
+    background-color: transparent;
+    color: $sidebar_foreground;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 10px;
+    text-align: left;
+    font-weight: normal;
+}
+QPushButton#navButton[collapsed="true"] {
+    padding: 9px 0;
+    text-align: center;
+}
+QPushButton#navButton:hover {
+    background-color: $sidebar_hover;
+    color: $sidebar_active_foreground;
+}
+QPushButton#navButton:checked {
+    background-color: $sidebar_active;
+    color: $sidebar_active_foreground;
+}
+QPushButton#navCollapseButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 0;
+}
+QPushButton#navCollapseButton:hover {
+    background-color: $sidebar_hover;
+}
+
+/* ── Barra superior y barra de estado ───────────────────────── */
+
+QWidget#appTopBar {
+    background-color: $card;
+    border-bottom: 1px solid $border;
+}
+QLabel#breadcrumbRoot, QLabel#breadcrumbSeparator {
+    color: $muted_foreground;
+}
+QLabel#breadcrumbCurrent {
+    font-weight: 500;
+}
+/* El cambio de tema: un ícono sin contorno hasta pasar el mouse, como el de la web. */
+QPushButton#topBarIconButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 0;
+}
+QPushButton#topBarIconButton:hover {
+    background-color: $accent;
+}
+/* La búsqueda de la barra superior: parece un campo y abre la paleta. */
+QPushButton#topBarSearch {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 0;
+}
+QPushButton#topBarSearch:hover {
+    border-color: $input;
+}
+QLabel#topBarSearchText {
+    color: $muted_foreground;
+    font-size: 9.5pt;
+}
+QPushButton#topBarSearch:hover QLabel#topBarSearchText {
+    color: $foreground;
+}
+/* Una tecla, como el <Kbd> de la web. */
+QLabel#kbd {
+    color: $muted_foreground;
+    background-color: $muted;
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-family: "$font_mono";
+    font-size: 8pt;
+}
+
+/* La paleta de búsqueda (ui/widgets/command_palette.py). */
+QFrame#commandPalette {
+    background-color: $popover;
+    border: 1px solid $input;
+    border-radius: 12px;
+}
+QLineEdit#commandInput {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 12px 10px;
+    font-size: 10.5pt;
+}
+QListWidget#commandList {
+    background-color: transparent;
+    border: none;
+    outline: none;
+    padding: 4px 6px;
+}
+QListWidget#commandList::item {
+    border-radius: 6px;
+}
+QListWidget#commandList::item:selected {
+    background-color: $accent;
+}
+QLabel#commandGroup {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 8pt;
+    font-weight: bold;
+    padding: 8px 12px 0 12px;
+}
+QLabel#commandTitle {
+    font-size: 10pt;
+}
+QLabel#commandDetail {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+QLabel#commandEmpty {
+    color: $muted_foreground;
+    padding: 28px;
+}
+QLabel#commandFooter {
+    color: $muted_foreground;
+    font-size: 8.5pt;
+    padding: 8px 14px;
+}
+/* Lo que se encontró con la búsqueda: su rótulo en el color de marca, unos segundos. */
+QWidget[searchHit="field"] QLabel#settingsFieldLabel,
+QWidget[searchHit="section"] QLabel#settingsSectionTitle {
+    color: $primary;
+}
+QWidget#appFooter {
+    background-color: $footer_background;
+    border-top: 1px solid $border;
+}
+QWidget#appFooter QLabel {
+    font-family: "$font_mono";
+    font-size: 9pt;
+}
+/* La versión y el reloj, más apagados que el mensaje: son referencia, no un aviso. */
+QLabel#footerVersion, QLabel#footerClock {
+    color: $muted_foreground;
+}
+/* Sin licencia válida la barra entera se pinta de rojo; el texto pasa a blanco. */
+QWidget#appFooter[alert="true"] QLabel {
+    color: $footer_alert_foreground;
+}
+
+/* ── Títulos y textos ───────────────────────────────────────── */
+
+/* Encabezado de una página (ui/widgets/page_header.py): rótulo con filete, título y una
+   línea de descripción. El título va a 32 px, como la web. */
+QWidget#pageEyebrowBar {
+    background-color: $brand;
+    border-radius: 1px;
+}
+QLabel#pageEyebrow {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 8.5pt;
+    font-weight: bold;
+}
+QLabel#viewTitle {
+    font-family: "$font_heading";
+    font-size: 24pt;
+    font-weight: 600;
+}
+QLabel#pageDescription {
+    color: $muted_foreground;
+    font-size: 11pt;
+}
+QLabel#hintLabel {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+QLabel#warningBanner {
+    background-color: $warn_soft;
+    color: $warn;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-weight: 500;
+}
+
+/* Tarjeta de una pestaña: transparente, los grupos de adentro son las tarjetas. */
+QWidget#configCard {
+    background-color: transparent;
+}
+
+/* ── Tarjetas (QGroupBox) ───────────────────────────────────── */
+
+QGroupBox {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 10px;
+    margin-top: 0;
+    padding: 36px 14px 14px 14px;
+    font-weight: 500;
+}
+QGroupBox::title {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 16px;
+    top: 12px;
+    padding: 0;
+    color: $foreground;
+    font-weight: 500;
+    background-color: transparent;
+}
+
+/* ── Barra de cambios sin guardar (ui/widgets/save_bar.py) ───── */
+
+QWidget#saveBar {
+    background-color: $save_bar_background;
+    border: 1px solid $save_bar_border;
+    border-radius: 12px;
+}
+QWidget#saveBar QLabel#saveBarMessage {
+    color: $save_bar_foreground;
+    font-size: 10pt;
+}
+QPushButton#saveBarDiscard {
+    background-color: transparent;
+    color: $save_bar_muted;
+    border: none;
+}
+QPushButton#saveBarDiscard:hover {
+    background-color: $save_bar_hover;
+    color: $save_bar_foreground;
+}
+QPushButton#saveBarSave {
+    background-color: $brand;
+    color: $save_bar_action_foreground;
+    border: none;
+}
+QPushButton#saveBarSave:hover {
+    background-color: $save_bar_action_hover;
+}
+
+/* ── Tarjeta de ajustes (ui/widgets/settings_card.py) ────────── */
+
+QWidget#settingsCard {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 12px;
+}
+QWidget#settingsDivider {
+    background-color: $border;
+}
+QLabel#settingsEyebrow {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 8pt;
+    font-weight: bold;
+}
+/* Los tamaños de la web en puntos: 15 px el título de sección, 13 la descripción y el
+   rótulo de un campo, 12 su aclaración. */
+QLabel#settingsSectionTitle {
+    font-family: "$font_heading";
+    font-size: 11pt;
+    font-weight: 600;
+}
+QLabel#settingsSectionDescription {
+    color: $muted_foreground;
+    font-size: 9.5pt;
+}
+QLabel#settingsFieldLabel {
+    font-size: 9.5pt;
+    font-weight: 500;
+}
+QLabel#settingsFieldHint {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+/* La lista de una sección (SettingsList): borde fino y un filete entre filas, sin fondo. */
+QWidget#settingsList {
+    background-color: transparent;
+    border: 1px solid $border;
+    border-radius: 8px;
+}
+QLabel#settingsListTitle {
+    font-size: 10pt;
+    font-weight: 500;
+}
+QLabel#settingsListDetail {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 9pt;
+}
+/* Un resumen de lo elegido, debajo de los campos: la trama de la línea RTU. */
+QLabel#settingsSummary {
+    background-color: $muted;
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 9.5pt;
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+/* Una fila de URLs de la pestaña de streams: la URL monoespaciada, en el color de un enlace. */
+QWidget#streamRow {
+    border-top: 1px solid $border;
+}
+QWidget#streamRow:hover {
+    background-color: $accent;
+}
+QLabel#streamUrl {
+    color: $primary;
+    font-family: "$font_mono";
+    font-size: 9.5pt;
+}
+QLabel#streamEmpty {
+    color: $muted_foreground;
+    font-size: 9pt;
+    border-top: 1px solid $border;
+    padding: 12px 20px;
+}
+
+/* ── Comunicación: bits de una palabra y estadísticas de Modbus ── */
+
+QLabel#bitWordTitle {
+    font-family: "$font_heading";
+    font-size: 10.5pt;
+    font-weight: 600;
+}
+QLabel#bitWordTitle[muted="true"] {
+    color: $muted_foreground;
+    font-family: "$font_ui";
+    font-size: 9.5pt;
+    font-weight: normal;
+}
+QLabel#bitWordValue {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 10pt;
+}
+/* Prendido en el celeste de la marca y no en verde o rojo: según la palabra, un bit
+   prendido es una falla o es que todo anda. */
+QLabel#bitDot {
+    min-width: 8px; max-width: 8px;
+    min-height: 8px; max-height: 8px;
+    border-radius: 4px;
+    background-color: $border;
+}
+QLabel#bitDot[on="true"] {
+    background-color: $brand;
+}
+QLabel#bitIndex {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 9.5pt;
+}
+QLabel#bitDescription {
+    color: $muted_foreground;
+    font-size: 9.5pt;
+}
+QLabel#bitDescription[on="true"] {
+    color: $foreground;
+    font-weight: 500;
+}
+QLabel#statsLocation {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 9pt;
+}
+QLabel#statsRate {
+    font-family: "$font_heading";
+    font-size: 16pt;
+    font-weight: 600;
+}
+QWidget#statsCell {
+    border-top: 1px solid $border;
+}
+QWidget#statsCell[column="1"] {
+    border-left: 1px solid $border;
+}
+QLabel#statsValue {
+    font-family: "$font_mono";
+    font-size: 12pt;
+}
+QLabel#statsValue[warn="true"] {
+    color: $warn;
+}
+
+/* ── Hardware (ui/views/diagnostics/hardware_tab.py) ─────────── */
+
+/* Las métricas de la fila de arriba: un filete arriba de todas y otro entre una y otra. */
+QWidget#metricTile {
+    border-top: 1px solid $border;
+}
+QWidget#metricTile[first="false"] {
+    border-left: 1px solid $border;
+}
+QLabel#metricValue {
+    font-family: "$font_heading";
+    font-size: 20pt;
+    font-weight: 600;
+}
+QLabel#metricUnit {
+    color: $muted_foreground;
+    font-family: "$font_heading";
+    font-size: 10pt;
+    font-weight: 500;
+}
+QLabel#metricFoot {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+/* Una zona térmica de la pestaña Hardware: una baldosa apagada, el valor y su barra. */
+QWidget#temperatureTile {
+    background-color: $muted;
+    border-radius: 8px;
+}
+QLabel#temperatureValue {
+    font-family: "$font_heading";
+    font-size: 14pt;
+    font-weight: 600;
+}
+QLabel#temperatureValue[warn="true"] {
+    color: $warn;
+}
+QProgressBar#temperatureBar {
+    background-color: $border;
+    border: none;
+    border-radius: 2px;
+}
+QProgressBar#temperatureBar::chunk {
+    background-color: $primary;
+    border-radius: 2px;
+}
+QProgressBar#temperatureBar[warn="true"]::chunk {
+    background-color: $warn;
+}
+QLabel#metricFoot[warn="true"], QLabel#tableValue[warn="true"], QLabel#hintLabel[warn="true"] {
+    color: $warn;
+}
+/* El resultado de instalar una licencia que no se pudo instalar. */
+QLabel#licenseResult[error="true"] {
+    color: $crit;
+}
+
+/* ── Página de inicio (ui/views/home_view.py) ────────────────── */
+
+/* La placa: «noche IEA» en los dos temas. La textura, la órbita y el anillo los dibuja
+   la vista; los textos van con dos ids para ganarle a la regla general de la placa. */
+QWidget#homeNameplate {
+    background-color: $nameplate_background;
+    border-radius: 12px;
+}
+QWidget#homeNameplate QLabel {
+    color: $nameplate_foreground;
+}
+QWidget#homeNameplate QLabel#homeNameplateEyebrow {
+    color: $nameplate_faint;
+    font-family: "$font_mono";
+    font-size: 8pt;
+    font-weight: bold;
+}
+QWidget#homeNameplate QLabel#homeNameplateTitle {
+    font-family: "$font_heading";
+    font-size: 30pt;
+    font-weight: bold;
+}
+QWidget#homeNameplate QLabel#homeNameplateTagline {
+    color: $nameplate_muted;
+    font-size: 11pt;
+}
+QWidget#homeNameplate QLabel#homeSpecLabel {
+    color: $nameplate_faint;
+    font-size: 8.5pt;
+}
+QWidget#homeNameplate QLabel#homeSpecValue {
+    font-family: "$font_mono";
+    font-size: 10.5pt;
+}
+QWidget#homeRingBox {
+    background-color: $nameplate_box;
+    border: 1px solid $nameplate_border;
+    border-radius: 12px;
+}
+QWidget#homeNameplate QLabel#homeRingCaption {
+    font-weight: 500;
+}
+QWidget#homeNameplate QLabel#homeRingDetail {
+    color: $nameplate_faint;
+    font-size: 9pt;
+}
+/* El punto del estado general, junto al rótulo de la placa. */
+QWidget#homeLiveDot {
+    border-radius: 3px;
+    background-color: $nameplate_ok;
+}
+QWidget#homeLiveDot[state="warning"] { background-color: $nameplate_warn; }
+QWidget#homeLiveDot[state="error"]   { background-color: $nameplate_crit; }
+
+QWidget#homeCard {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 12px;
+}
+QWidget#homeDivider {
+    background-color: $border;
+}
+QLabel#homeRowDetail {
+    color: $muted_foreground;
+    font-size: 9pt;
+}
+/* Las tablas livianas de una tarjeta —las de inicio y las de hardware— comparten la forma:
+   rótulos chicos y apagados, el nombre en el texto de la interfaz y los números en mono. */
+QLabel#homeCardTitle {
+    font-family: "$font_heading";
+    font-size: 11.5pt;
+    font-weight: 600;
+}
+QLabel#homeCardDetail, QLabel#tableDetail {
+    color: $muted_foreground;
+    font-family: "$font_mono";
+    font-size: 9pt;
+}
+QLabel#homeFieldLabel, QLabel#tableHeader {
+    color: $muted_foreground;
+    font-size: 8.5pt;
+}
+QLabel#homeFieldValue, QLabel#tableValue {
+    font-family: "$font_mono";
+    font-size: 10pt;
+}
+QLabel#homeRowLabel, QLabel#tableCell {
+    font-size: 10pt;
+}
+/* «Ver monitor»: un enlace con forma de botón, sin contorno hasta pasar el mouse. */
+QPushButton#ghostButton {
+    background-color: transparent;
+    color: $muted_foreground;
+    border: 1px solid transparent;
+    padding: 4px 10px;
+}
+QPushButton#ghostButton:hover {
+    background-color: $accent;
+    color: $foreground;
+}
+
+/* Píldora de estado (StatusChip con pill=True): el color de estado sobre su tono suave. */
+QLabel#statusPill {
+    border-radius: 7px;
+    padding: 2px 9px;
+    font-size: 8.5pt;
+    font-weight: 500;
+    color: $warn;
+    background-color: $warn_soft;
+}
+QLabel#statusPill[state="ok"]      { color: $ok;      background-color: $ok_soft; }
+QLabel#statusPill[state="error"]   { color: $crit;    background-color: $crit_soft; }
+QLabel#statusPill[state="info"]    { color: $primary; background-color: $brand_soft; }
+QLabel#statusPill[state="warning"] { color: $warn;    background-color: $warn_soft; }
+QLabel#statusPill[state="neutral"] { color: $muted_foreground; background-color: $muted; }
+
+/* ── Chips de estado (se revisan aparte) ────────────────────── */
+
+QLabel#statusChip {
+    border-radius: 8px;
+    padding: 5px;
+    font-weight: bold;
+    color: black;
+    background-color: rgba(255,252,160,150);
+}
+QLabel#statusChip[state="ok"]      { background-color: rgba(190,255,190,120); }
+QLabel#statusChip[state="error"]   { background-color: rgba(255,190,190,120); }
+QLabel#statusChip[state="info"]    { background-color: rgb(169,215,255); }
+QLabel#statusChip[state="warning"] { background-color: rgba(255,252,160,150); }
+QLabel#statusChip[state="neutral"] { background-color: $muted; color: $muted_foreground; }
+/* La versión chica, para compartir la fila con un título: la de cada cámara. */
+QLabel#statusChip[compact="true"] {
+    border-radius: 6px;
+    padding: 1px 7px;
+    font-size: 8pt;
+}
+
+/* ── Feed de video ──────────────────────────────────────────── */
+
+/* La tarjeta de una cámara: el nombre y sus chips en una fila, y el video debajo. */
+QWidget#cameraPanel {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 10px;
+}
+QLabel#cameraTitle {
+    font-weight: 500;
+}
+
+QLabel#videoFeed {
+    background-color: $video_background;
+    color: $video_placeholder;
+    border-radius: 6px;
+    font-weight: bold;
+}
+
+/* ── Botones ────────────────────────────────────────────────── */
+
+/* El botón por defecto es el de contorno; el principal se pide por objectName. */
+QPushButton {
+    background-color: $card;
+    color: $foreground;
+    border: 1px solid $input;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-weight: 500;
+}
+QPushButton:hover   { background-color: $accent; }
+QPushButton:pressed { background-color: $secondary; }
+QPushButton:checked {
+    background-color: $brand_soft;
+    border-color: $brand;
+}
+QPushButton:disabled {
+    background-color: $muted;
+    color: $muted_foreground;
+    border-color: $border;
+}
+
+QPushButton#saveButton, QPushButton#primaryButton {
+    background-color: $primary;
+    color: $primary_foreground;
+    border: 1px solid $primary;
+}
+QPushButton#saveButton:hover, QPushButton#primaryButton:hover {
+    background-color: $primary_hover;
+    border-color: $primary_hover;
+}
+QPushButton#saveButton:pressed, QPushButton#primaryButton:pressed {
+    background-color: $primary_pressed;
+    border-color: $primary_pressed;
+}
+
+/* Restablecer y limpiar borran algo: el rojo de estado, suave. */
+QPushButton#resetButton, QPushButton#clearButton {
+    background-color: $crit_soft;
+    color: $crit;
+    border: 1px solid transparent;
+}
+QPushButton#resetButton:hover, QPushButton#clearButton:hover {
+    border-color: $crit;
+}
+QPushButton#clearButton {
+    padding: 2px 10px;
+    font-size: 9pt;
+}
+
+QPushButton#topBarButton {
+    padding: 5px 12px;
+}
+
+/* Control segmentado —el filtro del log y el de los registros—: el elegido es una tarjeta
+   sobre el fondo apagado. */
+QWidget#segmentedControl {
+    background-color: $muted;
+    border-radius: 7px;
+}
+QPushButton#segmentButton {
+    background-color: transparent;
+    color: $muted_foreground;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 9pt;
+}
+QPushButton#segmentButton:hover { color: $foreground; }
+QPushButton#segmentButton[selected="true"] {
+    background-color: $card;
+    color: $foreground;
+    border-color: $border;
+    font-weight: 500;
+}
+
+/* ── GPIO (estados: se revisan con los chips) ───────────────── */
+
+QLabel#gpioIndicator, QPushButton#gpioOutput {
+    border-radius: 8px;
+    font-weight: bold;
+}
+QLabel#gpioIndicator[state="high"] {
+    background-color: rgba(190,255,190,200);
+    color: #155724;
+    border: 2px solid #28a745;
+}
+QLabel#gpioIndicator[state="low"] {
+    background-color: rgba(255,190,190,180);
+    color: #721c24;
+    border: 2px solid #dc3545;
+}
+QLabel#gpioIndicator[state="unknown"] {
+    background-color: rgba(255,252,160,150);
+    color: #856404;
+    border: 2px solid #ffc107;
+}
+QPushButton#gpioOutput[state="high"] {
+    background: #198754;
+    color: white;
+    border: 2px solid #28a745;
+}
+QPushButton#gpioOutput[state="high"]:hover { background: #157347; }
+QPushButton#gpioOutput[state="low"] {
+    background: rgb(100,100,100);
+    color: white;
+    border: none;
+}
+QPushButton#gpioOutput[state="low"]:hover { background: rgb(130,130,130); }
+
+/* ── Inputs ─────────────────────────────────────────────────── */
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: $card;
+    color: $foreground;
+    border: 1px solid $input;
+    border-radius: 6px;
+    padding: 3px 8px;
+    selection-background-color: $brand;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border-color: $brand;
+}
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background-color: $muted;
+    color: $muted_foreground;
+}
+QLineEdit#readonlyField {
+    background-color: $muted;
+    color: $muted_foreground;
+    border-color: $border;
+    font-family: "$font_mono";
+}
+
+/* Los números van en Ubuntu Mono, como los datos técnicos de la web, y sin flechas: se
+   tipean, o se mueven con las flechas del teclado y la rueda del mouse. */
+QSpinBox, QDoubleSpinBox {
+    font-family: "$font_mono";
+    font-size: 10.5pt;     /* la mono dibuja más chica que Ubuntu al mismo tamaño */
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    width: 0;
+    border: none;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow,
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+}
+
+/* La lista se abre siempre debajo del combo. El estilo de Qt la centra sobre la opción
+   elegida, y con la última elegida la lista entera queda por encima del control. */
+QComboBox {
+    combobox-popup: 0;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 22px;
+    border: none;
+    background-color: transparent;
+}
+QComboBox::down-arrow {
+    image: url("$qss_icons_dir/chevron-down.svg");
+    width: 14px;
+    height: 14px;
+}
+QComboBox QAbstractItemView {
+    background-color: $popover;
+    color: $foreground;
+    border: 1px solid $border;
+    outline: 0;
+    selection-background-color: $accent;
+    selection-color: $foreground;
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: $accent;
+    color: $foreground;
+}
+
+QCheckBox {
+    spacing: 8px;
+    background-color: transparent;
+}
+QCheckBox:disabled { color: $muted_foreground; }
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid $input;
+    border-radius: 4px;
+    background-color: $card;
+}
+QCheckBox::indicator:hover { border-color: $brand; }
+QCheckBox::indicator:checked {
+    background-color: $primary;
+    border-color: $primary;
+    image: url("$qss_icons_dir/check.svg");
+}
+QCheckBox::indicator:disabled {
+    background-color: $muted;
+    border-color: $border;
+}
+
+QMenu {
+    background-color: $popover;
+    color: $foreground;
+    border: 1px solid $border;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 5px 18px;
+    border-radius: 4px;
+}
+QMenu::item:selected { background-color: $accent; }
+QMenu::item:disabled { color: $muted_foreground; }
+
+/* ── Pestañas: subrayadas, sobre el fondo de la página ──────── */
+
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid $border;
+    background-color: transparent;
+    top: -1px;
+}
+QTabBar {
+    background-color: transparent;
+}
+QTabBar::tab {
+    background-color: transparent;
+    color: $muted_foreground;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 4px 0 11px 0;
+    margin-right: 26px;
+    font-size: 10.5pt;
+    font-weight: 500;
+}
+QTabBar::tab:selected {
+    color: $foreground;
+    border-bottom: 2px solid $brand;
+}
+QTabBar::tab:hover:!selected {
+    color: $foreground;
+}
+/* Las sub-pestañas por slot —una por cámara, modelo, pipeline— van adentro de una tarjeta:
+   un paso más chicas que las de la página, para que se lea cuál manda. */
+QTabWidget#slotTabs > QTabBar::tab {
+    padding: 2px 0 8px 0;
+    margin-right: 20px;
+    font-size: 9.5pt;
+}
+/* La sub-pestaña general —lo que vale para todos los slots— va última y con el tinte de la
+   marca, para que no se lea como un slot más (`add_general_tab()` de ui/widgets/form.py). */
+QTabWidget[hasGeneralTab="true"] > QTabBar::tab:last {
+    background-color: $brand_soft;
+    color: $primary;
+    padding: 4px 14px 11px 14px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+QTabBar QToolButton {
+    background-color: $card;
+    border: 1px solid $border;
+    border-radius: 4px;
+}
+
+/* ── Tablas y scroll ────────────────────────────────────────── */
+
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+/* `setWidget()` le prende el autollenado al contenido, que sin esto pinta el gris de la
+   paleta por defecto de Qt en vez del fondo de la página. */
+QScrollArea > QWidget > QWidget {
+    background-color: transparent;
+}
+
+QTableWidget {
+    background-color: $card;
+    color: $foreground;
+    border: 1px solid $border;
+    border-radius: 8px;
+    gridline-color: $border;
+    font-size: 9pt;
+    selection-background-color: $brand_soft;
+    selection-color: $foreground;
+}
+/* Una tabla adentro de una tarjeta: sin borde ni fondo propios, los pone la tarjeta. */
+QTableWidget#cardTable {
+    background-color: transparent;
+    border: none;
+    border-radius: 0px;
+}
+QTableWidget#cardTable QHeaderView::section {
+    background-color: transparent;
+    padding: 8px 12px;
+}
+/* 9 y no 12: Qt suma 3 px de margen al texto de cada celda, y así queda bajo su encabezado. */
+QTableWidget#cardTable::item {
+    padding: 0px 9px;
+    border-bottom: 1px solid $border;
+}
+QTableWidget#cardTable::item:hover {
+    background-color: $accent;
+}
+QHeaderView {
+    background-color: transparent;
+}
+QHeaderView::section {
+    background-color: $muted;
+    color: $muted_foreground;
+    padding: 5px 6px;
+    border: none;
+    border-bottom: 1px solid $border;
+    font-weight: 500;
+}
+QTableCornerButton::section {
+    background-color: $muted;
+    border: none;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 2px;
+}
+QScrollBar::handle:vertical {
+    background: $scrollbar_handle;
+    border-radius: 3px;
+    min-height: 24px;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px;
+}
+QScrollBar::handle:horizontal {
+    background: $scrollbar_handle;
+    border-radius: 3px;
+    min-width: 24px;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: transparent;
+}

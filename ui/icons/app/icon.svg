@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 56 56" fill="none">
+  <defs><linearGradient id="bg" x1=".25" y1=".067" x2=".75" y2=".933"><stop offset="0" stop-color="#0e6ab0"/><stop offset=".7" stop-color="#01366c"/></linearGradient><radialGradient id="sph" cx=".34" cy=".3" r=".75"><stop offset="0" stop-color="#eafbff"/><stop offset=".2" stop-color="#a4def5"/><stop offset=".55" stop-color="#28a7e0"/><stop offset="1" stop-color="#01366c"/></radialGradient><clipPath id="sq"><rect width="56" height="56" rx="16"/></clipPath></defs>
+  <rect width="56" height="56" rx="16" fill="url(#bg)"/>
+  <g clip-path="url(#sq)"><path d="M-4 44C10 30 30 20 60 19" stroke="#28a7e0" stroke-opacity=".7" stroke-width="1.2"/></g>
+  <circle cx="40" cy="20.5" r="4.2" fill="url(#sph)"/>
+  <rect x=".5" y=".5" width="55" height="55" rx="15.5" stroke="#fff" stroke-opacity=".15"/>
+  <g transform="translate(7.28 7.28) scale(1.7267)" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.38 10.95 L5.61 7.58 L7.98 5.84 L10.43 6.73 L8.37 12.40z"/><path d="M9.14 12.68 L12.04 4.71 L22.00 8.34 L19.10 16.31z"/><path d="M4.38 10.95 L19.10 16.31"/><circle cx="6.08" cy="12.96" r="1.22"/><circle cx="14.67" cy="16.08" r="1.22"/><circle cx="17.12" cy="16.98" r="1.22"/><path d="M2.00 13.21 L18.71 19.29 L2.00 19.29"/></g>
+</svg>

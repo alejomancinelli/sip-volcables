@@ -54,3 +54,37 @@ class TestFooterAlert:
         for dark in (True, False):
             palette = theme.get_palette(dark)
             assert palette["footer_flash"] != palette["footer_alert"]
+
+
+class TestStylesheetTokens:
+    """
+    La hoja de estilos es una plantilla para los dos temas, y sus colores son tokens.
+
+    Lo que antes rompía en silencio —una regla en un tema y no en el otro— ahora no puede
+    pasar; lo que sí puede pasar es un token que la plantilla nombra y un tema no define,
+    y eso deja a Qt descartando la regla sin decir nada.
+    """
+
+    def test_both_themes_declare_the_same_tokens(self):
+        assert set(theme.get_tokens(True)) == set(theme.get_tokens(False))
+
+    def test_the_stylesheet_leaves_no_token_unreplaced_in_either_theme(self):
+        for dark in (True, False):
+            stylesheet = theme.load_stylesheet(dark)
+            assert stylesheet, f"hoja vacía en el tema {'oscuro' if dark else 'claro'}"
+            assert "$" not in stylesheet
+
+    def test_the_themes_render_different_stylesheets(self):
+        """Si los dos temas dieran la misma hoja, el de arriba pasaría igual."""
+        assert theme.load_stylesheet(True) != theme.load_stylesheet(False)
+
+    def test_a_palette_role_can_be_used_as_a_token(self):
+        """Un color que pinta el QSS y uno que se dibuja por código salen del mismo valor."""
+        rendered = theme.render_stylesheet("QLabel { color: $video_background; }", True)
+        assert theme.get_palette(True)["video_background"] in rendered
+
+    def test_an_unknown_token_keeps_the_rest_of_the_sheet(self):
+        rendered = theme.render_stylesheet(
+            "QLabel { color: $no_such_token; }\nQWidget { color: $foreground; }", False)
+        assert "$no_such_token" in rendered
+        assert theme.get_tokens(False)["foreground"] in rendered

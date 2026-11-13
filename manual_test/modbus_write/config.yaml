@@ -19,6 +19,7 @@ project:
 
 system:
   app_name: Prueba de escritura del PLC
+  app_description: Prueba de las escrituras del PLC sobre la app
   device_id: banco_de_pruebas
   log_level: INFO
   paths:
@@ -38,7 +39,7 @@ video:
 
 process:
   max_load_y_px:
-    camera_1: 430               # px — se dibuja en el anotado y se publica en 40010
+    camera_1: 430               # px — se publica en 40010
   min_load_pct: 60.0            # % — se publica en 40012, con una décima
 
 inference:
@@ -48,6 +49,7 @@ inference:
     draw_masks: true
     draw_labels: true
     draw_roi: true
+    draw_roi_label: true
     draw_timestamp: true
   pipelines:
     # En tiempo real, con una compuerta: infiere sólo mientras `event_active` está en 1.

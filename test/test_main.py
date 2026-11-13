@@ -7,7 +7,7 @@ import asyncio
 import signal
 import threading
 import time
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -744,7 +744,8 @@ class TestEngines:
         app._camera_illumination = {}
         app._last_valid_by_pair = {}
         app._last_result_by_pair = {}
-        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._ui = types.SimpleNamespace(monitor_content=None,
+                                        update_inference_times=lambda *args: None)
         app._on_result_ready(InferenceResult(camera_slot="camera_1",
                                              pipeline_slot="pipeline_2", is_valid=False))
         assert app._last_valid_by_pair == {("camera_1", "pipeline_2"): False}
@@ -756,7 +757,8 @@ class TestEngines:
         app._camera_illumination = {}
         app._last_valid_by_pair = {}
         app._last_result_by_pair = {}
-        app._ui = types.SimpleNamespace(monitor_content=None)
+        app._ui = types.SimpleNamespace(monitor_content=None,
+                                        update_inference_times=lambda *args: None)
         frame = np.zeros((4, 4, 3), np.uint8)
         app._on_result_ready(InferenceResult(
             camera_slot="camera_1", pipeline_slot="pipeline_3", source_bgr=frame,
@@ -810,6 +812,98 @@ class TestMetricRegisters:
         with caplog.at_level("WARNING"):
             app._build_metric_registers()
         assert "grain_pct" not in caplog.text
+
+
+class TestExpiringMetricRegisters:
+    """Una fila con `max_age_s` vuelve a 0 —sale en None— si nadie la renueva a tiempo."""
+
+    def _app(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_REGISTER_NAMES",
+                            frozenset({"fill_pct", "belt_1_level_ok"}))
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"belt_1_level_ok": 3.0})
+        return app
+
+    def _store(self, app, monkeypatch, now_s: float, **metrics):
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                                           metrics=metrics))
+
+    def _build(self, app, monkeypatch, now_s: float) -> dict:
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        return app._build_metric_registers()
+
+    def test_a_fresh_verdict_is_published(self, monkeypatch):
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, belt_1_level_ok=1)
+        assert self._build(app, monkeypatch, 102.0)["belt_1_level_ok"] == 1
+
+    def test_a_stale_verdict_goes_back_to_zero(self, monkeypatch):
+        """Con el pipeline caído el PLC no puede seguir leyendo «nivel OK»."""
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, belt_1_level_ok=1)
+        assert self._build(app, monkeypatch, 103.5)["belt_1_level_ok"] is None
+
+    def test_a_row_nobody_ever_published_is_zero(self, monkeypatch):
+        app = self._app(monkeypatch)
+        assert self._build(app, monkeypatch, 100.0) == {"belt_1_level_ok": None}
+
+    def test_a_row_without_max_age_keeps_its_last_value(self, monkeypatch):
+        app = self._app(monkeypatch)
+        self._store(app, monkeypatch, 100.0, fill_pct=40.0)
+        assert self._build(app, monkeypatch, 1000.0)["fill_pct"] == 40.0
+
+
+class TestVerdictsForHome:
+    """Los veredictos de la página de inicio salen del mismo lugar que los registros y vencen igual."""
+
+    def _store(self, app, monkeypatch, now_s: float, pipeline_slot: str, **metrics):
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot=pipeline_slot,
+                                           metrics=metrics))
+
+    def _build(self, app, monkeypatch, now_s: float) -> dict:
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: now_s))
+        return app._build_verdicts()
+
+    def test_only_the_verdicts_go_by_pair(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        self._store(app, monkeypatch, 100.0, "pipeline_1", level_ok=1, fill_pct=40.0)
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=0)
+        assert self._build(app, monkeypatch, 100.5) == {
+            ("camera_3", "pipeline_1"): {"level_ok": 1},
+            ("camera_3", "pipeline_2"): {"presence_ok": 0},
+        }
+
+    def test_a_verdict_expires_with_the_max_age_of_its_row(self, monkeypatch):
+        """El mismo vencimiento que el registro: la pantalla y el PLC no discrepan."""
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"level_ok": 10.0})
+        self._store(app, monkeypatch, 100.0, "pipeline_1", level_ok=1)
+        assert self._build(app, monkeypatch, 109.0) == {("camera_3", "pipeline_1"): {"level_ok": 1}}
+        assert self._build(app, monkeypatch, 111.0) == \
+            {("camera_3", "pipeline_1"): {"level_ok": None}}
+
+    def test_without_max_age_an_ok_does_not_stay_on_screen(self, monkeypatch):
+        """Sin fila en el mapa nadie lo renueva: un OK viejo no se ve en verde."""
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=1)
+        stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
+        assert self._build(app, monkeypatch, stale_s) == \
+            {("camera_3", "pipeline_2"): {"presence_ok": None}}
+
+    def test_an_unreliable_result_does_not_renew_a_verdict(self, monkeypatch):
+        app = _build_metrics_application(monkeypatch)
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=1)
+        monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: 102.5))
+        app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
+                                           metrics={"presence_ok": 1}, is_valid=False,
+                                           invalid_reason="low_confidence"))
+        stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
+        assert self._build(app, monkeypatch, stale_s) == \
+            {("camera_3", "pipeline_2"): {"presence_ok": None}}
 
 
 class _StatusEngine:
@@ -926,11 +1020,14 @@ class TestPipelineWords:
         app._build_clock_registers = lambda: {}
         app._build_camera_registers = lambda: {}
         app._build_gpio_registers = lambda: {}
+        app._build_verdicts = lambda: {}
         published: dict = {}
         app._mapped_only = lambda values: published.update(values) or {}
         app._modbus = types.SimpleNamespace(update_block=lambda registers: None,
                                             get_register=lambda addr: 0)
-        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None)
+        app._ui = types.SimpleNamespace(update_modbus_values=lambda registers: None,
+                                        update_heartbeat=lambda count: None,
+                                        update_verdicts=lambda verdicts: None)
         app._on_registers_tick()
         assert published["pipeline_1_state_bitfield"] == 0
 

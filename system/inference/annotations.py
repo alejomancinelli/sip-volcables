@@ -7,21 +7,21 @@ compone para el motor:
 
     engine = InferenceThread(config, pipeline, analyzer=compute_metrics,
                              annotator=chain(
-                                 max_load_line_annotator({"camera_1": 430}),
+                                 stopper_status_annotator(rule, stopper_pipelines={"pipeline_3"}),
                                  ...))
 
 **Específico del proyecto — no cross-portar tal cual.** Lo que sale de la inferencia lo
 dibuja `overlay`, que es genérico; acá van las referencias que sólo existen en esta
-planta: un límite de carga, el borde de una zona de rechazo, un eje de calibración.
+planta: la altura de una calza, una zona de exclusión, un eje de calibración.
 Separado de `overlay` porque ese archivo se copia al próximo proyecto sin cambios, y esto
 no.
 
 Las factories reciben la geometría en píxeles y no leen el config: quién lee la sección
 `process` es `hooks.py`, igual que `main.py` con las condiciones de guardado del
-recolector. El mismo valor alimenta al annotator que dibuja el límite y al analyzer que
-calcula el porcentaje contra ese límite, así que se lee una vez y no pueden discrepar. Así un annotator se
-testea con tres números y sin archivo, y la misma función sirve para una cámara o para
-diez.
+recolector. El mismo valor alimenta al annotator que dibuja la altura de la calza y al
+analyzer que da el veredicto contra esa altura, así que se lee una vez y no pueden discrepar.
+Así un annotator se testea con tres números y sin archivo, y la misma función sirve para una
+cámara o para diez.
 
 Cada annotator lleva su `__name__` armado con los valores que recibió, así el aviso del
 motor dice cuál falló.
@@ -32,19 +32,12 @@ from collections.abc import Callable
 import cv2
 import numpy as np
 
-from . import geometry, overlay
-from .result import Detection, InferenceResult
+from . import overlay, person_safety
+from .pipeline import GRAIN_FLOW_LABEL
+from .result import ROI_STATE_NOK, ROI_STATE_OK, InferenceResult
+from .stopper_check import Gap, StopperRule
 
 Annotator = Callable[[np.ndarray, InferenceResult], None]
-
-DEFAULT_MIN_RAISED_PX = 50      # píxeles de la calza sobre su línea para darla por levantada
-# De qué lado de la calza tiene que estar la rueda, en la imagen. `any` = cualquiera.
-WHEEL_SIDE_ANY = "any"
-WHEEL_SIDE_LEFT = "left"
-WHEEL_SIDE_RIGHT = "right"
-WHEEL_SIDES = (WHEEL_SIDE_ANY, WHEEL_SIDE_LEFT, WHEEL_SIDE_RIGHT)
-
-_MAX_LOAD_BGR = (60, 60, 230)   # rojo: es un límite, no una referencia neutra
 
 # Rótulos del panel de estado por idioma (`ui.language`). Se dibujan con OpenCV, así que van
 # en ASCII y en mayúsculas: las fuentes Hershey no tienen tildes ni eñes. No salen de
@@ -56,17 +49,21 @@ _STATUS_LABELS = {
 }
 _FALLBACK_LANGUAGE = "es"
 
-_GRAIN_FLOW_LABEL = "grain_flow"   # el label que deja GrainFlowPipeline
-_STATUS_OK_BGR = (40, 200, 40)
-_STATUS_NOK_BGR = (40, 40, 230)
-_STATUS_UNKNOWN_BGR = (170, 170, 170)
-# Borde y texto del estado, en fracción del lado menor del frame: la cámara puede llegar a
-# tamaño completo o reducida por el decodificador, y tiene que leerse igual en las dos.
-_STATUS_BORDER_FRACTION = 0.03
-_STATUS_BORDER_MIN_PX = 12      # más que el margen del panel, para que siempre lo pise
-_STATUS_TEXT_FRACTION = 0.05    # alto del texto del panel
-_TIMESTAMP_TEXT_FRACTION = 0.04  # `draw_timestamp` lo dibuja un punto más chico que esto
-_GAP_TEXT_FRACTION = 0.03
+# Los colores de estado del overlay, que son los del tema de la UI: un NOK en el video y uno
+# en la pantalla son el mismo rojo. Lo que no se pudo medir va en el gris apagado.
+_STATUS_OK_BGR = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_OK]
+_STATUS_NOK_BGR = overlay.ROI_STATE_COLORS_BGR[ROI_STATE_NOK]
+_STATUS_UNKNOWN_BGR = overlay.MUTED_BGR
+# Texto del estado, en fracción del lado menor del frame: la cámara puede llegar a tamaño
+# completo o reducida por el decodificador, y tiene que leerse igual en las dos.
+_STATUS_TEXT_FRACTION = 0.028   # alto del texto del panel
+_TIMESTAMP_TEXT_FRACTION = 0.03  # `draw_timestamp` lo dibuja un punto más chico que esto
+_GAP_TEXT_FRACTION = 0.025
+# Trama de la zona de exclusión: un tinte del color de su estado y rayas diagonales, para que
+# se lea como un área y no como un recuadro más. El paso va en fracción del lado menor.
+_ZONE_TINT_ALPHA = 0.18
+_ZONE_HATCH_FRACTION = 0.025
+_ZONE_HATCH_MIN_PX = 8
 # Un veredicto más viejo que esto, contado desde el más nuevo de su cámara, ya no cuenta:
 # el pipeline que lo dio se cayó o dejó de recibir frames.
 _VERDICT_MAX_AGE_S = 2.0
@@ -89,30 +86,6 @@ def chain(*annotators: Annotator) -> Annotator:
     return draw
 
 
-def max_load_line_annotator(y_px_by_camera: dict[str, int], *,
-                            label: str = "MAX LOAD") -> Annotator:
-    """
-    Dibuja el límite de carga de la cinta: una línea horizontal a la altura configurada.
-
-    La altura es por cámara —cada cinta tiene la suya y el montaje de la cámara la
-    mueve—, y una cámara que no figura en el dict no lleva línea. Se dibuja siempre,
-    haya o no detecciones: es la referencia contra la que el operador mira el material,
-    y una línea que aparece y desaparece no sirve para eso.
-    """
-    def draw(frame_bgr: np.ndarray, result: InferenceResult):
-        y_px = y_px_by_camera.get(result.camera_slot)
-        if y_px is None or frame_bgr is None or frame_bgr.size == 0:
-            return
-        height_px, width_px = frame_bgr.shape[:2]
-        if not 0 <= int(y_px) < height_px:
-            return
-        overlay.draw_line(frame_bgr, (0, int(y_px)), (width_px, int(y_px)),
-                          _MAX_LOAD_BGR, thickness=_get_stroke_px(frame_bgr), label=label)
-
-    draw.__name__ = f"max_load_line({y_px_by_camera})"
-    return draw
-
-
 def labels_panel_annotator() -> Annotator:
     """
     Dibuja los veredictos de frame del resultado —`labels`— en un panel arriba a la izquierda.
@@ -130,37 +103,32 @@ def labels_panel_annotator() -> Annotator:
     return draw
 
 
-def unload_status_annotator(*, flow_class: str, person_pipelines: set[str],
-                            person_cameras: set[str],
-                            exclusion_zone_px_by_camera: dict[str, list] | None = None,
+def unload_status_annotator(*, flow_class: str, person_cameras: set[str],
+                            zone_by_camera: dict[str, np.ndarray] | None = None,
                             language: str = _FALLBACK_LANGUAGE) -> Annotator:
     """
-    Dibuja el estado de la descarga de cada cámara: un borde en todo el frame, la zona de
-    exclusión y un panel con el veredicto del grano y, si la cámara tiene detección de
-    personas, el de personas.
+    Dibuja el estado de la descarga de cada cámara: la zona de exclusión y un panel arriba a
+    la izquierda con el veredicto del grano y, si la cámara tiene detección de personas, el
+    de personas.
 
-    Verde sólo si cae grano —el label `grain_flow` es `flow_class`— y no hay ninguna persona
-    en la zona de exclusión; rojo en cualquier otro caso. En una cámara de `person_cameras`
-    sin un veredicto vigente de personas también es rojo, con el panel en `--`: un pipeline
-    de personas caído no puede dar verde. Una persona cuenta si el punto medio del borde
-    inferior de su caja —los pies— cae en la zona de su cámara; una cámara sin zona cuenta
-    a cualquier persona del frame.
+    - **Grano:** OK si el label `grain_flow` es `flow_class`. Sin un veredicto vigente —con
+      la plataforma inclinada el grano se corta— el renglón no se dibuja.
+    - **Personas:** el veredicto filtrado que dejó el analyzer (`person_safety`), el mismo que
+      se publica al PLC: OK sin nadie en la zona, NOK con alguien. La zona se pinta del mismo
+      color, con un tinte y rayas diagonales. Sin un veredicto vigente —un pipeline de personas caído— sale `--` en gris: lo
+      que no se midió no se afirma.
+
+    Sin borde de estado: si se puede arrancar lo decide el PLC, y un borde verde en la
+    pantalla afirmaría una decisión que no es del equipo. Una cámara sin ningún renglón no
+    dibuja panel.
 
     **Guarda estado.** Grano y personas son dos pipelines y cada resultado trae sólo su
     veredicto, así que el annotator —uno solo, compartido por todos los motores— recuerda el
-    último de cada cámara y dibuja el combinado con cualquiera de los dos resultados. El de
-    personas se reconoce por su `pipeline_slot`, que tiene que estar en `person_pipelines`.
-    Un resultado no confiable no actualiza nada. Sin un veredicto vigente del grano no se
-    dibujan ni el borde ni el panel. Lo llaman los hilos de inferencia y el de la GUI: cada
+    último de cada cámara y dibuja los dos con cualquiera de los dos resultados. Un resultado
+    no confiable no actualiza nada. Lo llaman los hilos de inferencia y el de la GUI: cada
     escritura reemplaza una entrada entera del dict, que es atómico bajo el GIL.
     """
-    zone_by_camera = {}
-    for camera_slot, points in (exclusion_zone_px_by_camera or {}).items():
-        zone = np.asarray(points, dtype=np.int32)
-        if zone.ndim != 2 or zone.shape[0] < 3 or zone.shape[1] != 2:
-            raise ValueError(f"La zona de exclusión de {camera_slot} no es un polígono de "
-                             f"al menos tres puntos [x, y]: {points}")
-        zone_by_camera[camera_slot] = zone.reshape(-1, 1, 2)
+    zone_by_camera = dict(zone_by_camera or {})
     labels = _get_status_labels(language)
     # (cámara, "grain" | "person") -> (timestamp_s, is_ok)
     latest: dict[tuple[str, str], tuple[float, bool]] = {}
@@ -174,13 +142,12 @@ def unload_status_annotator(*, flow_class: str, person_pipelines: set[str],
         if frame_bgr is None or frame_bgr.size == 0:
             return
         camera_slot = result.camera_slot
-        zone = zone_by_camera.get(camera_slot)
-        verdict = result.labels.get(_GRAIN_FLOW_LABEL)
+        verdict = result.labels.get(GRAIN_FLOW_LABEL)
+        safety_ok = result.metrics.get(person_safety.SAFETY_METRIC)
         if result.is_valid and verdict is not None:
             remember(camera_slot, "grain", result.timestamp_s, verdict == flow_class)
-        elif result.is_valid and result.pipeline_slot in person_pipelines:
-            remember(camera_slot, "person", result.timestamp_s,
-                     not _has_person_in_zone(result.detections, zone))
+        elif result.is_valid and safety_ok is not None:
+            remember(camera_slot, "person", result.timestamp_s, bool(safety_ok))
 
         grain = latest.get((camera_slot, "grain"))
         person = latest.get((camera_slot, "person"))
@@ -190,28 +157,24 @@ def unload_status_annotator(*, flow_class: str, person_pipelines: set[str],
         is_person_fresh = person is not None and newest_s - person[0] <= _VERDICT_MAX_AGE_S
         is_person_ok = person[1] if is_person_fresh else None
 
+        zone = zone_by_camera.get(camera_slot)
         if zone is not None:
-            cv2.polylines(frame_bgr, [zone], True, _get_state_bgr(is_person_ok),
-                          _get_stroke_px(frame_bgr), cv2.LINE_AA)
-        if not is_grain_fresh:
-            return
+            _draw_zone(frame_bgr, zone, _get_state_bgr(is_person_ok))
 
-        rows = [(labels["grain"], grain[1])]
+        rows = []
+        if is_grain_fresh:
+            rows.append((labels["grain"], grain[1]))
         if camera_slot in person_cameras:
             rows.append((labels["person"], is_person_ok))
-        _draw_status(frame_bgr, rows)
+        if rows:
+            _draw_status(frame_bgr, rows)
 
-    draw.__name__ = (f"unload_status({flow_class}, persons={sorted(person_pipelines)}, "
+    draw.__name__ = (f"unload_status({flow_class}, persons={sorted(person_cameras)}, "
                      f"zones={sorted(zone_by_camera)})")
     return draw
 
 
-def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
-                             wheel_class: str,
-                             raised_y_px_by_camera: dict[str, int] | None = None,
-                             min_raised_px_by_camera: dict[str, int] | None = None,
-                             max_gap_px_by_camera: dict[str, float] | None = None,
-                             wheel_side_by_camera: dict[str, str] | None = None,
+def stopper_status_annotator(rule: StopperRule, *, stopper_pipelines: set[str],
                              language: str = _FALLBACK_LANGUAGE) -> Annotator:
     """
     Dibuja el estado de las calzas de cada cámara: la altura de calza levantada como una
@@ -219,108 +182,32 @@ def stopper_status_annotator(*, stopper_pipelines: set[str], stopper_class: str,
     dos veredictos. Sin borde de estado: si la calza está bien puesta lo decide el PLC, y
     un borde verde en la pantalla afirmaría una decisión que no es del equipo.
 
-    - **Calza:** OK si al menos `min_raised_px` píxeles de la máscara de la calza más
-      confiable quedan por encima de `raised_y_px`, la fila de su cámara; sin calza
-      detectada, NOK. La altura es horizontal y cubre todo el ancho.
-    - **Contacto:** sólo se juzga con la calza levantada —antes la distancia no dice nada, y
-      sale `--` sin dibujar el segmento—. OK si la distancia más corta entre la calza y la
-      rueda más cercana no pasa de `max_gap_px`; sin rueda, NOK. La distancia se dibuja como el
-      segmento entre los dos puntos que la dan, con su valor en px. Se mide entre máscaras
-      y no entre bbox: con la calza en el piso, bajo la curva de la goma, los bbox se
-      solapan aunque haya varios centímetros de aire.
-    - **Lado de la rueda:** con `wheel_side` en `left` o `right` sólo cuenta una rueda cuyo
-      centro esté de ese lado del centro de la calza. Es lo que elige la rueda correcta con
-      dos ejes a la vista, y una rueda sólo del otro lado deja el contacto en NOK: la calza
-      está puesta del lado equivocado. Sin valor, `any`.
-
-    Una cámara sin altura o sin distancia máxima tiene ese veredicto sin calibrar: sale `--`
-    en gris, porque lo que nadie calibró no se afirma. Un resultado de otro pipeline —se reconoce por `stopper_pipelines`— o no
-    confiable no dibuja nada. Una cámara sin `min_raised_px` usa `DEFAULT_MIN_RAISED_PX`.
+    Qué es OK lo decide `rule` (`stopper_check.py`), la misma regla que da las señales del
+    analyzer. La distancia se dibuja sólo con la calza levantada, como el segmento entre los
+    dos puntos que la dan y con su valor en px. Un veredicto sin calibrar sale `--` en gris.
+    Un resultado de otro pipeline —se reconoce por `stopper_pipelines`— o no confiable no
+    dibuja nada.
     """
-    raised_y_px_by_camera = dict(raised_y_px_by_camera or {})
-    for camera_slot, y_px in raised_y_px_by_camera.items():
-        if isinstance(y_px, bool) or not isinstance(y_px, int) or y_px < 0:
-            raise ValueError(f"La altura de calza de {camera_slot} tiene que ser una fila del "
-                             f"frame, un entero desde 0: {y_px}")
-    min_raised_px_by_camera = min_raised_px_by_camera or {}
-    max_gap_px_by_camera = max_gap_px_by_camera or {}
-    wheel_side_by_camera = wheel_side_by_camera or {}
-    for camera_slot, side in wheel_side_by_camera.items():
-        if side not in WHEEL_SIDES:
-            raise ValueError(f"El lado de la rueda de {camera_slot} tiene que ser uno de "
-                             f"{', '.join(WHEEL_SIDES)}: {side}")
     labels = _get_status_labels(language)
 
     def draw(frame_bgr: np.ndarray, result: InferenceResult):
         if (result.pipeline_slot not in stopper_pipelines or not result.is_valid
                 or frame_bgr is None or frame_bgr.size == 0):
             return
-        camera_slot = result.camera_slot
-        stopper, wheels = pick_stopper_and_wheels(
-            result.detections, stopper_class=stopper_class, wheel_class=wheel_class,
-            wheel_side=wheel_side_by_camera.get(camera_slot, WHEEL_SIDE_ANY))
-
-        raised_y_px = raised_y_px_by_camera.get(camera_slot)
-        is_raised = None
+        verdict = rule.judge(result.detections, result.camera_slot)
+        raised_y_px = rule.raised_y_px_by_camera.get(result.camera_slot)
         if raised_y_px is not None:
-            min_raised_px = int(min_raised_px_by_camera.get(camera_slot, DEFAULT_MIN_RAISED_PX))
-            is_raised = (stopper is not None
-                         and geometry.count_px_above_y(stopper, raised_y_px) >= min_raised_px)
-
-        # El contacto sólo se juzga con la calza levantada: antes, la distancia a la rueda no
-        # dice nada, y ni se mide.
-        closest = None
-        is_touching = None
-        max_gap_px = max_gap_px_by_camera.get(camera_slot)
-        if is_raised:
-            closest = find_closest_wheel(stopper, wheels)
-            if max_gap_px is not None:
-                is_touching = closest is not None and closest[0] <= float(max_gap_px)
-
-        if raised_y_px is not None:
-            _draw_level(frame_bgr, raised_y_px, _get_state_bgr(is_raised))
-        if closest is not None:
-            _draw_gap(frame_bgr, closest, _get_state_bgr(is_touching))
-        _draw_status(frame_bgr, [(labels["stopper"], is_raised),
-                                 (labels["contact"], is_touching)], draw_border=False)
+            _draw_level(frame_bgr, raised_y_px, _get_state_bgr(verdict.is_raised))
+        if verdict.closest is not None:
+            _draw_gap(frame_bgr, verdict.closest, _get_state_bgr(verdict.is_touching))
+        _draw_status(frame_bgr, [(labels["stopper"], verdict.is_raised),
+                                 (labels["contact"], verdict.is_touching)])
 
     draw.__name__ = (f"stopper_status(pipelines={sorted(stopper_pipelines)}, "
-                     f"levels={raised_y_px_by_camera}, gaps={sorted(max_gap_px_by_camera)}, "
-                     f"sides={wheel_side_by_camera})")
+                     f"levels={rule.raised_y_px_by_camera}, "
+                     f"gaps={sorted(rule.max_gap_px_by_camera)}, "
+                     f"sides={rule.wheel_side_by_camera})")
     return draw
-
-
-def pick_stopper_and_wheels(detections: list[Detection], *, stopper_class: str,
-                            wheel_class: str, wheel_side: str = WHEEL_SIDE_ANY
-                            ) -> tuple[Detection | None, list[Detection]]:
-    """
-    La calza que se juzga —la más confiable— y las ruedas que cuentan contra ella: con
-    `wheel_side` en `left` o `right`, sólo las de ese lado de la calza.
-
-    Es la regla del annotator y la usa también quien calibra sobre un frame quieto: dos
-    lecturas del mismo resultado que eligieran otra calza o otra rueda mostrarían números
-    que el equipo no mide.
-    """
-    stopper = max((d for d in detections if d.class_name == stopper_class),
-                  key=lambda detection: detection.confidence_pct, default=None)
-    wheels = [d for d in detections if d.class_name == wheel_class]
-    if stopper is not None and wheel_side != WHEEL_SIDE_ANY:
-        wheels = [wheel for wheel in wheels if _is_on_side(wheel, stopper, wheel_side)]
-    return stopper, wheels
-
-
-def find_closest_wheel(stopper: Detection, wheels: list[Detection]
-                       ) -> tuple[float, geometry.Point, geometry.Point] | None:
-    """La distancia más corta entre la calza y la rueda más cercana, con sus dos puntos."""
-    gaps = [geometry.find_closest_points(stopper, wheel) for wheel in wheels]
-    return min((gap for gap in gaps if gap is not None), key=lambda gap: gap[0], default=None)
-
-
-def _is_on_side(wheel: Detection, stopper: Detection, side: str) -> bool:
-    """True si el centro del bbox de la rueda queda de ese lado del de la calza."""
-    wheel_x_px = (wheel.bbox_px[0] + wheel.bbox_px[2]) / 2
-    stopper_x_px = (stopper.bbox_px[0] + stopper.bbox_px[2]) / 2
-    return wheel_x_px < stopper_x_px if side == WHEEL_SIDE_LEFT else wheel_x_px > stopper_x_px
 
 
 def timestamp_annotator() -> Annotator:
@@ -328,8 +215,8 @@ def timestamp_annotator() -> Annotator:
     Dibuja la fecha y hora del resultado abajo a la derecha, del tamaño del frame.
 
     Es la hora del motor con otra escala: la del motor es fija, y en un frame de 2560 px
-    queda escondida dentro del borde de estado. Va con `inference.overlay.draw_timestamp`
-    en false —si no, salen las dos— y última en la cadena, así queda encima del borde.
+    casi no se lee. Va con `inference.overlay.draw_timestamp` en false —si no, salen las
+    dos— y última en la cadena, así queda encima de todo.
     """
     def draw(frame_bgr: np.ndarray, result: InferenceResult):
         if frame_bgr is None or frame_bgr.size == 0:
@@ -368,33 +255,17 @@ def _get_text_scale(frame_bgr: np.ndarray, height_fraction: float) -> float:
     return min(frame_bgr.shape[:2]) * height_fraction / unit_height_px
 
 
-def _draw_status(frame_bgr: np.ndarray, rows: list[tuple[str, bool | None]], *,
-                 draw_border: bool = True):
+def _draw_status(frame_bgr: np.ndarray, rows: list[tuple[str, bool | None]]):
     """
-    Dibuja in-place el borde de estado y, encima, el panel con un renglón por veredicto.
-
-    El borde es verde sólo si todos los veredictos son OK; uno en None —sin dar— sale `--`
-    en gris y deja el borde en rojo. Con `draw_border` en false sale sólo el panel, pegado
-    a la esquina: el margen era para que el borde lo enmarcara, y sin él queda una franja de
-    video alrededor.
+    Dibuja in-place el panel de estado pegado a la esquina superior izquierda, con un
+    renglón por veredicto y el veredicto en una píldora de su color. Uno en None —sin dar—
+    sale `--` en gris.
     """
-    if draw_border:
-        is_ok = all(state is True for _, state in rows)
-        border_bgr = _STATUS_OK_BGR if is_ok else _STATUS_NOK_BGR
-        side_px = min(frame_bgr.shape[:2])
-        border_px = max(_STATUS_BORDER_MIN_PX, int(round(side_px * _STATUS_BORDER_FRACTION)))
-        frame_bgr[:border_px] = border_bgr
-        frame_bgr[-border_px:] = border_bgr
-        frame_bgr[:, :border_px] = border_bgr
-        frame_bgr[:, -border_px:] = border_bgr
-
-    lines = [(label, "--" if state is None else "OK" if state else "NOK")
-             for label, state in rows]
-    colors = tuple(_get_state_bgr(state) for _, state in rows)
-    font_scale = _get_text_scale(frame_bgr, _STATUS_TEXT_FRACTION)
-    overlay.draw_text_panel(frame_bgr, lines, line_colors_bgr=colors,
-                            options=overlay.OverlayOptions(font_scale=font_scale),
-                            margin_px=None if draw_border else 0)
+    overlay.draw_status_panel(
+        frame_bgr,
+        [(label, "--" if state is None else "OK" if state else "NOK", _get_state_bgr(state))
+         for label, state in rows],
+        font_scale=_get_text_scale(frame_bgr, _STATUS_TEXT_FRACTION), margin_px=0)
 
 
 def _draw_level(frame_bgr: np.ndarray, y_px: int, color_bgr: tuple[int, int, int]):
@@ -403,8 +274,7 @@ def _draw_level(frame_bgr: np.ndarray, y_px: int, color_bgr: tuple[int, int, int
              _get_stroke_px(frame_bgr), cv2.LINE_AA)
 
 
-def _draw_gap(frame_bgr: np.ndarray, closest: tuple[float, geometry.Point, geometry.Point],
-              color_bgr: tuple[int, int, int]):
+def _draw_gap(frame_bgr: np.ndarray, closest: Gap, color_bgr: tuple[int, int, int]):
     """El segmento más corto entre las dos máscaras, con su largo en px al lado."""
     distance_px, start_px, end_px = closest
     stroke_px = _get_stroke_px(frame_bgr)
@@ -412,25 +282,41 @@ def _draw_gap(frame_bgr: np.ndarray, closest: tuple[float, geometry.Point, geome
     for point_px in (start_px, end_px):
         cv2.circle(frame_bgr, point_px, stroke_px * 2, color_bgr, cv2.FILLED, cv2.LINE_AA)
 
-    text = f"{distance_px:.0f} px"
-    font_scale = _get_text_scale(frame_bgr, _GAP_TEXT_FRACTION)
-    thickness = overlay.text_thickness(font_scale)
-    anchor_px = (max(start_px[0], end_px[0]) + stroke_px * 4,
-                 (start_px[1] + end_px[1]) // 2)
-    # Contorno negro abajo y el color encima: se lee sobre la calza clara y sobre el piso.
-    cv2.putText(frame_bgr, text, anchor_px, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                (0, 0, 0), thickness + 2 * stroke_px, cv2.LINE_AA)
-    cv2.putText(frame_bgr, text, anchor_px, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                color_bgr, thickness, cv2.LINE_AA)
+    # En una etiqueta, con el texto del color del veredicto: se lee sobre la calza clara y
+    # sobre el piso.
+    overlay.draw_tag(frame_bgr, f"{distance_px:.0f} px",
+                     (max(start_px[0], end_px[0]) + stroke_px * 4,
+                      (start_px[1] + end_px[1]) // 2),
+                     font_scale=_get_text_scale(frame_bgr, _GAP_TEXT_FRACTION),
+                     text_bgr=color_bgr, is_centered_y=True)
 
 
-def _has_person_in_zone(detections: list, zone: np.ndarray | None) -> bool:
-    """True si los pies de alguna detección —el centro del borde inferior— caen en la zona."""
-    if zone is None:
-        return bool(detections)
-    for detection in detections:
-        x1, _, x2, y2 = detection.bbox_px
-        feet_px = (float(x1 + x2) / 2, float(y2))
-        if cv2.pointPolygonTest(zone, feet_px, False) >= 0:
-            return True
-    return False
+def _draw_zone(frame_bgr: np.ndarray, zone: np.ndarray, color_bgr: tuple[int, int, int]):
+    """
+    La zona como un área tramada: un tinte del color, rayas diagonales y el borde.
+
+    Se trabaja sólo sobre el rectángulo que la contiene, recortado al frame: una zona que se
+    dibujó sobre un frame más grande no rompe nada, se ve hasta donde llega.
+    """
+    height_px, width_px = frame_bgr.shape[:2]
+    x, y, w, h = cv2.boundingRect(zone)
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(width_px, x + w), min(height_px, y + h)
+    if x2 > x1 and y2 > y1:
+        area = frame_bgr[y1:y2, x1:x2]
+        inside = np.zeros(area.shape[:2], np.uint8)
+        cv2.fillPoly(inside, [zone - np.array([x1, y1], np.int32)], 255)
+        hatch = np.zeros_like(inside)
+        step_px = max(_ZONE_HATCH_MIN_PX,
+                      int(round(min(height_px, width_px) * _ZONE_HATCH_FRACTION)))
+        rows_px, columns_px = hatch.shape
+        for start_px in range(-rows_px, columns_px, step_px):
+            cv2.line(hatch, (start_px, rows_px), (start_px + rows_px, 0), 255,
+                     max(1, _get_stroke_px(frame_bgr) // 2))
+        color = np.array(color_bgr, np.float32)
+        is_inside = inside > 0
+        area[is_inside] = (area[is_inside] * (1 - _ZONE_TINT_ALPHA)
+                           + color * _ZONE_TINT_ALPHA).astype(np.uint8)
+        is_line = is_inside & (hatch > 0)
+        area[is_line] = color.astype(np.uint8)
+    cv2.polylines(frame_bgr, [zone], True, color_bgr, _get_stroke_px(frame_bgr), cv2.LINE_AA)

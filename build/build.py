@@ -68,7 +68,7 @@ _ENTRY_POINT = "main.py"
 _COMPANY = "IEA"
 _PRODUCT = "APP_NAME"
 _DESCRIPTION = "APP_DESCRIPTION"
-_ICON = "ui/icons/iea_100x100.ico"
+_ICON = "ui/icons/app/icon.ico"
 
 # Paquetes que no entran al ejecutable, y por qué cada uno. Vacía por defecto: Nuitka
 # empaqueta lo que `main.py` importa, así que sólo hace falta excluir lo que el proyecto
@@ -103,7 +103,7 @@ _EXTRA_FLAGS: tuple = ()
 
 # Datos que viajan con el programa, al lado de los módulos que los leen. En standalone
 # los copia Nuitka; en acelerado, `make_release.py`, que lee esta misma tupla.
-_DATA_DIRS = ("ui/styles", "ui/icons")
+_DATA_DIRS = ("ui/styles", "ui/icons", "ui/fonts")
 
 # Paquetes de la maquinaria que el análisis de Nuitka puede no seguir solo, y que entran
 # sólo si están instalados. `gpiod` se importa adentro de un try/except y su submódulo
