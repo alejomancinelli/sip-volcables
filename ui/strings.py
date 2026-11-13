@@ -235,11 +235,6 @@ _TEXTS: dict[str, dict[str, str]] = {
     "verdict_ok":             {"es": "OK",             "en": "OK",            "pt": "OK"},
     "verdict_nok":            {"es": "NOK",            "en": "NOK",           "pt": "NOK"},
     "verdict_no_data":        {"es": "Sin dato",       "en": "No data",       "pt": "Sem dado"},
-    "verdict_safety_ok":      {"es": "Personas",       "en": "People",        "pt": "Pessoas"},
-    "verdict_flow_ok":        {"es": "Grano",          "en": "Grain",         "pt": "Grão"},
-    "verdict_raised_ok":      {"es": "Calza elevada",  "en": "Stopper raised",
-                               "pt": "Calço elevado"},
-    "verdict_contact_ok":     {"es": "Contacto",       "en": "Contact",       "pt": "Contato"},
 
     # ── Configuración ────────────────────────────────────────────────────────
     "config_save":            {"es": "Guardar y aplicar",

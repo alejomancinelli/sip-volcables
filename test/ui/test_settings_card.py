@@ -79,8 +79,8 @@ class TestFieldGrid:
 
 class TestSettingsCard:
     def test_the_eyebrow_is_in_capitals(self):
-        card = SettingsCard("Personas")
-        assert card.findChild(QLabel, "settingsEyebrow").text() == "PERSONAS"
+        card = SettingsCard("Presencia")
+        assert card.findChild(QLabel, "settingsEyebrow").text() == "PRESENCIA"
 
     def test_without_an_eyebrow_there_is_no_label(self):
         assert SettingsCard().findChild(QLabel, "settingsEyebrow") is None

@@ -3,11 +3,11 @@ Tarjeta de ajustes con la forma del sistema de diseño: secciones con el título
 los campos a la derecha, en columnas.
 
     ┌──────────────────────────────────────────────────────────────────┐
-    │ PERSONAS                                                         │
+    │ PRESENCIA                                                        │
     │ Confirmación          Frames para confirmar   En los últimos     │
     │ Cuándo se confirma…   [ 4            ]        [ 6            ]   │
     │ ──────────────────────────────────────────────────────────────── │
-    │ Zona de exclusión     Acoplado                Chasis             │
+    │ Zona de exclusión     Cinta                   Báscula            │
     │ Por cámara…           Sin zona  [Dibujar]     5 vértices [Dib…]  │
     └──────────────────────────────────────────────────────────────────┘
 

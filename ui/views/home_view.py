@@ -9,16 +9,16 @@ Página de inicio: presenta el equipo en una pantalla y resume si lo que tiene e
     └─────────────────────────────────────────────────────────────┴───────────┘
     ┌ Resultados ───────────────────────────────────────────────────────┐
     │ Pipeline               Cámara      Veredictos                     │
-    │ Seguridad de personas  Acoplado    [Personas: OK]                 │
-    │ Verificación de calza  Calza der.  [Calza elevada: OK] [Contacto: NOK]
+    │ Presencia              Cinta       [Presencia: OK]                │
+    │ Nivel de llenado       Báscula     [Nivel: OK] [Tapa: NOK]        │
     └───────────────────────────────────────────────────────────────────┘
     ┌ Cámaras ─────────────────────────────────────────── Ver monitor ↗ ┐
     │ Cámara           Dirección                      Estado       FPS  │
-    │ Calza derecha    rtsp://10.8.51.1:8554/cam_1    Conectada    9.8  │
+    │ Cinta            rtsp://192.168.1.10:554/cam_1  Conectada    9.8  │
     └───────────────────────────────────────────────────────────────────┘
     ┌ Inferencia ─────────────────────────┐  ┌ Servicios ──────────────────┐
     │ Pipeline   Cámara   Ciclo  Inf.  Último│  │ Modbus TCP               OK │
-    │ Flujo de…  Acoplado 101 ms 38 ms ahora │  │ …  Licencia · Latido al PLC │
+    │ Nivel de…  Báscula  101 ms 38 ms ahora │  │ …  Licencia · Latido al PLC │
     └─────────────────────────────────────┘  └─────────────────────────────┘
 
 Es la página «Inicio» del sistema de diseño (`Propuesta_UI_IEA_SI280ETH`): una placa con la
@@ -908,7 +908,7 @@ def _list_pairs(pipelines: dict, cameras: dict) -> list[tuple[str, str, str]]:
 
 
 def _verdict_text(name: str, state_key: str) -> str:
-    """«Personas: OK». El rótulo es `verdict_<nombre>` o, sin texto en la tabla, el nombre."""
+    """«Nivel: OK». El rótulo es `verdict_<nombre>` o, sin texto en la tabla, el nombre."""
     label = tr(f"verdict_{name}") if has_text(f"verdict_{name}") else name
     return f"{label}: {tr(state_key)}"
 

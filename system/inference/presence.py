@@ -6,7 +6,7 @@ Módulo puro: sin Qt, sin ConfigManager, sin numpy y sin I/O. El tiempo entra po
 liberación de cinco segundos se prueba sin esperarlos.
 
 Un detector por frame se equivoca en los dos sentidos: un frame suelto ve una persona donde
-hay un poste, y una persona de verdad se pierde un frame detrás de un camión. El filtro es
+hay un poste, y una persona de verdad se pierde un frame detrás de una máquina. El filtro es
 asimétrico porque los dos errores no cuestan lo mismo:
 
   - **Confirma por cantidad**: `confirm_hits` frames con detección entre los últimos

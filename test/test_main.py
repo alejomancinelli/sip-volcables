@@ -820,8 +820,8 @@ class TestExpiringMetricRegisters:
     def _app(self, monkeypatch):
         app = _build_metrics_application(monkeypatch)
         monkeypatch.setattr(main, "_REGISTER_NAMES",
-                            frozenset({"grain_pct", "grain_1_flow_ok"}))
-        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"grain_1_flow_ok": 3.0})
+                            frozenset({"fill_pct", "belt_1_level_ok"}))
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"belt_1_level_ok": 3.0})
         return app
 
     def _store(self, app, monkeypatch, now_s: float, **metrics):
@@ -835,23 +835,23 @@ class TestExpiringMetricRegisters:
 
     def test_a_fresh_verdict_is_published(self, monkeypatch):
         app = self._app(monkeypatch)
-        self._store(app, monkeypatch, 100.0, grain_1_flow_ok=1)
-        assert self._build(app, monkeypatch, 102.0)["grain_1_flow_ok"] == 1
+        self._store(app, monkeypatch, 100.0, belt_1_level_ok=1)
+        assert self._build(app, monkeypatch, 102.0)["belt_1_level_ok"] == 1
 
     def test_a_stale_verdict_goes_back_to_zero(self, monkeypatch):
-        """Con el pipeline caído el PLC no puede seguir leyendo «cae grano»."""
+        """Con el pipeline caído el PLC no puede seguir leyendo «nivel OK»."""
         app = self._app(monkeypatch)
-        self._store(app, monkeypatch, 100.0, grain_1_flow_ok=1)
-        assert self._build(app, monkeypatch, 103.5)["grain_1_flow_ok"] is None
+        self._store(app, monkeypatch, 100.0, belt_1_level_ok=1)
+        assert self._build(app, monkeypatch, 103.5)["belt_1_level_ok"] is None
 
     def test_a_row_nobody_ever_published_is_zero(self, monkeypatch):
         app = self._app(monkeypatch)
-        assert self._build(app, monkeypatch, 100.0) == {"grain_1_flow_ok": None}
+        assert self._build(app, monkeypatch, 100.0) == {"belt_1_level_ok": None}
 
     def test_a_row_without_max_age_keeps_its_last_value(self, monkeypatch):
         app = self._app(monkeypatch)
-        self._store(app, monkeypatch, 100.0, grain_pct=40.0)
-        assert self._build(app, monkeypatch, 1000.0)["grain_pct"] == 40.0
+        self._store(app, monkeypatch, 100.0, fill_pct=40.0)
+        assert self._build(app, monkeypatch, 1000.0)["fill_pct"] == 40.0
 
 
 class TestVerdictsForHome:
@@ -868,42 +868,42 @@ class TestVerdictsForHome:
 
     def test_only_the_verdicts_go_by_pair(self, monkeypatch):
         app = _build_metrics_application(monkeypatch)
-        self._store(app, monkeypatch, 100.0, "pipeline_1", flow_ok=1, grain_pct=40.0)
-        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=0)
+        self._store(app, monkeypatch, 100.0, "pipeline_1", level_ok=1, fill_pct=40.0)
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=0)
         assert self._build(app, monkeypatch, 100.5) == {
-            ("camera_3", "pipeline_1"): {"flow_ok": 1},
-            ("camera_3", "pipeline_2"): {"safety_ok": 0},
+            ("camera_3", "pipeline_1"): {"level_ok": 1},
+            ("camera_3", "pipeline_2"): {"presence_ok": 0},
         }
 
     def test_a_verdict_expires_with_the_max_age_of_its_row(self, monkeypatch):
         """El mismo vencimiento que el registro: la pantalla y el PLC no discrepan."""
         app = _build_metrics_application(monkeypatch)
-        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"flow_ok": 10.0})
-        self._store(app, monkeypatch, 100.0, "pipeline_1", flow_ok=1)
-        assert self._build(app, monkeypatch, 109.0) == {("camera_3", "pipeline_1"): {"flow_ok": 1}}
+        monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {"level_ok": 10.0})
+        self._store(app, monkeypatch, 100.0, "pipeline_1", level_ok=1)
+        assert self._build(app, monkeypatch, 109.0) == {("camera_3", "pipeline_1"): {"level_ok": 1}}
         assert self._build(app, monkeypatch, 111.0) == \
-            {("camera_3", "pipeline_1"): {"flow_ok": None}}
+            {("camera_3", "pipeline_1"): {"level_ok": None}}
 
     def test_without_max_age_an_ok_does_not_stay_on_screen(self, monkeypatch):
-        """Sin fila en el mapa nadie lo renueva: un OK viejo de las personas no se ve en verde."""
+        """Sin fila en el mapa nadie lo renueva: un OK viejo no se ve en verde."""
         app = _build_metrics_application(monkeypatch)
         monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
-        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=1)
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=1)
         stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
         assert self._build(app, monkeypatch, stale_s) == \
-            {("camera_3", "pipeline_2"): {"safety_ok": None}}
+            {("camera_3", "pipeline_2"): {"presence_ok": None}}
 
     def test_an_unreliable_result_does_not_renew_a_verdict(self, monkeypatch):
         app = _build_metrics_application(monkeypatch)
         monkeypatch.setattr(main, "_MAX_AGE_S_BY_NAME", {})
-        self._store(app, monkeypatch, 100.0, "pipeline_2", safety_ok=1)
+        self._store(app, monkeypatch, 100.0, "pipeline_2", presence_ok=1)
         monkeypatch.setattr(main, "time", SimpleNamespace(monotonic=lambda: 102.5))
         app._store_metrics(InferenceResult(camera_slot="camera_3", pipeline_slot="pipeline_2",
-                                           metrics={"safety_ok": 1}, is_valid=False,
+                                           metrics={"presence_ok": 1}, is_valid=False,
                                            invalid_reason="low_confidence"))
         stale_s = 100.0 + main._VERDICT_DEFAULT_MAX_AGE_S + 0.1
         assert self._build(app, monkeypatch, stale_s) == \
-            {("camera_3", "pipeline_2"): {"safety_ok": None}}
+            {("camera_3", "pipeline_2"): {"presence_ok": None}}
 
 
 class _StatusEngine:

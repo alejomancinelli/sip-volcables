@@ -825,7 +825,7 @@ Lo que no se deduce leyendo un archivo suelto:
   rótulo es `verdict_<nombre>` en `strings.py`. Los arma `main.py` una vez por segundo
   (`_build_verdicts()`) desde el mismo `_metrics_by_pair` que los registros y vencen con el
   mismo `max_age_s` de su fila —o a los 3 s si no tiene—, así que la pantalla no muestra un OK
-  que el PLC ya no lee, y un OK de las personas que nadie renueva no queda en verde. Los
+  que el PLC ya no lee, y un OK que nadie renueva no queda en verde. Los
   tiempos llegan uno por frame y se pintan una vez por segundo, y la edad sigue creciendo
   aunque no llegue nada: es lo que delata un par caído. Los números y las píldoras tienen
   ancho fijo, para que un valor que cambia no corra la columna de al lado. Qué texto y color

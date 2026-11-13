@@ -20,7 +20,7 @@ from ui.dialogs.polygon_dialog import PolygonDialog                     # noqa: 
 from ui.strings import tr                                               # noqa: E402
 from ui.widgets.pause_button import PauseButton                         # noqa: E402
 
-_KEY = "process.person_safety.exclusion_zone_px.camera_3"
+_KEY = "process.exclusion_zone_px.camera_3"
 _SQUARE = [[100, 100], [300, 100], [300, 300], [100, 300]]
 
 

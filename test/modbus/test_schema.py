@@ -349,8 +349,8 @@ class TestMaxAge:
     def test_an_inference_row_keeps_its_max_age(self, tmp_path):
         registers = load_registers(_write_map(tmp_path, """
 - addr: 3
-  name: camera_3_person_safety
-  desc: Personas
+  name: camera_3_presence
+  desc: Presencia
   producer: inference
   max_age_s: 3
 """))
@@ -378,18 +378,18 @@ class TestMaxAge:
         with pytest.raises(ValueError, match="max_age_s"):
             load_registers(_write_map(tmp_path, f"""
 - addr: 3
-  name: camera_3_person_safety
-  desc: Personas
+  name: camera_3_presence
+  desc: Presencia
   producer: inference
   max_age_s: {value}
 """))
 
     def test_the_schema_lists_only_the_rows_that_expire(self):
         schema = RegisterSchema([
-            Reg(3, "camera_3_person_safety", "Personas", PRODUCER_INFERENCE, max_age_s=3),
+            Reg(3, "camera_3_presence", "Presencia", PRODUCER_INFERENCE, max_age_s=3),
             Reg(5, "coverage_pct", "Cobertura", PRODUCER_INFERENCE),
         ])
-        assert schema.max_age_by_name() == {"camera_3_person_safety": 3.0}
+        assert schema.max_age_by_name() == {"camera_3_presence": 3.0}
 
 
 class TestWritable:
