@@ -2,8 +2,9 @@
 Pestaña de licencia: qué licencia tiene el equipo, y los dos botones de la renovación.
 
 **No valida nada.** Recibe el dict de `LicenseManager.get_status()` por `update_license()`
-y lo muestra; quién decide si una licencia vale es el subsistema, no la pantalla. De acá
-sale un solo texto que no viene del estado: el que traduce cada valor a un color de chip.
+y lo muestra; quién decide si una licencia vale es el subsistema, no la pantalla. El color
+del chip de cada estado sale de `ui/service_status.py`, el mismo que usa la página de
+inicio.
 
 Los dos botones **no leen ni escriben archivos**: abren un diálogo para elegir una ruta
 —que es presentación, no I/O— y emiten la ruta por una señal. El que abre el archivo,
@@ -23,39 +24,29 @@ desincronizar el día que se agregue un estado.
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from system.config_manager import ConfigManager
 from system.license import manager
 from system.license.request import REQUEST_FILENAME
 
+from ui import service_status
 from ui.strings import tr
 from ui.views.diagnostics.abstract_tab import AbstractDiagnosticsTab
-from ui.widgets.form import add_form_row, add_hint_row, build_group_box
-from ui.widgets.status_chip import CHIP_ERROR, CHIP_INFO, CHIP_OK, CHIP_WARNING, StatusChip
-
-# Estado del subsistema -> color del chip. Un equipo sin licencia va en rojo y uno
-# corriendo desde fuentes en gris: el segundo no es una falla del equipo, es un build de
-# desarrollo, y pintarlo de rojo enseñaría a ignorar el rojo.
-_CHIP_BY_STATE = {
-    manager.STATE_VALID:            CHIP_OK,
-    manager.STATE_UNLICENSED_BUILD: CHIP_INFO,
-    manager.STATE_ABSENT:           CHIP_ERROR,
-    manager.STATE_INVALID:          CHIP_ERROR,
-    manager.STATE_FOREIGN:          CHIP_ERROR,
-    manager.STATE_EXPIRED:          CHIP_ERROR,
-    manager.STATE_TAMPERED:         CHIP_ERROR,
-}
+from ui.widgets.settings_card import SettingsCard, SettingsSection
+from ui.widgets.status_chip import CHIP_ERROR, CHIP_OK, CHIP_WARNING, StatusChip
 
 _EMPTY_VALUE = "—"
+_COLUMNS = 3
+_ERROR_PROPERTY = "error"         # lo pinta el QSS: el resultado de una instalación que falló
 
 
 class LicenseTab(AbstractDiagnosticsTab):
     """Estado de la licencia del equipo y el flujo de renovación."""
 
     TITLE_KEY = "tab_license"
-    IS_SCROLLABLE = True      # apila cuatro grupos de alto fijo
+    IS_SCROLLABLE = True      # una tarjeta de cinco secciones; en una pantalla baja no entra
 
     export_requested = Signal(str)    # ruta elegida para escribir la solicitud
     install_requested = Signal(str)   # ruta del .lic que el operador quiere instalar
@@ -64,24 +55,29 @@ class LicenseTab(AbstractDiagnosticsTab):
         super().__init__(config_manager, parent)
         self._values: dict = {}
 
-        self._state_chip = StatusChip()
-        self._expiry_chip = StatusChip()
+        self._state_chip = StatusChip(pill=True)
+        self._expiry_chip = StatusChip(pill=True)
         self._reason = QLabel()
+        self._reason.setObjectName("settingsFieldHint")
         self._reason.setWordWrap(True)
         self._result = QLabel()
+        self._result.setObjectName("licenseResult")
         self._result.setWordWrap(True)
 
+        card = SettingsCard(tr("lic_card"))
+        self._build_state_section(card)
+        self._build_license_section(card)
+        self._build_machine_section(card)
+        self._build_entitlements_section(card)
+        self._build_renewal_section(card)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-        layout.addLayout(self._build_chip_row())
-        layout.addWidget(self._reason)
-        layout.addWidget(self._build_license_box())
-        layout.addWidget(self._build_machine_box())
-        layout.addWidget(self._build_entitlements_box())
-        layout.addWidget(self._build_renewal_box())
+        # Sin margen propio: la tarjeta arranca en el borde del encabezado de la página.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(card)
         layout.addStretch()
 
+        self._show_result("")
         self.update_license({})
 
     # ── API pública ──────────────────────────────────────────────────────────
@@ -109,9 +105,8 @@ class LicenseTab(AbstractDiagnosticsTab):
         self._values["cameras"].setText(_format_cameras(status.get("max_cameras")))
         self._values["features"].setText(", ".join(status.get("features") or ()) or _EMPTY_VALUE)
 
-        state = str(status.get("state") or "")
-        self._state_chip.set_state(_CHIP_BY_STATE.get(state, CHIP_INFO),
-                                   tr(f"lic_state_{state}") if state else tr("lic_state_unknown"))
+        text, chip_state = service_status.describe_license(status)
+        self._state_chip.set_state(chip_state, text)
         self._update_expiry_chip(status)
 
         reason = str(status.get("reason") or "")
@@ -124,39 +119,44 @@ class LicenseTab(AbstractDiagnosticsTab):
 
     # ── Internos ─────────────────────────────────────────────────────────────
 
-    def _build_chip_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_state_section(self, card: SettingsCard):
+        section = card.add_section(tr("lic_box_state"), tr("lic_state_description"), _COLUMNS)
+        chips = QWidget()
+        row = QHBoxLayout(chips)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         row.addWidget(self._state_chip)
         row.addWidget(self._expiry_chip)
         row.addStretch()
-        return row
+        section.add_row(chips)
+        section.add_row(self._reason)
 
-    def _build_license_box(self) -> QWidget:
-        box, form = build_group_box(tr("lic_box_license"))
-        self._add_value_row(form, "license_id", "lic_id")
-        self._add_value_row(form, "client", "lic_client")
-        self._add_value_row(form, "project_id", "lic_project")
-        self._add_value_row(form, "issued_at", "lic_issued")
-        self._add_value_row(form, "expires_at", "lic_expires")
-        return box
+    def _build_license_section(self, card: SettingsCard):
+        section = card.add_section(tr("lic_box_license"), tr("lic_license_description"),
+                                   _COLUMNS)
+        self._add_value(section, "license_id", "lic_id")
+        self._add_value(section, "client", "lic_client")
+        self._add_value(section, "project_id", "lic_project")
+        self._add_value(section, "issued_at", "lic_issued")
+        self._add_value(section, "expires_at", "lic_expires")
 
-    def _build_machine_box(self) -> QWidget:
-        box, form = build_group_box(tr("lic_box_machine"))
-        self._add_value_row(form, "fingerprint", "lic_fingerprint")
-        self._add_value_row(form, "sources", "lic_sources")
-        self._add_value_row(form, "build", "lic_build")
-        return box
+    def _build_machine_section(self, card: SettingsCard):
+        section = card.add_section(tr("lic_box_machine"), tr("lic_machine_description"),
+                                   _COLUMNS)
+        self._add_value(section, "fingerprint", "lic_fingerprint")
+        self._add_value(section, "sources", "lic_sources", span=2)
+        self._add_value(section, "build", "lic_build")
 
-    def _build_entitlements_box(self) -> QWidget:
-        box, form = build_group_box(tr("lic_box_entitlements"))
-        self._add_value_row(form, "cameras", "lic_max_cameras")
-        self._add_value_row(form, "features", "lic_features")
-        return box
+    def _build_entitlements_section(self, card: SettingsCard):
+        section = card.add_section(tr("lic_box_entitlements"),
+                                   tr("lic_entitlements_description"), _COLUMNS)
+        self._add_value(section, "cameras", "lic_max_cameras")
+        self._add_value(section, "features", "lic_features", span=2)
 
-    def _build_renewal_box(self) -> QWidget:
-        box, form = build_group_box(tr("lic_box_renewal"))
-
+    def _build_renewal_section(self, card: SettingsCard):
+        section = card.add_section(tr("lic_box_renewal"), tr("lic_renewal_hint"), _COLUMNS)
         export_button = QPushButton(tr("lic_export_button"))
+        export_button.setObjectName("primaryButton")
         export_button.clicked.connect(self._on_export_clicked)
         install_button = QPushButton(tr("lic_install_button"))
         install_button.clicked.connect(self._on_install_clicked)
@@ -164,20 +164,20 @@ class LicenseTab(AbstractDiagnosticsTab):
         buttons = QWidget()
         row = QHBoxLayout(buttons)
         row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         row.addWidget(export_button)
         row.addWidget(install_button)
         row.addStretch()
+        section.add_row(buttons)
+        section.add_row(self._result)
 
-        add_hint_row(form, tr("lic_renewal_hint"))
-        form.addRow("", buttons)
-        form.addRow("", self._result)
-        return box
-
-    def _add_value_row(self, form: QFormLayout, key: str, label_key: str):
+    def _add_value(self, section: SettingsSection, key: str, label_key: str, *, span: int = 1):
         value = QLabel(_EMPTY_VALUE)
+        value.setObjectName("tableValue")
+        value.setWordWrap(True)
         value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._values[key] = value
-        add_form_row(form, tr(label_key), value)
+        section.add_field(tr(label_key), value, span=span)
 
     def _update_expiry_chip(self, status: dict):
         days = status.get("days_remaining")
@@ -197,8 +197,10 @@ class LicenseTab(AbstractDiagnosticsTab):
     def _show_result(self, message: str, *, is_error: bool = False):
         self._result.setText(message)
         self._result.setVisible(bool(message))
-        # Inline y no en el QSS: es un solo label y el color es el semántico del chip.
-        self._result.setStyleSheet("color: #d05050;" if is_error else "")
+        if self._result.property(_ERROR_PROPERTY) != is_error:
+            self._result.setProperty(_ERROR_PROPERTY, is_error)
+            self._result.style().unpolish(self._result)
+            self._result.style().polish(self._result)
 
     def _on_export_clicked(self):
         # El resultado se limpia al empezar la acción siguiente y no al llegar un estado

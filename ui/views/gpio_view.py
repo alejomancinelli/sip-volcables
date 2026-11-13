@@ -1,5 +1,5 @@
 """
-Diálogo de GPIO: estado de las entradas digitales y comando de las salidas.
+Página de entradas y salidas: estado de las entradas digitales y comando de las salidas.
 
 Es la mitad de interfaz de `system/gpio_control.py`, y espera un controlador con esta
 interfaz mínima:
@@ -11,16 +11,20 @@ interfaz mínima:
     set_output(number, state) -> bool   # True si el comando se aplicó
 
 La cantidad de canales la dice el controlador y no una constante de acá: cambia con el
-equipo, y un diálogo que dibuja cuatro DI en una placa de ocho miente. Un controlador
+equipo, y una página que dibuja cuatro DI en una placa de ocho miente. Un controlador
 que no informa la cantidad cae a `_DEFAULT_CHANNEL_COUNT`.
 
 Las entradas se refrescan con `update_inputs()`, que es el slot que hay que conectar a
 la señal de polling del controlador. Ninguna salida cambia sola: sólo por click.
+
+La página existe sólo si la ventana recibió un controlador: un equipo sin entradas ni
+salidas digitales no muestra una página que no comanda nada. Esto es el contenido; el
+encabezado y la columna se los pone `PageView`, como a las demás páginas.
 """
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
-    QDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from ui.strings import tr
@@ -29,32 +33,24 @@ _DEFAULT_CHANNEL_COUNT = 4
 _INDICATOR_WIDTH_PX = 84
 _INDICATOR_HEIGHT_PX = 60
 _STATE_UNKNOWN = -1
+_SPACING_PX = 16
 
 # Estado -> valor de la propiedad Qt que pinta el QSS. El indicador no elige colores.
 _STATE_PROPERTY = "state"
 _STATE_NAMES = {1: "high", 0: "low", _STATE_UNKNOWN: "unknown"}
 
 
-class GpioDialog(QDialog):
-    """
-    Ventana no modal de entradas y salidas digitales.
-
-    No modal a propósito: se deja abierta al costado mientras se mira el resto de la
-    aplicación, que es cómo se usa cuando hay que probar una salida en planta.
-    """
+class GpioView(QWidget):
+    """Página de entradas y salidas digitales. Ver el contrato en el docstring del módulo."""
 
     def __init__(self, gpio_controller: object, parent=None):
         super().__init__(parent)
         self._gpio = gpio_controller
-        self.setWindowTitle(tr("gpio_title"))
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        self.setModal(False)
-
         self._indicators: dict[int, _IndicatorLabel] = {}
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_SPACING_PX)
 
         if not getattr(self._gpio, "hardware_available", False):
             warning = QLabel(tr("gpio_simulated"))
@@ -64,10 +60,7 @@ class GpioDialog(QDialog):
 
         layout.addWidget(self._build_inputs_box())
         layout.addWidget(self._build_outputs_box())
-
-        close_button = QPushButton(tr("dialog_close"))
-        close_button.clicked.connect(self.close)
-        layout.addWidget(close_button, alignment=Qt.AlignRight)
+        layout.addStretch()
 
     # ── API pública ──────────────────────────────────────────────────────────
 

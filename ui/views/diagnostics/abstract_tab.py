@@ -1,5 +1,5 @@
 """
-Contrato de una pestaña del panel de diagnóstico.
+Contrato de una pestaña de diagnóstico. Qué página la muestra lo dice `ui/navigation.py`.
 
 Una pestaña de diagnóstico **muestra**, no edita: recibe lo que le empujan por sus
 slots y no lee el config más que para saber qué tiene que mostrar. Por eso no tiene

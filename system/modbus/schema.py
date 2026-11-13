@@ -86,6 +86,16 @@ class Reg:
     `min_value` y `max_value` sólo a las `plc`: el rango en la
     unidad física, ambos incluidos. Sin ellos el rango es el del registro entero; una
     fila `is_bool` acepta 0 y 1.
+
+    `max_age_s` sólo aplica a las `inference`: los segundos sin un resultado confiable que
+    la publique tras los cuales la fila vuelve a 0. Sin él la fila queda con su último
+    valor, que es lo que conviene a una medición; con él, el 0 pasa a querer decir «sin
+    dato», para un veredicto que el PLC no puede seguir creyendo con el pipeline caído.
+
+    `bitfield` dice que el registro es una palabra de estado y cuál: el nombre con el que
+    la lista `system/formats/catalog.py`. Con eso la interfaz muestra qué dice cada bit.
+    Este módulo no conoce las palabras: que el nombre exista lo prueba la suite, contra
+    el mapa del repo.
     """
     addr: int                          # dirección Modbus 1-based
     name: str                          # id corto y único: "cpu_usage_pct"
@@ -100,6 +110,10 @@ class Reg:
     # ── Sólo filas que escribe el PLC (producer="plc") ──
     min_value: float | None = None     # mínimo aceptado, en la unidad física
     max_value: float | None = None     # máximo aceptado, en la unidad física
+    # ── Sólo filas producer="inference" ──
+    max_age_s: float | None = None     # sin un resultado confiable en este tiempo, vuelve a 0
+    # ── Palabras de estado ──
+    bitfield: str = ""                 # qué palabra es: un nombre de system/formats/catalog.py
 
 
 # Campos que `load_registers` acepta en cada entrada del YAML.
@@ -166,6 +180,19 @@ def _check_plc_fields(entry: dict) -> str | None:
     return None
 
 
+def _check_max_age(entry: dict) -> str | None:
+    """Qué tiene de malo el `max_age_s` de una entrada, o None si nada."""
+    if "max_age_s" not in entry:
+        return None
+    # Sólo una fila de inferencia tiene un resultado que la renueve: en otra, nadie la vencería.
+    if entry["producer"] != PRODUCER_INFERENCE:
+        return "max_age_s sólo va en filas de inferencia (producer: inference)."
+    value = entry["max_age_s"]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return f"max_age_s tiene que ser un número de segundos mayor que 0, no {value!r}."
+    return None
+
+
 def load_registers(map_path: str) -> list[Reg]:
     """
     Lee el mapa de registros de un YAML y lo devuelve como lista de `Reg`.
@@ -177,10 +204,10 @@ def load_registers(map_path: str) -> list[Reg]:
 
     Levanta ValueError con el archivo y la fila si una entrada está incompleta —una
     fila `config` sin `config_key` incluida—, tiene una clave desconocida, un `producer`
-    fuera del vocabulario, o una fila
-    escribible por el PLC mal declarada: un rango que no entra en el registro, o una
-    fila `plc` que apunta al config. Preferimos romper al arrancar antes que servirle
-    al PLC un mapa a medias.
+    fuera del vocabulario, una fila escribible por el PLC mal declarada —un rango que no
+    entra en el registro, o una fila `plc` que apunta al config—, o un `max_age_s` fuera
+    de una fila de inferencia. Preferimos romper al arrancar antes que servirle al PLC un
+    mapa a medias.
     """
     with open(map_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
@@ -210,8 +237,10 @@ def load_registers(map_path: str) -> list[Reg]:
             )
         if not isinstance(entry["addr"], int) or entry["addr"] < 1:
             raise ValueError(f"{location}: addr tiene que ser un entero >= 1 (base-1).")
+        if not isinstance(entry.get("bitfield", ""), str):
+            raise ValueError(f"{location}: bitfield es el nombre de una palabra, un texto.")
 
-        problem = _check_plc_fields(entry)
+        problem = _check_plc_fields(entry) or _check_max_age(entry)
         if problem:
             raise ValueError(f"{location} ({entry['name']}): {problem}")
         # Sin clave no hay qué publicar, y nadie más escribe esa fila: el PLC leería 0.
@@ -251,6 +280,10 @@ class RegisterSchema:
         """{addr: desc} — fuente única para la tabla de registros de la UI y los docs."""
         return {r.addr: r.desc for r in self.registers}
 
+    def bitfields(self) -> dict[int, str]:
+        """{addr: nombre de la palabra} de las filas que son una palabra de estado."""
+        return {r.addr: r.bitfield for r in self.registers if r.bitfield}
+
     def addr(self, name: str) -> int:
         """Dirección de un registro por su nombre corto. Ninguna dirección se escribe
         como literal fuera de este paquete: se pide por nombre."""
@@ -263,6 +296,10 @@ class RegisterSchema:
     def config_regs(self) -> list[Reg]:
         """Filas que copian un valor del config para que el PLC lo lea."""
         return [r for r in self.registers if r.producer == PRODUCER_CONFIG]
+
+    def max_age_by_name(self) -> dict[str, float]:
+        """{nombre: max_age_s} de las filas que vuelven a 0 sin resultados que las renueven."""
+        return {r.name: float(r.max_age_s) for r in self.registers if r.max_age_s is not None}
 
     def plc_regs(self) -> list[Reg]:
         """Filas que escribe el PLC, y ninguna otra."""

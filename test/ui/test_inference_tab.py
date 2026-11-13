@@ -12,13 +12,17 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt                                           # noqa: E402
-from PySide6.QtWidgets import QApplication, QPushButton, QTabWidget     # noqa: E402
+from PySide6.QtWidgets import (                                         # noqa: E402
+    QApplication, QCheckBox, QLabel, QPushButton, QTabWidget,
+)
 
+from system.inference import overlay                                    # noqa: E402
 from system.inference.pipeline_factory import (                         # noqa: E402
     DEFAULT_PIPELINE, REGISTERED_PIPELINES,
 )
 from ui.strings import tr                                               # noqa: E402
-from ui.views.config.inference_tab import InferenceTab                  # noqa: E402
+from ui.views.config import inference_tab                               # noqa: E402
+from ui.views.config.inference_tab import InferenceTab, _PipelineSwatch  # noqa: E402
 from ui.widgets.form import build_slot_tabs                             # noqa: E402
 
 _MODEL = "segmenter"
@@ -78,6 +82,174 @@ class TestClassNames:
         tab, config = _tab()
         tab.save()
         assert not [key for key in config.written if key.endswith(".class_names")]
+
+
+class TestModelFields:
+    def test_save_does_not_write_max_side(self):
+        """Ningún modelo del template lo aplica: la pestaña no lo muestra ni lo escribe."""
+        tab, config = _tab(**{f"inference.models.{_MODEL}.max_side_px": 640})
+        tab.save()
+        assert f"inference.models.{_MODEL}.max_side_px" not in config.written
+
+    def test_a_browsed_file_inside_the_data_dir_is_saved_relative(self, monkeypatch, tmp_path):
+        chosen = tmp_path / "models" / "best.engine"
+        monkeypatch.setattr(inference_tab, "DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(inference_tab.QFileDialog, "getOpenFileName",
+                            lambda *args: (str(chosen), ""))
+        tab, config = _tab()
+        _click(tab, tr("inf_model_browse"))
+        tab.save()
+        assert config.written[f"inference.models.{_MODEL}.path"] == "models/best.engine"
+
+    def test_cancelling_the_browser_keeps_the_path(self, monkeypatch):
+        monkeypatch.setattr(inference_tab.QFileDialog, "getOpenFileName",
+                            lambda *args: ("", ""))
+        tab, config = _tab(**{f"inference.models.{_MODEL}.path": "models/old.engine"})
+        _click(tab, tr("inf_model_browse"))
+        tab.save()
+        assert config.written[f"inference.models.{_MODEL}.path"] == "models/old.engine"
+
+
+class TestConfigPath:
+    def test_a_path_inside_the_base_is_relative_with_forward_slashes(self, tmp_path):
+        path = tmp_path / "models" / "seg" / "best.engine"
+        assert inference_tab.to_config_path(str(path), str(tmp_path)) == "models/seg/best.engine"
+
+    def test_a_path_outside_the_base_stays_absolute(self, tmp_path):
+        base = tmp_path / "installation"
+        outside = tmp_path / "elsewhere" / "best.engine"
+        result = inference_tab.to_config_path(str(outside), str(base))
+        assert result == str(outside).replace(os.sep, "/")
+
+
+def _click(tab: InferenceTab, text: str):
+    """Aprieta el primer botón de la pestaña con ese texto."""
+    next(button for button in tab.findChildren(QPushButton) if button.text() == text).click()
+
+
+def _camera_checks(tab: InferenceTab) -> dict[str, QCheckBox]:
+    """Las casillas de cámara del pipeline, por slot (va en el tooltip)."""
+    checklist = tab._pipeline_forms[_PIPELINE]["cameras"]
+    return {check.toolTip(): check for check in checklist.findChildren(QCheckBox)}
+
+
+class TestCameraChecklist:
+    _CAMERAS = {"cameras": {"camera_1": {"name": "Cinta"}, "camera_2": {}}}
+
+    def test_there_is_a_box_per_camera_with_its_name(self):
+        tab, _ = _tab(**self._CAMERAS)
+        assert [check.text() for check in _camera_checks(tab).values()] == \
+            ["Cinta", "camera_2"]
+
+    def test_the_pipeline_cameras_are_the_checked_ones(self):
+        tab, _ = _tab(**self._CAMERAS)
+        assert {slot: check.isChecked() for slot, check in _camera_checks(tab).items()} == \
+            {"camera_1": True, "camera_2": False}
+
+    def test_save_writes_the_checked_cameras(self):
+        tab, config = _tab(**self._CAMERAS)
+        _camera_checks(tab)["camera_2"].setChecked(True)
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.cameras"] == \
+            ["camera_1", "camera_2"]
+
+    def test_an_all_cameras_list_goes_back_empty(self):
+        """Vacía es «todas»: guardarla explícita dejaría afuera a una cámara que se agregue."""
+        tab, config = _tab(**self._CAMERAS,
+                           **{f"inference.pipelines.{_PIPELINE}.cameras": []})
+        assert all(check.isChecked() for check in _camera_checks(tab).values())
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.cameras"] == []
+
+    def test_an_explicit_full_list_stays_explicit(self):
+        tab, config = _tab(**self._CAMERAS, **{
+            f"inference.pipelines.{_PIPELINE}.cameras": ["camera_1", "camera_2"]})
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.cameras"] == \
+            ["camera_1", "camera_2"]
+
+    def test_the_last_checked_camera_cannot_be_unchecked(self):
+        """Sin ninguna, la lista quedaría vacía, y vacía es «todas»."""
+        tab, _ = _tab(**self._CAMERAS)
+        checks = _camera_checks(tab)
+        assert not checks["camera_1"].isEnabled()
+        checks["camera_2"].setChecked(True)
+        assert checks["camera_1"].isEnabled() and checks["camera_2"].isEnabled()
+
+
+class TestCycleFields:
+    """Se prende sólo lo que rige con el número de imágenes por medición."""
+
+    def _enabled(self, tab: InferenceTab) -> dict[str, bool]:
+        fields = tab._pipeline_forms[_PIPELINE]
+        return {key: fields[key].isEnabled()
+                for key in ("interval_s", "cycle_interval_s", "capture_timeout_s",
+                            "idle_cameras_between_cycles")}
+
+    def test_with_one_frame_only_the_engine_interval_counts(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}.frames_per_cycle": 1})
+        assert self._enabled(tab) == {"interval_s": True, "cycle_interval_s": False,
+                                      "capture_timeout_s": False,
+                                      "idle_cameras_between_cycles": False}
+
+    def test_with_several_frames_the_round_settings_count_and_the_interval_does_not(self):
+        tab, _ = _tab()
+        assert self._enabled(tab) == {"interval_s": False, "cycle_interval_s": True,
+                                      "capture_timeout_s": True,
+                                      "idle_cameras_between_cycles": True}
+
+    def test_changing_the_frames_switches_them_at_once(self):
+        tab, _ = _tab()
+        tab._pipeline_forms[_PIPELINE]["frames_per_cycle"].setValue(1)
+        assert self._enabled(tab)["interval_s"]
+        assert not self._enabled(tab)["capture_timeout_s"]
+
+    def test_on_request_one_frame_is_a_round_without_a_wait(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}.frames_per_cycle": 1,
+                         f"inference.pipelines.{_PIPELINE}.cycle_trigger": "request"})
+        assert self._enabled(tab) == {"interval_s": False, "cycle_interval_s": False,
+                                      "capture_timeout_s": True,
+                                      "idle_cameras_between_cycles": True}
+
+    def test_a_disabled_pipeline_has_them_all_off(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}.enabled": False})
+        assert not any(self._enabled(tab).values())
+
+    def test_enabling_the_pipeline_again_keeps_the_ones_that_do_not_apply_off(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}.enabled": False})
+        tab._pipeline_forms[_PIPELINE]["enabled"].setChecked(True)
+        assert not self._enabled(tab)["interval_s"]
+        assert self._enabled(tab)["capture_timeout_s"]
+
+    def test_a_field_that_does_not_apply_keeps_its_value(self):
+        """Volver a varias imágenes no puede encontrar el tiempo máximo en 0, «sin límite»."""
+        tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}.frames_per_cycle": 1,
+                              f"inference.pipelines.{_PIPELINE}.capture_timeout_s": 45})
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.capture_timeout_s"] == 45
+
+
+class TestWholeTimes:
+    def test_the_interval_is_edited_in_whole_milliseconds(self):
+        tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}.interval_s": 0.5})
+        assert tab._pipeline_forms[_PIPELINE]["interval_s"].value() == 500
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.interval_s"] == \
+            pytest.approx(0.5)
+
+    def test_seconds_are_saved_as_integers(self):
+        tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}.cycle_interval_s": 60.0,
+                              f"inference.pipelines.{_PIPELINE}.capture_timeout_s": 30.0})
+        tab.save()
+        written = [config.written[f"inference.pipelines.{_PIPELINE}.{key}"]
+                   for key in ("cycle_interval_s", "capture_timeout_s")]
+        assert written == [60, 30] and all(isinstance(value, int) for value in written)
+
+    def test_a_fraction_of_a_second_does_not_become_zero(self):
+        """En la espera y el tiempo máximo, 0 es otro modo: sin espera, sin límite."""
+        tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}.capture_timeout_s": 0.4})
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.capture_timeout_s"] == 1
 
 
 class TestRoundTrip:
@@ -162,6 +334,42 @@ class TestSlotTabs:
         assert pipelines.usesScrollButtons()
 
 
+class TestPipelinePage:
+    """La sub-pestaña de un pipeline lleva su nombre, y su slot queda a la vista debajo."""
+
+    def _pipeline_bar(self, tab: InferenceTab) -> QTabWidget:
+        _, pipelines, _ = tab.findChildren(QTabWidget)
+        return pipelines
+
+    def test_a_named_pipeline_shows_its_name_on_its_sub_tab(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert _tab_labels(self._pipeline_bar(tab)) == ["Nivel de llenado"]
+
+    def test_typing_a_name_renames_its_sub_tab(self):
+        tab, _ = _tab()
+        tab._pipeline_forms[_PIPELINE]["name"].setText("Presencia")
+        assert _tab_labels(self._pipeline_bar(tab)) == ["Presencia"]
+
+    def test_the_slot_is_shown_under_the_name(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        hints = [label.text() for label in self._pipeline_bar(tab).widget(0).findChildren(
+            QLabel, "settingsFieldHint")]
+        assert tr("inf_pipeline_slot_hint").format(slot=_PIPELINE) in hints
+
+    def test_a_disabled_pipeline_has_its_fields_off(self):
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}.enabled": False})
+        fields = tab._pipeline_forms[_PIPELINE]
+        assert fields["enabled"].isEnabled()
+        assert not fields["name"].isEnabled()
+        assert not fields["frames_per_cycle"].isEnabled()
+
+    def test_a_disabled_pipeline_still_saves_its_values(self):
+        tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}.enabled": False})
+        tab.save()
+        assert config.written[f"inference.pipelines.{_PIPELINE}.enabled"] is False
+        assert config.written[f"inference.pipelines.{_PIPELINE}.frames_per_cycle"] == 3
+
+
 def _with_roi(roi: dict) -> dict:
     """El ROI propio de `camera_1`, donde el config lo tiene: en la sección del pipeline."""
     return {f"inference.pipelines.{_PIPELINE}": {"roi": {"camera_1": roi}}}
@@ -208,14 +416,14 @@ class TestRegionRows:
 
     def test_a_video_camera_with_an_adjustment_says_the_region_is_not_native(self):
         tab, _ = _tab(**_with_roi(self._OWN),
-                      **{"cameras.camera_1": {"driver": "rtsp"},
-                         "cameras.camera_1.image_adjust": {"brightness_factor": 2.0}})
+                      **{"cameras.camera_1": {"driver": "rtsp",
+                                             "image_adjust": {"brightness_factor": 2.0}}})
         assert self._texts(tab)[1] == tr("regions_problem_native_preprocessed")
 
     def test_a_gige_camera_with_an_adjustment_has_nothing_to_flag(self):
         tab, _ = _tab(**_with_roi(self._OWN),
-                      **{"cameras.camera_1": {"driver": "basler_gige"},
-                         "cameras.camera_1.image_adjust": {"brightness_factor": 2.0}})
+                      **{"cameras.camera_1": {"driver": "basler_gige",
+                                             "image_adjust": {"brightness_factor": 2.0}}})
         assert self._texts(tab)[1] == ""
 
     def test_a_region_too_small_to_cut_from_the_native_is_flagged(self):
@@ -300,32 +508,39 @@ class TestRegionsSection:
         assert edit_buttons == []
 
     def test_a_row_is_titled_with_the_pipeline_name(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
-        assert tab._region_names[(_PIPELINE, "camera_1")].title() == "Flujo de grano"
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Nivel de llenado"
 
     def test_a_pipeline_without_a_name_shows_its_slot(self):
         tab, _ = _tab()
-        assert tab._region_names[(_PIPELINE, "camera_1")].title() == _PIPELINE
+        assert tab._region_names[(_PIPELINE, "camera_1")].text() == _PIPELINE
 
     def test_typing_a_name_renames_the_rows_at_once(self):
         tab, _ = _tab()
-        tab._pipeline_forms[_PIPELINE]["name"].setText("Personas")
-        assert tab._region_names[(_PIPELINE, "camera_1")].title() == "Personas"
+        tab._pipeline_forms[_PIPELINE]["name"].setText("Presencia")
+        assert tab._region_names[(_PIPELINE, "camera_1")].text() == "Presencia"
 
     def test_the_name_is_loaded_into_the_pipeline_page(self):
-        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Flujo de grano"}})
-        assert tab._pipeline_forms[_PIPELINE]["name"].text() == "Flujo de grano"
+        tab, _ = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Nivel de llenado"}})
+        assert tab._pipeline_forms[_PIPELINE]["name"].text() == "Nivel de llenado"
 
     def test_save_writes_the_name(self):
         tab, config = _tab()
-        tab._pipeline_forms[_PIPELINE]["name"].setText("  Personas ")
+        tab._pipeline_forms[_PIPELINE]["name"].setText("  Presencia ")
         tab.save()
-        assert config.written[f"inference.pipelines.{_PIPELINE}.name"] == "Personas"
+        assert config.written[f"inference.pipelines.{_PIPELINE}.name"] == "Presencia"
 
     def test_save_does_not_add_an_empty_name_key(self):
         tab, config = _tab()
         tab.save()
         assert f"inference.pipelines.{_PIPELINE}.name" not in config.written
+
+    def test_each_row_carries_the_color_of_its_pipeline(self):
+        """El mismo color del recuadro en el diálogo y en el monitor: el del overlay."""
+        tab, _ = _tab(**{"inference.pipelines": {_PIPELINE: {}, "pipeline_2": {}}})
+        swatches = tab.findChildren(_PipelineSwatch)
+        expected = [overlay.get_pipeline_style(index).color_bgr for index in (0, 1)]
+        assert [swatch._color.getRgb()[2::-1] for swatch in swatches] == expected
 
     def test_a_name_that_was_cleared_is_cleared_in_the_file(self):
         tab, config = _tab(**{f"inference.pipelines.{_PIPELINE}": {"name": "Viejo"}})

@@ -798,6 +798,8 @@ class InferenceThread(QThread):
             draw_labels=bool(self._config.get("inference.overlay.draw_labels",
                                               defaults.draw_labels)),
             draw_roi=bool(self._config.get("inference.overlay.draw_roi", defaults.draw_roi)),
+            draw_roi_label=bool(self._config.get("inference.overlay.draw_roi_label",
+                                                 defaults.draw_roi_label)),
             draw_timestamp=bool(self._config.get("inference.overlay.draw_timestamp",
                                                  defaults.draw_timestamp)),
             font_scale=float(self._config.get("inference.overlay.font_scale",

@@ -81,6 +81,16 @@ class TestCoverage:
         assert analysis.coverage_pct([_detection("a")], 0) == 0.0
 
 
+class TestIsVerdictKey:
+    def test_a_metric_ending_in_ok_is_a_verdict(self):
+        assert analysis.is_verdict_key("presence_ok")
+        assert analysis.is_verdict_key("belt_1_level_ok")
+
+    def test_a_measurement_or_its_summary_is_not(self):
+        assert not analysis.is_verdict_key("fill_pct")
+        assert not analysis.is_verdict_key("level_ok_mean")
+
+
 class TestSummarizeMetrics:
     """El ciclo de N frames de un proyecto que responde con varias imágenes por medición:
     la media sola no dice si los N coincidieron."""

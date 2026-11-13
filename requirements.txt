@@ -35,6 +35,11 @@ psutil>=5.9
 opencv-python>=4.8,<4.9 ; sys_platform == "win32"
 opencv-python-headless>=4.8,<4.9 ; sys_platform == "linux"
 
+# Texto del overlay (system/inference/overlay.py): la Ubuntu de la interfaz, con acentos y
+# antialiasing, sobre el video anotado. Sin Pillow el overlay cae a la fuente de OpenCV, que
+# sólo dibuja ASCII, así que no frena el arranque: lo que cambia es cómo se ve.
+Pillow>=10.0
+
 # Cámaras Basler. El wheel incluye su propio runtime de pylon, así que alcanza para
 # capturar: el SDK completo (viewer, IP Configurator, filter driver) es opcional y lo
 # cubre setup/cameras/.

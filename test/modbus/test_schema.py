@@ -343,6 +343,55 @@ class TestLoadPlcRows:
         assert "camera_switch" in message
 
 
+class TestMaxAge:
+    """Una fila de inferencia que vuelve a 0 sin un resultado que la renueve."""
+
+    def test_an_inference_row_keeps_its_max_age(self, tmp_path):
+        registers = load_registers(_write_map(tmp_path, """
+- addr: 3
+  name: camera_3_presence
+  desc: Presencia
+  producer: inference
+  max_age_s: 3
+"""))
+        assert registers[0].max_age_s == 3
+
+    def test_without_it_a_row_never_expires(self):
+        assert Reg(1, "x", "x", PRODUCER_INFERENCE).max_age_s is None
+
+    @pytest.mark.parametrize("producer, extra", [("health", ""), ("plc", ""),
+                                                 ("config", "config_key: process.x")])
+    def test_it_only_goes_on_inference_rows(self, tmp_path, producer, extra):
+        """En otra fila no hay un resultado que la renueve, y nadie la vencería."""
+        with pytest.raises(ValueError, match="sólo va en filas de inferencia"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 3
+  name: some_value
+  desc: Algo
+  producer: {producer}
+  max_age_s: 3
+  {extra}
+"""))
+
+    @pytest.mark.parametrize("value", [0, -1, "'3'", "true"])
+    def test_it_has_to_be_a_positive_number_of_seconds(self, tmp_path, value):
+        with pytest.raises(ValueError, match="max_age_s"):
+            load_registers(_write_map(tmp_path, f"""
+- addr: 3
+  name: camera_3_presence
+  desc: Presencia
+  producer: inference
+  max_age_s: {value}
+"""))
+
+    def test_the_schema_lists_only_the_rows_that_expire(self):
+        schema = RegisterSchema([
+            Reg(3, "camera_3_presence", "Presencia", PRODUCER_INFERENCE, max_age_s=3),
+            Reg(5, "coverage_pct", "Cobertura", PRODUCER_INFERENCE),
+        ])
+        assert schema.max_age_by_name() == {"camera_3_presence": 3.0}
+
+
 class TestWritable:
     def setup_method(self):
         self.schema = RegisterSchema([
@@ -588,3 +637,42 @@ class TestMirrorBatch:
     def test_encodes_booleans(self):
         config = _FakeConfig(**{"collector.enabled": True})
         assert self.schema.mirror_batch(config)[11] == 1
+
+
+class TestBitfield:
+    def test_a_row_declares_its_word(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: system_status_bitfield
+  desc: Estado del sistema
+  producer: health
+  bitfield: system_status
+""")
+        assert load_registers(path)[0].bitfield == "system_status"
+
+    def test_a_row_without_it_is_not_a_word(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: heartbeat
+  desc: Heartbeat
+  producer: health
+""")
+        assert load_registers(path)[0].bitfield == ""
+
+    def test_a_word_that_is_not_text_is_rejected(self, tmp_path):
+        path = _write_map(tmp_path, """
+- addr: 1
+  name: system_status_bitfield
+  desc: Estado del sistema
+  producer: health
+  bitfield: 3
+""")
+        with pytest.raises(ValueError, match="bitfield"):
+            load_registers(path)
+
+    def test_the_schema_lists_only_the_words(self):
+        schema = RegisterSchema([
+            Reg(1, "system_status_bitfield", "Estado", PRODUCER_HEALTH, bitfield="system_status"),
+            Reg(2, "heartbeat", "Latido", PRODUCER_HEALTH),
+        ])
+        assert schema.bitfields() == {1: "system_status"}

@@ -77,3 +77,60 @@ class TestFilter:
         table.append("ERROR", "e2")
         table.append("ERROR", "e3")
         assert _messages(table) == ["e3", "e2"]
+
+
+class TestLevels:
+    def test_critical_is_filtered_with_the_errors(self):
+        table = EventLogTable(max_rows=5)
+        table.set_filter("ERROR")
+        table.append("CRITICAL", "critical")
+        table.append("INFO", "info")
+        assert _messages(table) == ["critical"]
+
+    def test_the_counts_follow_the_buffer(self):
+        """Se cuenta lo guardado, con o sin filtro, y lo que se cae del buffer deja de contar."""
+        table = EventLogTable(max_rows=2)
+        table.set_filter("INFO")
+        table.append("WARNING", "w")
+        table.append("ERROR", "e")
+        table.append("CRITICAL", "c")
+        assert table.get_counts() == {"DEBUG": 0, "INFO": 0, "WARNING": 0, "ERROR": 2}
+
+    def test_clearing_resets_the_counts(self):
+        table = EventLogTable(max_rows=5)
+        table.append("ERROR", "e")
+        table.clear_log()
+        assert table.get_counts()["ERROR"] == 0
+
+
+class TestSearch:
+    def test_it_matches_the_message_or_the_module_ignoring_case(self):
+        table = EventLogTable(max_rows=5, show_module=True)
+        table.append("INFO", "Puerto serie abierto", "server")
+        table.append("INFO", "Hilo iniciado", "capture_thread")
+        table.append("INFO", "Otra cosa", "main")
+        table.set_search("SERIE")
+        assert table.rowCount() == 1
+        table.set_search("capture")
+        assert table.rowCount() == 1
+        table.set_search("")
+        assert table.rowCount() == 3
+
+    def test_a_new_line_that_does_not_match_is_not_shown(self):
+        table = EventLogTable(max_rows=5)
+        table.set_search("modbus")
+        table.append("INFO", "cámara conectada")
+        assert table.rowCount() == 0
+
+
+class TestPause:
+    def test_lines_that_arrive_paused_are_kept_and_shown_on_resume(self):
+        table = EventLogTable(max_rows=5)
+        table.append("INFO", "a")
+        table.set_paused(True)
+        table.append("INFO", "b")
+        assert _messages(table) == ["a"]
+        assert table.pending_count == 1
+        table.set_paused(False)
+        assert _messages(table) == ["b", "a"]
+        assert table.pending_count == 0

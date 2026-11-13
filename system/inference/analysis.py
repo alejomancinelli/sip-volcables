@@ -94,6 +94,7 @@ def coverage_pct(detections: Iterable[Detection], frame_area_px: int) -> float:
 # módulo: quien las recibe no tiene por qué saber deducirlas de un sufijo.
 SAMPLE_COUNT_KEY = "sample_count"
 SUMMARY_SUFFIXES = ("_mean", "_std", "_min", "_max")
+VERDICT_SUFFIX = "_ok"
 
 
 def is_summary_key(name: str) -> bool:
@@ -106,6 +107,16 @@ def is_summary_key(name: str) -> bool:
     marcar cada clave, y se evita no llamando así a una métrica.
     """
     return name == SAMPLE_COUNT_KEY or name.endswith(SUMMARY_SUFFIXES)
+
+
+def is_verdict_key(name: str) -> bool:
+    """
+    Si la métrica es un veredicto: se llama `<algo>_ok` y vale 1 OK y 0 cualquier otra cosa
+    —NOK o «sin veredicto»—, que es como el analyzer nombra lo que el PLC usa para decidir
+    (`level_ok`, `presence_ok`). Con esto los muestra la página de inicio sin una lista por
+    proyecto; una métrica que no es un veredicto no se llama así.
+    """
+    return name.endswith(VERDICT_SUFFIX)
 
 
 def summarize_metrics(results: Iterable[InferenceResult], *,

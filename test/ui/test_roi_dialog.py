@@ -63,3 +63,22 @@ class TestPause:
         button.click()
         dialog.update_frame(_frame(200))
         assert dialog._last_frame[0, 0, 0] == 200
+
+
+class TestEditing:
+    def test_a_rectangle_edited_on_the_image_fills_the_fields(self):
+        dialog = RoiDialog(_MockConfig(), "camera_1", config_prefix=_PREFIX)
+        dialog._canvas.region_edited.emit(10, 20, 30, 40)
+        assert [dialog._spins[key].value() for key in ("x_px", "y_px", "width_px",
+                                                       "height_px")] == [10, 20, 30, 40]
+
+    def test_a_typed_value_moves_the_rectangle_on_the_image(self):
+        roi = {"x_px": 10, "y_px": 20, "width_px": 30, "height_px": 40}
+        dialog = RoiDialog(_MockConfig(**{_PREFIX: roi}), "camera_1", config_prefix=_PREFIX)
+        dialog._spins["x_px"].setValue(50)
+        assert dialog._canvas._regions[0].rect_px == (50, 20, 30, 40)
+
+    def test_without_width_there_is_no_rectangle_to_drag(self):
+        """Sin recuadro, arrastrar sobre la imagen dibuja uno nuevo en vez de mover uno vacío."""
+        dialog = RoiDialog(_MockConfig(), "camera_1", config_prefix=_PREFIX)
+        assert dialog._canvas._regions[0].rect_px is None

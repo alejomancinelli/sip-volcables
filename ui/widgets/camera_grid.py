@@ -56,6 +56,7 @@ from ui.strings import tr
 from ui.widgets.camera_panel import CameraPanel
 
 _MAX_COLUMNS = 2         # más de dos columnas deja los feeds ilegibles en una pantalla
+_PANEL_SPACING_PX = 10   # el aire entre tarjetas, y entre los selectores y la grilla
 _NO_FOCUS = ""           # valor de `focused_slot` cuando se ven todas
 
 
@@ -84,7 +85,7 @@ class CameraGrid(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(_PANEL_SPACING_PX)
 
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(tr("camera_mode_raw"), MODE_RAW)
@@ -104,7 +105,7 @@ class CameraGrid(QWidget):
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(6)
+        self._grid.setSpacing(_PANEL_SPACING_PX)
 
         layout.addLayout(toolbar)
         layout.addLayout(self._grid, stretch=1)
@@ -275,7 +276,7 @@ class CameraGrid(QWidget):
             self._panels[slot] = panel
             self._cells[slot] = cell
             self._grid.addWidget(panel, cell[0], cell[1])
-            self._focus_combo.addItem(panel.title(), slot)
+            self._focus_combo.addItem(panel.name, slot)
         self._apply_stretches()
 
     def _apply_stretches(self):
