@@ -10,10 +10,44 @@ Los valores con escala viajan multiplicados por ella: un registro con escala x10
 |---|---|---|---|---|---|---|---|---|
 | 1 | 40001 | system_status_bitfield | Estado del sistema (bitfield) | - | - | lectura | - | health |
 | 2 | 40002 | com_status_bitfield | Canales de comunicación (bitfield) | - | - | lectura | - | health |
+| 10 | 40010 | grain_1_flow_ok | Grano, posición 1 — 1 cae, 0 no cae o sin dato | - | - | lectura | - | inference |
+| 11 | 40011 | grain_2_flow_ok | Grano, posición 2 — 1 cae, 0 no cae o sin dato | - | - | lectura | - | inference |
+| 12 | 40012 | grain_3_flow_ok | Grano, posición 3 — 1 cae, 0 no cae o sin dato | - | - | lectura | - | inference |
+| 20 | 40020 | person_1_in_frame_count | Personas en el frame, posición 1 | - | - | lectura | - | inference |
+| 21 | 40021 | person_1_in_zone_count | Personas dentro de la zona de exclusión, posición 1 | - | - | lectura | - | inference |
+| 22 | 40022 | person_2_in_frame_count | Personas en el frame, posición 2 | - | - | lectura | - | inference |
+| 23 | 40023 | person_2_in_zone_count | Personas dentro de la zona de exclusión, posición 2 | - | - | lectura | - | inference |
+| 24 | 40024 | person_3_in_frame_count | Personas en el frame, posición 3 | - | - | lectura | - | inference |
+| 25 | 40025 | person_3_in_zone_count | Personas dentro de la zona de exclusión, posición 3 | - | - | lectura | - | inference |
+| 26 | 40026 | person_4_in_frame_count | Personas en el frame, posición 4 | - | - | lectura | - | inference |
+| 27 | 40027 | person_4_in_zone_count | Personas dentro de la zona de exclusión, posición 4 | - | - | lectura | - | inference |
+| 28 | 40028 | person_5_in_frame_count | Personas en el frame, posición 5 | - | - | lectura | - | inference |
+| 29 | 40029 | person_5_in_zone_count | Personas dentro de la zona de exclusión, posición 5 | - | - | lectura | - | inference |
+| 30 | 40030 | stopper_1_raised_ok | Calza levantada, posición 1 — 1 OK, 0 NOK | - | - | lectura | - | inference |
+| 31 | 40031 | stopper_1_contact_ok | Contacto calza-rueda, posición 1 — 1 OK, 0 NOK | - | - | lectura | - | inference |
+| 32 | 40032 | stopper_2_raised_ok | Calza levantada, posición 2 — 1 OK, 0 NOK | - | - | lectura | - | inference |
+| 33 | 40033 | stopper_2_contact_ok | Contacto calza-rueda, posición 2 — 1 OK, 0 NOK | - | - | lectura | - | inference |
 | 51 | 40051 | camera_1_state_bitfield | Estado de la cámara 1 (bitfield) | - | - | lectura | - | health |
-| 52 | 40052 | camera_1_temperature_c | Temperatura de la cámara 1 | °C | x10 | lectura | - | health |
-| 53 | 40053 | camera_1_fps | Frames por segundo medidos de la cámara 1 | fps | x10 | lectura | - | health |
-| 54 | 40054 | camera_1_illumination_pct | Brillo medio del ROI de la cámara 1 | % | - | lectura | - | inference |
+| 52 | 40052 | camera_1_fps | Frames por segundo medidos de la cámara 1 | fps | x10 | lectura | - | health |
+| 53 | 40053 | camera_1_illumination_pct | Brillo medio de la última imagen inferida en la cámara 1 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 54 | 40054 | camera_2_state_bitfield | Estado de la cámara 2 (bitfield) | - | - | lectura | - | health |
+| 55 | 40055 | camera_2_fps | Frames por segundo medidos de la cámara 2 | fps | x10 | lectura | - | health |
+| 56 | 40056 | camera_2_illumination_pct | Brillo medio de la última imagen inferida en la cámara 2 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 57 | 40057 | camera_3_state_bitfield | Estado de la cámara 3 (bitfield) | - | - | lectura | - | health |
+| 58 | 40058 | camera_3_fps | Frames por segundo medidos de la cámara 3 | fps | x10 | lectura | - | health |
+| 59 | 40059 | camera_3_illumination_pct | Brillo medio de la última imagen inferida en la cámara 3 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 60 | 40060 | camera_4_state_bitfield | Estado de la cámara 4 (bitfield) | - | - | lectura | - | health |
+| 61 | 40061 | camera_4_fps | Frames por segundo medidos de la cámara 4 | fps | x10 | lectura | - | health |
+| 62 | 40062 | camera_4_illumination_pct | Brillo medio de la última imagen inferida en la cámara 4 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 63 | 40063 | camera_5_state_bitfield | Estado de la cámara 5 (bitfield) | - | - | lectura | - | health |
+| 64 | 40064 | camera_5_fps | Frames por segundo medidos de la cámara 5 | fps | x10 | lectura | - | health |
+| 65 | 40065 | camera_5_illumination_pct | Brillo medio de la última imagen inferida en la cámara 5 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 66 | 40066 | camera_6_state_bitfield | Estado de la cámara 6 (bitfield) | - | - | lectura | - | health |
+| 67 | 40067 | camera_6_fps | Frames por segundo medidos de la cámara 6 | fps | x10 | lectura | - | health |
+| 68 | 40068 | camera_6_illumination_pct | Brillo medio de la última imagen inferida en la cámara 6 (región del pipeline o frame entero) | % | - | lectura | - | inference |
+| 69 | 40069 | camera_7_state_bitfield | Estado de la cámara 7 (bitfield) | - | - | lectura | - | health |
+| 70 | 40070 | camera_7_fps | Frames por segundo medidos de la cámara 7 | fps | x10 | lectura | - | health |
+| 71 | 40071 | camera_7_illumination_pct | Brillo medio de la última imagen inferida en la cámara 7 (región del pipeline o frame entero) | % | - | lectura | - | inference |
 | 81 | 40081 | heartbeat | Heartbeat / watchdog — cambia en cada ciclo mientras la app viva | - | - | lectura | - | health |
 | 82 | 40082 | cpu_usage_pct | CPU en uso | % | - | lectura | - | health |
 | 83 | 40083 | gpu_usage_pct | GPU en uso | % | - | lectura | - | health |

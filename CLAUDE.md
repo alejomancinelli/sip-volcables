@@ -936,17 +936,20 @@ La tabla completa, archivo por archivo, está en `README.md`.
   métodos marcados de `main.py`: el widget del monitor, el contexto del dataset, las
   compuertas de frames y la reacción a un cambio de señal. Lo que sigue faltando es el
   contenido: qué se mide y qué se publica.
-- El rango 3-50 del mapa de registros sigue reservado y vacío en esta rama: las señales
-  (`flow_ok`, `raised_ok`, `contact_ok`, `safety_ok` y los conteos de personas) ya salen del
-  analyzer, pero sus filas —con `max_age_s`— y la traducción de métrica a registro por
-  posición viven en `fork/modbus-map`. Del
-  bloque 40101-40150 que escribe el PLC, la única fila es `ramp_state`.
+- **El rango 3-50 está declarado pero todavía no se publica, y el mapa se va a revisar.** Las
+  filas van por posición y no por cámara —`grain_1..3`, `person_1..5`, `stopper_1..2`—, para
+  que el mapa y el programa del PLC sean los mismos en todas las plantas, y el config de
+  cada una diga qué cámara ocupa cada posición (`inference.pipelines.<slot>.plc_prefix`).
+  Las métricas ya salen del analyzer (`flow_ok`, `raised_ok`, `contact_ok`, `safety_ok` y los
+  conteos de personas); falta la búsqueda `<prefijo>_<métrica>` en `_build_metric_registers()`
+  de `main.py` —maquinaria: va al template—, el `max_age_s` de las filas de veredicto y una
+  fila para `safety_ok`, que el mapa todavía no tiene. Hasta entonces esas filas quedan en 0.
+  Del bloque 40101-40150 que escribe el PLC, la única fila es `ramp_state`.
 - **La palabra de cada pipeline se arma pero no tiene dirección.** `formats/pipeline_status.py`
   y el cableado están: cada tick sale `<pipeline_slot>_state_bitfield` por cada slot de
-  `inference.pipelines`, incluidos los que no arrancaron, y se filtra contra el mapa como
-  las de cámara. Ningún mapa declara todavía esas filas, así que no llegan al PLC: falta
-  decidir dónde viven dentro del bloque de lectura —el hueco de 92-97 es el candidato—,
-  porque 40101-40150 es del PLC.
+  `inference.pipelines`, y se filtra contra el mapa como las de cámara. El mapa no las
+  declara, así que no llegan al PLC; el candidato es uno de los libres de 3-50, cerca de los
+  resultados que validan.
 - De la salud de la óptica no falta nada: el módulo, el cableado, la sección
   `lens_health:` del config, la pestaña con la calibración por cámara y el bit al PLC
   están. Lo que queda es de cada instalación —calibrar cada cámara con el vidrio limpio,
