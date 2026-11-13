@@ -2,7 +2,7 @@
 
 Generado por `python ci/suite_index.py` desde `test/`. No editar a mano: se regenera, y el hook de commit avisa si quedó desactualizado.
 
-**117 archivos, 663 grupos, 3284 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
+**117 archivos, 664 grupos, 3301 funciones de test.** pytest informa más casos porque cuenta cada parametrización por separado.
 
 Cómo se corre (desde la raíz, con el intérprete del venv):
 
@@ -32,7 +32,7 @@ Cómo se corre (desde la raíz, con el intérprete del venv):
 | [test/tools/camera/](#testtoolscamera) | 7 | 245 |
 | [test/tools/image/](#testtoolsimage) | 2 | 43 |
 | [test/tools/jetson/](#testtoolsjetson) | 3 | 62 |
-| [test/ui/](#testui) | 35 | 558 |
+| [test/ui/](#testui) | 35 | 575 |
 | [test/video/](#testvideo) | 3 | 197 |
 
 ## test/
@@ -4589,19 +4589,20 @@ Tests del panel de cámara: lo que cuesta pintar un frame en el hilo de la GUI.
 
 </details>
 
-### [test_cameras_tab.py](../test/ui/test_cameras_tab.py) — 42 tests
+### [test_cameras_tab.py](../test/ui/test_cameras_tab.py) — 51 tests
 
 Tests de la pestaña de cámaras: una sub-pestaña por cámara con su conexión, su adquisición y su óptica, y la detección de lente sucio debajo.
 
-| Grupo | Tests |
-|---|---:|
-| `TestTabs` | 5 |
-| `TestEnabled` | 5 |
-| `TestSensorSettings` | 6 |
-| `TestOptionalSections` | 6 |
-| `TestDetection` | 3 |
-| `TestRegion` | 13 |
-| `TestCalibrating` | 4 |
+| Grupo | Qué prueba | Tests |
+|---|---|---:|
+| `TestTabs` |  | 5 |
+| `TestEnabled` |  | 5 |
+| `TestSensorSettings` |  | 6 |
+| `TestDecode` | El backend se edita; el tamaño se muestra y nunca se escribe. | 9 |
+| `TestOptionalSections` |  | 6 |
+| `TestDetection` |  | 3 |
+| `TestRegion` |  | 13 |
+| `TestCalibrating` |  | 4 |
 
 <details><summary>Tests</summary>
 
@@ -4624,6 +4625,16 @@ Tests de la pestaña de cámaras: una sub-pestaña por cámara con su conexión,
   - `test_a_gige_camera_writes_them`
   - `test_choosing_a_gige_brand_shows_them`
   - `test_a_mock_camera_hides_the_address`
+- `TestDecode`
+  - `test_an_rtsp_camera_shows_the_backend_and_the_size`
+  - `test_a_gige_camera_hides_them`
+  - `test_the_backend_round_trips`
+  - `test_without_a_decode_section_it_is_the_decoder_default`
+  - `test_an_unknown_backend_goes_back_as_it_was`
+  - `test_the_size_is_shown_and_never_written`
+  - `test_a_size_in_zero_is_the_videos`
+  - `test_a_gige_camera_does_not_write_the_backend`
+  - `test_a_disabled_camera_cannot_change_it`
 - `TestOptionalSections`
   - `test_without_image_adjust_in_the_config_there_is_no_field`
   - `test_without_image_adjust_save_does_not_create_it`
@@ -4657,7 +4668,7 @@ Tests de la pestaña de cámaras: una sub-pestaña por cámara con su conexión,
 
 </details>
 
-### [test_collector_tab.py](../test/ui/test_collector_tab.py) — 19 tests
+### [test_collector_tab.py](../test/ui/test_collector_tab.py) — 27 tests
 
 Tests de la pestaña de dataset: qué modos ofrece según haya ciclo de medición, y que el modo y la lista de cámaras que se guardan vayan y vuelvan del config sin deformarse.
 
@@ -4665,7 +4676,7 @@ Tests de la pestaña de dataset: qué modos ofrece según haya ciclo de medició
 |---|---:|
 | `TestCameras` | 10 |
 | `TestIntervals` | 2 |
-| `TestPipelines` | 1 |
+| `TestPipelines` | 9 |
 | `TestMode` | 6 |
 
 <details><summary>Tests</summary>
@@ -4685,7 +4696,15 @@ Tests de la pestaña de dataset: qué modos ofrece según haya ciclo de medició
   - `test_the_minimum_cannot_pass_the_maximum`
   - `test_both_go_back_as_they_were`
 - `TestPipelines`
-  - `test_save_does_not_touch_the_pipeline_list`
+  - `test_without_pipelines_save_does_not_touch_the_list`
+  - `test_one_checkbox_per_pipeline_with_its_name`
+  - `test_an_empty_list_checks_every_pipeline_and_saves_empty`
+  - `test_a_list_round_trips`
+  - `test_unchecking_one_saves_the_other`
+  - `test_the_last_checked_pipeline_cannot_be_unchecked`
+  - `test_a_slot_that_is_not_configured_goes_back_to_the_file`
+  - `test_the_pipelines_do_not_share_the_cameras_last_check`
+  - `test_turning_collection_off_dims_them`
 - `TestMode`
   - `test_with_a_cycle_both_modes_are_offered`
   - `test_without_a_cycle_only_interval_is_offered`

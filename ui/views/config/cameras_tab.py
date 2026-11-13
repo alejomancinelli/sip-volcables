@@ -25,7 +25,8 @@ es quien tiene los frames y el tick: la UI no abre cámaras (ver `docs/ui.md`).
 
 **Lo que no aplica a la cámara no se muestra.** La exposición y la ganancia, sólo si el
 catálogo dice que el driver las lleva al sensor (`sensor_settings`): una cámara IP o un
-video las ignoran. La dirección, salvo en una simulada. El ajuste de imagen y la corrección
+video las ignoran. La decodificación, sólo si el driver decodifica video (`decodes`): una
+GigE entrega el frame ya armado. La dirección, salvo en una simulada. El ajuste de imagen y la corrección
 de lente aparecen sólo si la cámara tiene su sección en el config: son para reproducir un
 equipo y para un lente con distorsión, y un proyecto que no los usa los saca del archivo
 en vez de mostrar campos que no hacen nada. Sin la sección, `save()` tampoco la escribe:
@@ -33,6 +34,13 @@ crearla al guardar la volvería a mostrar.
 
 Con «Cámara habilitada» destildado, los campos de esa cámara quedan apagados: no se edita
 una cámara que no va a abrir.
+
+De la decodificación se edita quién decodifica (`decode.backend`) y el tamaño del frame se
+muestra pero no se edita. El backend cambia quién trabaja y no la imagen que ve la app, así
+que cambiarlo es seguro. El tamaño es el espacio de todo lo que el config mide en píxeles —las
+regiones de los pipelines, las alturas de las calzas, la zona de personas—: cambiarlo desde la
+planta dejaría todo eso midiendo mal sin un error. Se cambia en el config.yaml, en la puesta
+en marcha, y después se vuelve a dibujar.
 
 Los intrínsecos del lente se muestran pero no se editan: una matriz 3x3 y hasta 14
 coeficientes no son un formulario, y equivocar un dígito ahí mueve todas las coordenadas
@@ -65,6 +73,16 @@ _ROTATIONS = {
     "rotation_90ccw": "90ccw",
     "rotation_180":   "180",
 }
+
+# Clave de idioma -> valor de `decode.backend`: el vocabulario de `tools/camera/decoder.py`,
+# que no se importa porque arrastra GStreamer. Un backend que el repo no conoce entra como
+# opción y vuelve al config tal cual, como la rotación.
+_DECODE_BACKENDS = {
+    "decode_cpu":   "cpu",
+    "decode_nvdec": "nvdec",
+    "decode_auto":  "auto",
+}
+_DEFAULT_DECODE_BACKEND = "cpu"     # el del decodificador sin la clave
 
 _MAX_EXPOSURE_US = 1000000
 _MAX_GAIN = 48.0
@@ -276,6 +294,13 @@ class _CameraForm(QWidget):
             hint=tr("unit_microseconds"))
         self._gain_spin = section.add_field(
             tr("cam_gain"), build_double_spin_box(0.0, _MAX_GAIN, 1.0))
+        self._decode_combo = section.add_field(
+            tr("cam_decode_backend"),
+            build_value_combo_box({tr(key): value for key, value in _DECODE_BACKENDS.items()},
+                                  _DEFAULT_DECODE_BACKEND),
+            hint=tr("cam_decode_backend_hint"))
+        self._decode_size_field = section.add_field(
+            tr("cam_decode_size"), build_readonly_line_edit(""), hint=tr("cam_decode_size_hint"))
 
     def _build_image_adjust_section(self, card: SettingsCard):
         section = card.add_section(tr("cam_box_image_adjust"), tr("cam_image_adjust_note"),
@@ -330,7 +355,7 @@ class _CameraForm(QWidget):
         """Lo que apaga «Cámara habilitada». La casilla de la región va última: ver `wire_enable_toggle`."""
         fields = [self._name_edit, self._brand_combo, self._model_combo, self._address_edit,
                   self._rotation_combo, self._fps_spin, self._illumination_spin,
-                  self._exposure_spin, self._gain_spin]
+                  self._exposure_spin, self._gain_spin, self._decode_combo]
         if self._has_image_adjust:
             fields += [self._brightness_spin, self._clahe_spin]
         return fields + [self._variance_spin, self._calibrate_button, self._roi_check]
@@ -355,6 +380,9 @@ class _CameraForm(QWidget):
         self._gain_spin.setValue(float(acquisition.get("gain", 1.0)))
         self._illumination_spin.setValue(
             int(self._config.get(f"{self._prefix}.illumination_min", 50)))
+        decode = self._config.get(f"{self._prefix}.decode", {}) or {}
+        set_combo_data(self._decode_combo, decode.get("backend") or _DEFAULT_DECODE_BACKEND)
+        self._decode_size_field.setText(_build_decode_size_text(decode))
 
         if self._has_image_adjust:
             image_adjust = self._config.get(f"{self._prefix}.image_adjust", {}) or {}
@@ -433,6 +461,9 @@ class _CameraForm(QWidget):
                              self._exposure_spin.value())
             self._config.set(f"{self._prefix}.acquisition.gain", self._gain_spin.value())
         self._config.set(f"{self._prefix}.illumination_min", self._illumination_spin.value())
+        # Como la exposición: con un driver que no decodifica no se escribe ni se crea.
+        if self._decodes():
+            self._config.set(f"{self._prefix}.decode.backend", self._decode_combo.currentData())
         if self._has_image_adjust:
             self._config.set(f"{self._prefix}.image_adjust.brightness_factor",
                              self._brightness_spin.value())
@@ -490,11 +521,19 @@ class _CameraForm(QWidget):
         is_sensor = self._has_sensor_settings()
         self._acquisition.set_field_visible(self._exposure_spin, is_sensor)
         self._acquisition.set_field_visible(self._gain_spin, is_sensor)
+        is_decoding = self._decodes()
+        self._acquisition.set_field_visible(self._decode_combo, is_decoding)
+        self._acquisition.set_field_visible(self._decode_size_field, is_decoding)
 
     def _has_sensor_settings(self) -> bool:
         """Si el driver de la marca elegida le aplica al sensor la exposición y la ganancia."""
         return bool(CAMERA_CATALOG.get(self._brand_combo.currentData(), {})
                     .get("sensor_settings", False))
+
+    def _decodes(self) -> bool:
+        """Si el driver de la marca elegida decodifica video y lee la sección `decode`."""
+        return bool(CAMERA_CATALOG.get(self._brand_combo.currentData(), {})
+                    .get("decodes", False))
 
     def _read_roi(self) -> dict:
         """La región de esta cámara, leída de su sección de óptica."""
@@ -511,3 +550,12 @@ class _CameraForm(QWidget):
             samples=int(reference.get("sample_count", 0) or 0),
             dispersion=f"{float(reference.get('dispersion_pct', 0.0) or 0.0):.1f}",
         )
+
+
+def _build_decode_size_text(decode: dict) -> str:
+    """El tamaño de `decode` como se lee: «640 × 384», o el del video con los dos en 0."""
+    width_px = int(decode.get("width_px", 0) or 0)
+    height_px = int(decode.get("height_px", 0) or 0)
+    if not (width_px and height_px):
+        return tr("cam_decode_native")
+    return f"{width_px} × {height_px}"

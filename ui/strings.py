@@ -350,6 +350,25 @@ _TEXTS: dict[str, dict[str, str]] = {
     "cam_illumination_min":   {"es": "Iluminación mínima",
                                "en": "Minimum illumination",
                                "pt": "Iluminação mínima"},
+    "cam_decode_backend":     {"es": "Decodificación", "en": "Decoding",      "pt": "Decodificação"},
+    "cam_decode_backend_hint": {"es": "Quién decodifica el video; la imagen no cambia",
+                                "en": "Who decodes the video; the image stays the same",
+                                "pt": "Quem decodifica o vídeo; a imagem não muda"},
+    "cam_decode_size":        {"es": "Tamaño del frame", "en": "Frame size",  "pt": "Tamanho do frame"},
+    "cam_decode_size_hint":   {"es": "Se edita en el config.yaml: las regiones y las medidas en "
+                                     "píxeles dependen de él",
+                               "en": "Edited in config.yaml: regions and pixel measurements "
+                                     "depend on it",
+                               "pt": "Editado no config.yaml: as regiões e as medidas em pixels "
+                                     "dependem dele"},
+    "cam_decode_native":      {"es": "El del video",   "en": "The video's",   "pt": "O do vídeo"},
+    "decode_cpu":             {"es": "CPU (OpenCV)",   "en": "CPU (OpenCV)",  "pt": "CPU (OpenCV)"},
+    "decode_nvdec":           {"es": "NVDEC + VIC (Jetson)",
+                               "en": "NVDEC + VIC (Jetson)",
+                               "pt": "NVDEC + VIC (Jetson)"},
+    "decode_auto":            {"es": "Automático (NVDEC si el equipo lo tiene)",
+                               "en": "Automatic (NVDEC if the device has it)",
+                               "pt": "Automático (NVDEC se o equipamento tiver)"},
     "cam_roi_x":              {"es": "X (px):",        "en": "X (px):",       "pt": "X (px):"},
     "cam_roi_y":              {"es": "Y (px):",        "en": "Y (px):",       "pt": "Y (px):"},
     "cam_roi_width":          {"es": "Ancho (px):",    "en": "Width (px):",   "pt": "Largura (px):"},
@@ -912,6 +931,19 @@ _TEXTS: dict[str, dict[str, str]] = {
     "col_cameras_hint":       {"es": "Al menos una. Para no guardar, deshabilitá la recolección.",
                                "en": "At least one. To save nothing, disable collection.",
                                "pt": "Pelo menos uma. Para não salvar, desabilite a coleta."},
+    "col_box_pipelines":      {"es": "Pipelines",      "en": "Pipelines",     "pt": "Pipelines"},
+    "col_pipelines_note":     {"es": "De qué pipelines se guardan los resultados. Uno con región "
+                                     "propia guarda la región que vio, en su propia carpeta.",
+                               "en": "Which pipelines' results are saved. One with its own region "
+                                     "saves the region it saw, in its own folder.",
+                               "pt": "De quais pipelines os resultados são salvos. Um com região "
+                                     "própria salva a região que viu, em sua própria pasta."},
+    "col_pipelines_hint":     {"es": "Al menos uno. Con todos marcados entra también uno que se "
+                                     "agregue después.",
+                               "en": "At least one. With all checked, a pipeline added later is "
+                                     "saved too.",
+                               "pt": "Pelo menos um. Com todos marcados, um pipeline adicionado "
+                                     "depois também entra."},
     "col_space_section":      {"es": "Espacio",        "en": "Space",         "pt": "Espaço"},
     "col_space_description":  {"es": "Al llegar a un tope se borra lo más viejo para hacer lugar.",
                                "en": "On reaching a limit the oldest is deleted to make room.",

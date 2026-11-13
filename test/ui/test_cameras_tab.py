@@ -157,6 +157,59 @@ class TestSensorSettings:
         assert not form._address_edit.isVisibleTo(form)
 
 
+
+class TestDecode:
+    """El backend se edita; el tamaño se muestra y nunca se escribe."""
+
+    def test_an_rtsp_camera_shows_the_backend_and_the_size(self):
+        tab, _ = _tab()
+        form = _form(tab)
+        assert form._decode_combo.isVisibleTo(form)
+        assert form._decode_size_field.isVisibleTo(form)
+
+    def test_a_gige_camera_hides_them(self):
+        tab, _ = _tab()
+        form = _form(tab, "camera_2")
+        assert not form._decode_combo.isVisibleTo(form)
+        assert not form._decode_size_field.isVisibleTo(form)
+
+    def test_the_backend_round_trips(self):
+        tab, config = _tab(decode={"backend": "nvdec"})
+        assert _form(tab)._decode_combo.currentData() == "nvdec"
+        tab.save()
+        assert config.written["cameras.camera_1.decode.backend"] == "nvdec"
+
+    def test_without_a_decode_section_it_is_the_decoder_default(self):
+        tab, config = _tab()
+        tab.save()
+        assert config.written["cameras.camera_1.decode.backend"] == "cpu"
+
+    def test_an_unknown_backend_goes_back_as_it_was(self):
+        tab, config = _tab(decode={"backend": "vaapi"})
+        tab.save()
+        assert config.written["cameras.camera_1.decode.backend"] == "vaapi"
+
+    def test_the_size_is_shown_and_never_written(self):
+        tab, config = _tab(decode={"backend": "auto", "width_px": 640, "height_px": 384})
+        assert _form(tab)._decode_size_field.text() == "640 × 384"
+        assert _form(tab)._decode_size_field.isReadOnly()
+        tab.save()
+        assert not any(key.startswith("cameras.camera_1.decode.") and
+                       key != "cameras.camera_1.decode.backend" for key in config.written)
+
+    def test_a_size_in_zero_is_the_videos(self):
+        tab, _ = _tab(decode={"width_px": 0, "height_px": 0})
+        assert _form(tab)._decode_size_field.text() == tr("cam_decode_native")
+
+    def test_a_gige_camera_does_not_write_the_backend(self):
+        tab, config = _tab()
+        tab.save()
+        assert "cameras.camera_2.decode.backend" not in config.written
+
+    def test_a_disabled_camera_cannot_change_it(self):
+        tab, _ = _tab(enabled=False)
+        assert not _form(tab)._decode_combo.isEnabled()
+
 class TestOptionalSections:
     def test_without_image_adjust_in_the_config_there_is_no_field(self):
         tab, _ = _tab()
